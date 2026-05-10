@@ -1,0 +1,94 @@
+{
+  "theme": "light",
+  "archetype": "Archetype 4 (Swiss & High-Contrast) - Professional SaaS for UK Driving",
+  "global_rules": {
+    "language": "Strictly British English (e.g., manoeuvre, centre, colour, tyre, categorised)",
+    "responsiveness": "Mobile-first. Use bottom navigation and full-width cards on mobile. Automatically adapt to side navigation rail and two-column layouts on tablet (>=md).",
+    "interactions": "Pull-to-refresh on lists, smooth bottom-sheet slide-ups for forms/details, loading spinners during auth."
+  },
+  "color_palette": {
+    "primary": "#00539F",
+    "primary_light": "#E5F0FA",
+    "primary_dark": "#003A6F",
+    "accent_orange": "#FF6B00",
+    "accent_orange_hover": "#E55E00",
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "border": "#E2E8F0",
+    "text_main": "#0F172A",
+    "text_muted": "#64748B",
+    "fault_driving": "#F59E0B",
+    "fault_serious": "#EF4444",
+    "fault_dangerous": "#7F1D1D",
+    "success_pass": "#10B981"
+  },
+  "typography": {
+    "fonts": {
+      "heading": "Outfit, system-ui, sans-serif",
+      "body": "Inter, system-ui, sans-serif"
+    },
+    "scale": {
+      "h1": "text-3xl font-bold tracking-tight",
+      "h2": "text-2xl font-semibold tracking-tight",
+      "h3": "text-lg font-semibold",
+      "body": "text-base text-slate-900",
+      "caption": "text-sm text-slate-500"
+    }
+  },
+  "spacing_and_layout": {
+    "padding": "p-4 md:p-6",
+    "gap": "gap-4",
+    "radius": "rounded-2xl",
+    "shadows": "shadow-sm border border-slate-200",
+    "nav_mobile": "h-16 border-t border-slate-200 bg-white",
+    "nav_tablet": "w-20 md:w-64 border-r border-slate-200 bg-white"
+  },
+  "components": {
+    "buttons": "Min 48px height for touch targets. Primary actions in Blue. Prominent 'Students' button MUST be Orange.",
+    "bottom_sheets": "Use rounded-t-3xl, slide up from bottom, handle bar at top.",
+    "cards": "White surface, subtle border, no heavy drop shadows to maintain clean look.",
+    "icons": "lucide-react (No emojis)"
+  },
+  "screens_and_features": {
+    "auth": {
+      "layout": "Full screen mobile, centered max-w-md card on tablet.",
+      "elements": "Sign In / Create Account tabs, Demo credentials panel, Loading state, ToS & Privacy links."
+    },
+    "instructor_home": {
+      "layout": "Grid/Column layout.",
+      "elements": "KPI Grid (Pass Rate, Active Students), MTD Status panel, Earnings Chart, Today's Lessons. QUICK ACTION: Orange 'Students' button."
+    },
+    "lesson_diary": {
+      "layout": "Weekly time grid.",
+      "elements": "Week navigation, Add Lesson bottom sheet, Lesson Detail bottom sheet."
+    },
+    "student_crm": {
+      "layout": "List view.",
+      "elements": "Searchable list, Status badges (Active/Test Ready/New), Add New Student FAB with bottom sheet form, Success snackbar."
+    },
+    "student_lifecycle": {
+      "layout": "4-tab layout.",
+      "elements": "Overview, Lessons, Competency, Earnings"
+    },
+    "student_home": {
+      "layout": "Dashboard view.",
+      "elements": "Driving Readiness Card, Mock Test Access, Lesson Feedback, Bottom Nav (My Learning/Mock Test/Profile)."
+    },
+    "dvsa_tracker": {
+      "categories": ["Controls", "Move off/stop", "Mirrors", "Signals", "Junctions", "Roundabouts", "Pedestrian Crossings", "Manoeuvres", "Reversing", "Awareness/Planning", "Use of Speed", "Other Road Users"],
+      "tabs": ["Overview", "Lessons", "Skills"]
+    },
+    "dl25_mock_test": {
+      "layout": "Interactive Mark Sheet.",
+      "elements": "Buttons for Driving faults (minor), Serious faults, Dangerous faults. Pass/Fail report."
+    }
+  },
+  "testing": {
+    "rules": "All interactive and key informational elements MUST include a data-testid attribute (kebab-case, role-based)."
+  },
+  "media": {
+    "login_bg": "https://images.unsplash.com/photo-1553782097-130fef5d3e27?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNTl8MHwxfHNlYXJjaHwyfHxkcml2aW5nJTIwaW5zdHJ1Y3RvcnxlbnwwfHx8fDE3Nzg0MzYzMDN8MA&ixlib=rb-4.1.0&q=85",
+    "placeholder_avatar": "https://images.unsplash.com/photo-1630406144797-821be1f35d75?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNTl8MHwxfHNlYXJjaHwxfHxkcml2aW5nJTIwaW5zdHJ1Y3RvcnxlbnwwfHx8fDE3Nzg0MzYzMDN8MA&ixlib=rb-4.1.0&q=85",
+    "student_avatar": "https://images.unsplash.com/photo-1570696657911-287e234bb781?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxNzV8MHwxfHNlYXJjaHwxfHxzdHVkZW50JTIwZHJpdmVyJTIwTCUyMHBsYXRlfGVufDB8fHx8MTc3ODQzNjMwM3ww&ixlib=rb-4.1.0&q=85"
+  }
+}

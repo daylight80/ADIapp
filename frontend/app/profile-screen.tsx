@@ -1,17 +1,21 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LogOut, Mail, Phone, MapPin, Award, Calendar } from 'lucide-react-native';
+import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { mockDb } from '../src/mockDb';
 import { Card, Badge, StatusBadge } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
+import { useRouter } from 'expo-router';
+import { isPro } from '../src/proPlan';
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
+  const router = useRouter();
   const role = user?.role || 'student';
   const student = user?.email ? mockDb.getStudentByEmail(user.email) : undefined;
+  const pro = isPro(user?.subscription_status);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -56,6 +60,15 @@ export default function ProfileScreen() {
             </Card>
           </>
         )}
+
+        <TouchableOpacity
+          style={[styles.proCta, pro && styles.proCtaActive]}
+          onPress={() => router.push('/pricing-screen')}
+          testID="btn-pricing"
+        >
+          <Crown size={18} color="#fff" />
+          <Text style={styles.proCtaText}>{pro ? 'Manage Pro plan' : 'Upgrade to Pro'}</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity style={styles.logoutBtn} onPress={signOut} testID="btn-signout">
           <LogOut size={18} color="#fff" />
@@ -103,4 +116,16 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   logoutText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  proCta: {
+    height: 52,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.accent,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: 8,
+  },
+  proCtaActive: { backgroundColor: theme.colors.primary },
+  proCtaText: { color: '#fff', fontWeight: '700', fontSize: 16 },
 });

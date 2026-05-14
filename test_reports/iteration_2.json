@@ -1,0 +1,59 @@
+{
+  "summary": "Iteration 2 full-stack tests for Freemium tier. Backend: 29/30 pytest cases pass (auth: 18/18, billing: 11/12). The only failure is POST /api/billing/create-checkout-session returning 500 'Billing not configured' because the configured STRIPE_API_KEY value 'sk_test_emergent' is not a valid Stripe key — Stripe responds 401 'Invalid API Key provided' when the backend tries to list/create the Product+Price. All other billing endpoints work correctly: subscription_status returned in login & /me (defaults 'free'), GET /api/billing/subscription-status, POST /api/billing/cancel-mock, role check (student → 403), auth check (no token → 401), and POST /api/billing/webhook correctly promotes a user to 'pro' when fed a synthetic checkout.session.completed event with client_reference_id (webhook signature verification is bypassed since STRIPE_WEBHOOK_SECRET is empty, as expected in preview). Frontend: All freemium UI testIDs render and work — upgrade-banner shows '5/5 students used · unlock unlimited + invoicing for £9.99/mo', taps route to /pricing-screen showing plan-free (with 'Current plan' chip) + plan-pro + btn-subscribe + btn-back. Tapping btn-subscribe correctly issues a POST to /api/billing/create-checkout-session (verified via network interception) and surfaces the backend error in [data-testid='pricing-error'] (so frontend integration works; only the Stripe key is the blocker). Student CRM shows tier-usage-banner '5/5 students used (Free) · Upgrade', fab-add-student opens paywall-modal with title 'Upgrade to Pro', £9.99/month, feature list, paywall-upgrade, paywall-maybe-later. Lifecycle > Earnings has btn-download-invoice which opens the paywall modal for Free users. Student profile shows btn-pricing which routes to /pricing-screen. No regressions on prior screens.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/billing/create-checkout-session",
+        "issue": "Returns 500 'Billing not configured'. Root cause: STRIPE_API_KEY in /app/backend/.env is set to the placeholder 'sk_test_emergent' which is NOT a valid Stripe secret key. Stripe responds 401 'Invalid API Key provided: sk_test_****gent' when the backend tries stripe.Product.list/Stripe.Price.create. Set STRIPE_API_KEY to a real sk_test_... key from a Stripe test account to enable real checkout URLs. The frontend correctly surfaces this error in the pricing-error box, so once the env value is fixed, the entire flow should work end-to-end with no code changes.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "passlib bcrypt",
+        "issue": "(Pre-existing from iteration 1) passlib 1.7.x logs 'AttributeError: module bcrypt has no attribute __about__' at startup. Functional impact: zero. Optional fix: pin bcrypt==4.0.1."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Subscribe → Stripe checkout",
+        "issue": "Tapping btn-subscribe correctly POSTs to /api/billing/create-checkout-session but receives 500 'Billing not configured' (backend STRIPE_API_KEY invalid — see backend critical issue). UI handles the error cleanly via pricing-error box. No frontend code changes required; once STRIPE_API_KEY is set to a real test key, window.location should redirect to https://checkout.stripe.com/... as expected.",
+        "affected_testIDs": ["btn-subscribe", "pricing-error"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_auth.py",
+    "/app/backend/tests/test_billing.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Replace STRIPE_API_KEY='sk_test_emergent' in /app/backend/.env with a real Stripe test secret key (sk_test_...). Without this, /api/billing/create-checkout-session will keep returning 500 and the Subscribe button cannot redirect to Stripe Checkout. All surrounding code (product+price auto-creation, customer creation, checkout session, webhook) is correct and will work once a valid key is provided.",
+    "(Optional, low priority, pre-existing) Suppress passlib bcrypt __about__ warning by pinning bcrypt==4.0.1.",
+    "(Optional) Console warning 'shadow* style props are deprecated, use boxShadow' still appears — cosmetic."
+  ],
+  "critical_code_review_comments": [
+    "server.py billing section correctly: (a) enforces instructor-only role on checkout, (b) idempotently creates/reuses a £9.99/mo GBP recurring Stripe Price for product with metadata.plan_key='drivehub_pro_monthly', (c) creates and persists stripe_customer_id, (d) passes client_reference_id=user.id so the webhook can flip the user to 'pro', (e) the webhook is intentionally permissive when STRIPE_WEBHOOK_SECRET is empty (preview env) and correctly switches to signature verification when it is set.",
+    "PaywallModal, pricing-screen, upgrade-banner and tier-usage-banner all use testID props which match the request exactly; paywall-modal copy includes the £9.99 price, feature list, See pricing → /pricing-screen, and Maybe later dismiss.",
+    "/api/auth/login and /api/auth/me now correctly include subscription_status (defaulting to 'free' for both seeded demo users) — verified in tests.",
+    "Frontend api calls use process.env.EXPO_PUBLIC_BACKEND_URL — no hardcoded URLs.",
+    "No MongoDB _id leaks in any tested response."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_billing.py (created)"
+  ],
+  "success_rate": {
+    "backend": "96.7% (29/30 pytest cases; 1 fail is Stripe key env value, not code)",
+    "frontend": "100% of freemium UI flows verified (upgrade-banner copy + route, pricing-screen plan cards + Current plan chip + £9.99 price + back button, Subscribe network call, tier-usage-banner, FAB → paywall-modal at 5/5 students, paywall content + paywall-upgrade + paywall-maybe-later, lifecycle Earnings btn-download-invoice → paywall, student profile btn-pricing → /pricing-screen)"
+  },
+  "seed_data_creation": "Tests register transient TEST_webhook_*@example.com instructor accounts to validate the webhook→pro flow; they are reverted to free at end of test but the user records remain in MongoDB. No production data modified.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend tests at /app/backend/tests/test_auth.py + /app/backend/tests/test_billing.py. Run with: pytest /app/backend/tests/ -v --junitxml=/app/test_reports/pytest/pytest_results.xml. The Stripe webhook test sends a fake JSON event directly because STRIPE_WEBHOOK_SECRET='' in preview env. If a real STRIPE_WEBHOOK_SECRET is set later, the webhook test will start returning 400 (signature mismatch) — that is expected and the test should be skipped or use stripe-mock. The only currently-failing test 'test_instructor_gets_stripe_url' depends purely on STRIPE_API_KEY being a real sk_test_… key.",
+  "rca_of_issue": "Bug: POST /api/billing/create-checkout-session → 500 'Billing not configured'. Reproduction: login as instructor@demo.uk → POST /api/billing/create-checkout-session with Bearer JWT → 500. RCA: backend logs show `ERROR:server:Failed to set up Stripe price: Invalid API Key provided: sk_test_****gent` and Stripe REST call to GET https://api.stripe.com/v1/products returns 401. The literal string 'sk_test_emergent' configured in /app/backend/.env is not a recognised Stripe secret key. Mitigation: set STRIPE_API_KEY to a real Stripe test mode secret key (sk_test_…) and `sudo supervisorctl restart backend`. No code change required — get_or_create_pro_price() is implemented correctly and will create the product+price on first call once the key is valid."
+}

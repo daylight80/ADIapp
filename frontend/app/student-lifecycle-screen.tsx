@@ -1,12 +1,16 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling } from 'lucide-react-native';
+import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb } from '../src/mockDb';
 import { Card, ProgressBar, StatusBadge, Badge } from '../src/ui';
 import { SimpleBarChart } from '../src/SimpleBarChart';
+import { useAuth } from '../src/AuthContext';
+import { isPro } from '../src/proPlan';
+import { PaywallModal } from '../src/PaywallModal';
+import { buildInvoiceHtml, generateAndShareInvoicePdf } from '../src/invoice';
 
 type Tab = 'overview' | 'lessons' | 'competency' | 'earnings';
 const TABS: { key: Tab; label: string }[] = [
@@ -19,6 +23,10 @@ const TABS: { key: Tab; label: string }[] = [
 export default function StudentLifecycleScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { user } = useAuth();
+  const pro = isPro(user?.subscription_status);
+  const [paywallOpen, setPaywallOpen] = useState(false);
+  const [busyInvoice, setBusyInvoice] = useState(false);
   const id = (params.id as string) || 's1';
   const student = mockDb.getStudent(id) || mockDb.listStudents()[0];
   const lessons = useMemo(() => mockDb.listLessonsForStudent(student.id), [student.id]);
@@ -28,6 +36,29 @@ export default function StudentLifecycleScreen() {
 
   const totalEarnings = lessons.reduce((sum, l) => sum + (l.amount_paid || 0), 0);
   const totalHours = lessons.reduce((sum, l) => sum + l.duration_hours, 0);
+
+  const handleDownloadInvoice = async () => {
+    if (!pro) {
+      setPaywallOpen(true);
+      return;
+    }
+    const paidLessons = lessons.filter((l) => l.amount_paid && l.status === 'Completed');
+    if (paidLessons.length === 0) {
+      return;
+    }
+    setBusyInvoice(true);
+    const invoiceNo = `INV-${new Date().getFullYear()}-${student.id.toUpperCase()}-${Date.now().toString().slice(-4)}`;
+    const html = buildInvoiceHtml({
+      invoiceNo,
+      instructorName: user?.name || 'Instructor',
+      instructorEmail: user?.email || '',
+      student,
+      lessons: paidLessons,
+      issuedAt: new Date(),
+    });
+    await generateAndShareInvoicePdf(html, `${invoiceNo}.pdf`);
+    setBusyInvoice(false);
+  };
 
   const monthlyEarnings = useMemo(() => {
     const map: Record<string, number> = {};
@@ -189,7 +220,24 @@ export default function StudentLifecycleScreen() {
             </Card>
 
             <Card>
-              <Text style={styles.cardTitle}>Payment history</Text>
+              <View style={styles.invoiceHeaderRow}>
+                <Text style={styles.cardTitle}>Payment history</Text>
+                <TouchableOpacity
+                  style={[styles.invoiceBtn, !pro && styles.invoiceBtnLocked]}
+                  onPress={handleDownloadInvoice}
+                  disabled={busyInvoice}
+                  testID="btn-download-invoice"
+                >
+                  {busyInvoice ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      {pro ? <Download size={14} color="#fff" /> : <Crown size={14} color="#fff" />}
+                      <Text style={styles.invoiceBtnText}>{pro ? 'Invoice PDF' : 'Pro'}</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
               <View style={{ gap: 8, marginTop: 8 }}>
                 {lessons.filter((l) => l.amount_paid).map((l) => (
                   <View key={l.id} style={styles.payRow}>
@@ -207,6 +255,12 @@ export default function StudentLifecycleScreen() {
 
         <View style={{ height: 32 }} />
       </ScrollView>
+
+      <PaywallModal
+        visible={paywallOpen}
+        onClose={() => setPaywallOpen(false)}
+        reason="Invoice PDF download is a Pro feature. Upgrade to generate UK-compliant invoices in one tap."
+      />
     </SafeAreaView>
   );
 }
@@ -271,4 +325,16 @@ const styles = StyleSheet.create({
   payDate: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
   payAmount: { fontWeight: '700', color: theme.colors.accent, fontSize: 15 },
   emptyText: { color: theme.colors.textMuted, textAlign: 'center', padding: 12 },
+  invoiceHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  invoiceBtn: {
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  invoiceBtnLocked: { backgroundColor: theme.colors.accent },
+  invoiceBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
 });

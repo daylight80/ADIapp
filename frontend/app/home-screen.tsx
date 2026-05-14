@@ -19,6 +19,8 @@ import {
   Clock,
   LogOut,
   Plus,
+  Crown,
+  ChevronRight,
 } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
@@ -26,6 +28,7 @@ import { mockDb } from '../src/mockDb';
 import { Card } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
 import { SimpleBarChart } from '../src/SimpleBarChart';
+import { isPro, FREE_STUDENT_LIMIT, PRO_PRICE_GBP } from '../src/proPlan';
 
 export default function InstructorHomeScreen() {
   const router = useRouter();
@@ -63,6 +66,36 @@ export default function InstructorHomeScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         testID="instructor-home-scroll"
       >
+        {/* Upgrade banner (Free tier only) */}
+        {!isPro(user?.subscription_status) && (
+          <TouchableOpacity
+            style={styles.upgradeBanner}
+            onPress={() => router.push('/pricing-screen')}
+            testID="upgrade-banner"
+            activeOpacity={0.9}
+          >
+            <View style={styles.upgradeIcon}>
+              <Crown size={20} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.upgradeTitle}>Upgrade to Pro</Text>
+              <Text style={styles.upgradeSub}>
+                {kpis.total}/{FREE_STUDENT_LIMIT} students used · unlock unlimited + invoicing for £{PRO_PRICE_GBP}/mo
+              </Text>
+            </View>
+            <ChevronRight size={20} color="#fff" />
+          </TouchableOpacity>
+        )}
+        {isPro(user?.subscription_status) && (
+          <View style={styles.proBadgeBar} testID="pro-active-bar">
+            <Crown size={16} color={theme.colors.accent} />
+            <Text style={styles.proBadgeText}>Pro plan active</Text>
+            <TouchableOpacity onPress={() => router.push('/pricing-screen')} testID="manage-billing">
+              <Text style={styles.manageLink}>Manage</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* KPI Grid */}
         <View style={[styles.kpiGrid, isTablet && styles.kpiGridTablet]} testID="kpi-grid">
           <KPI label="Pass Rate" value={`${kpis.passRate}%`} icon={<TrendingUp size={20} color={theme.colors.success} />} bg="#D1FAE5" />
@@ -230,4 +263,26 @@ const styles = StyleSheet.create({
   lessonStudent: { fontWeight: '700', fontSize: 16, color: theme.colors.text },
   lessonTopic: { color: theme.colors.textMuted, fontSize: 13 },
   emptyText: { color: theme.colors.textMuted, textAlign: 'center', padding: 12 },
+  upgradeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: theme.colors.accent,
+    borderRadius: theme.radius.md,
+    padding: 14,
+  },
+  upgradeIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' },
+  upgradeTitle: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  upgradeSub: { color: '#ffffffdd', fontSize: 12, marginTop: 2 },
+  proBadgeBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FFF7ED',
+    borderRadius: theme.radius.md,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  proBadgeText: { color: theme.colors.accent, fontWeight: '700', flex: 1 },
+  manageLink: { color: theme.colors.primary, fontWeight: '700', fontSize: 13 },
 });

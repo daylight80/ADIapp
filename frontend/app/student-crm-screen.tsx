@@ -12,12 +12,16 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Search, Plus, ArrowLeft, Mail, Phone, MapPin, CalendarDays, Check } from 'lucide-react-native';
+import { Search, Plus, ArrowLeft, Mail, Phone, MapPin, CalendarDays, Check, Crown } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb, StudentStatus } from '../src/mockDb';
 import { Card, ProgressBar, StatusBadge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { BottomNav } from '../src/BottomNav';
+import { useAuth } from '../src/AuthContext';
+import { canAddStudent, isPro, FREE_STUDENT_LIMIT } from '../src/proPlan';
+import { PaywallModal } from '../src/PaywallModal';
+import { fireInstantNotification } from '../src/notifications';
 
 type FilterChip = 'All' | StudentStatus;
 
@@ -25,9 +29,12 @@ const FILTERS: FilterChip[] = ['All', 'Active', 'Test Ready', 'New'];
 
 export default function StudentCrmScreen() {
   const router = useRouter();
+  const { user } = useAuth();
+  const pro = isPro(user?.subscription_status);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterChip>('All');
   const [addOpen, setAddOpen] = useState(false);
+  const [paywallOpen, setPaywallOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [snack, setSnack] = useState<string | null>(null);
 
@@ -87,7 +94,13 @@ export default function StudentCrmScreen() {
       setFormError('Please enter a phone number');
       return;
     }
-    mockDb.addStudent({
+    // Enforce limit (defensive — FAB also gates)
+    if (!canAddStudent(user?.subscription_status, students.length)) {
+      setAddOpen(false);
+      setPaywallOpen(true);
+      return;
+    }
+    const created = mockDb.addStudent({
       name: name.trim(),
       email: email.trim().toLowerCase(),
       phone: phone.trim(),
@@ -102,6 +115,19 @@ export default function StudentCrmScreen() {
     setReloadKey((k) => k + 1);
     setAddOpen(false);
     showSnack('Student added successfully');
+
+    // Pro notification: instructor-side alert
+    if (pro) {
+      fireInstantNotification('New student added', `${created.name} has joined your roster.`).catch(() => {});
+    }
+  };
+
+  const handleFabPress = () => {
+    if (!canAddStudent(user?.subscription_status, students.length)) {
+      setPaywallOpen(true);
+      return;
+    }
+    setAddOpen(true);
   };
 
   return (
@@ -146,6 +172,21 @@ export default function StudentCrmScreen() {
           );
         })}
       </ScrollView>
+
+      {!pro && (
+        <TouchableOpacity
+          style={styles.tierBanner}
+          onPress={() => router.push('/pricing-screen')}
+          testID="tier-usage-banner"
+          activeOpacity={0.9}
+        >
+          <Crown size={16} color={theme.colors.accent} />
+          <Text style={styles.tierText}>
+            {students.length}/{FREE_STUDENT_LIMIT} students used (Free) ·{' '}
+            <Text style={{ fontWeight: '700', color: theme.colors.primary }}>Upgrade</Text>
+          </Text>
+        </TouchableOpacity>
+      )}
 
       <FlatList
         data={filtered}
@@ -204,11 +245,25 @@ export default function StudentCrmScreen() {
       />
 
       {/* FAB */}
-      <TouchableOpacity style={styles.fab} onPress={() => setAddOpen(true)} testID="fab-add-student">
-        <Plus size={26} color="#fff" />
+      <TouchableOpacity
+        style={[styles.fab, !canAddStudent(user?.subscription_status, students.length) && styles.fabLocked]}
+        onPress={handleFabPress}
+        testID="fab-add-student"
+      >
+        {!canAddStudent(user?.subscription_status, students.length) ? (
+          <Crown size={24} color="#fff" />
+        ) : (
+          <Plus size={26} color="#fff" />
+        )}
       </TouchableOpacity>
 
       <BottomNav role="instructor" />
+
+      <PaywallModal
+        visible={paywallOpen}
+        onClose={() => setPaywallOpen(false)}
+        reason={`Free tier is limited to ${FREE_STUDENT_LIMIT} students. You currently have ${students.length}.`}
+      />
 
       {/* Snackbar */}
       {snack && (
@@ -346,6 +401,21 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
+  fabLocked: { backgroundColor: theme.colors.textMuted },
+  tierBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FFF7ED',
+    marginHorizontal: 16,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.accent,
+  },
+  tierText: { color: theme.colors.text, fontSize: 13, flex: 1 },
   label: { ...theme.font.caption, fontWeight: '600', marginBottom: 6, color: theme.colors.text },
   input: {
     borderWidth: 1,

@@ -6,6 +6,8 @@ export type User = {
   email: string;
   name: string;
   role: 'instructor' | 'student';
+  subscription_status?: 'free' | 'pro' | 'past_due' | 'canceled';
+  stripe_customer_id?: string | null;
   created_at: string;
 };
 
@@ -15,6 +17,7 @@ type AuthContextType = {
   signIn: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   signUp: (email: string, password: string, name: string, role: 'instructor' | 'student') => Promise<{ ok: boolean; error?: string }>;
   signOut: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -66,8 +69,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+  const refreshUser = async () => {
+    try {
+      const res = await api.get('/auth/me');
+      setUser(res.data);
+    } catch {
+      // ignore
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

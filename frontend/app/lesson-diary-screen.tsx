@@ -15,6 +15,9 @@ import { mockDb, Lesson } from '../src/mockDb';
 import { Card, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { BottomNav } from '../src/BottomNav';
+import { useAuth } from '../src/AuthContext';
+import { isPro } from '../src/proPlan';
+import { scheduleLessonReminders } from '../src/notifications';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const HOURS = Array.from({ length: 12 }, (_, i) => i + 8); // 08:00 - 19:00
@@ -42,6 +45,8 @@ function formatDateRange(start: Date): string {
 
 export default function LessonDiaryScreen() {
   const router = useRouter();
+  const { user } = useAuth();
+  const pro = isPro(user?.subscription_status);
   const [weekStart, setWeekStart] = useState<Date>(startOfWeek(new Date()));
   const [addOpen, setAddOpen] = useState(false);
   const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
@@ -64,7 +69,7 @@ export default function LessonDiaryScreen() {
     const [sh, sm] = startTime.split(':').map(Number);
     const [eh, em] = endTime.split(':').map(Number);
     const duration = (eh + em / 60) - (sh + sm / 60);
-    mockDb.addLesson({
+    const newLesson = mockDb.addLesson({
       student_id: studentId,
       date,
       start_time: startTime,
@@ -77,6 +82,12 @@ export default function LessonDiaryScreen() {
     setDate('');
     setTopic('');
     setAddOpen(false);
+
+    // Pro: schedule 24h and 1h reminders
+    if (pro) {
+      const student = mockDb.getStudent(studentId);
+      if (student) scheduleLessonReminders(newLesson, student).catch(() => {});
+    }
   };
 
   return (

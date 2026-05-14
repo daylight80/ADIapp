@@ -20,11 +20,12 @@ export function Badge({ label, color, bg, testID }: { label: string; color?: str
   );
 }
 
-export function StatusBadge({ status, testID }: { status: 'New' | 'Active' | 'Test Ready'; testID?: string }) {
+export function StatusBadge({ status, testID }: { status: 'New' | 'Active' | 'Test Ready' | 'Passed'; testID?: string }) {
   const map = {
     New: { bg: '#FFF7ED', color: theme.colors.accent },
     Active: { bg: '#E5F0FA', color: theme.colors.primary },
     'Test Ready': { bg: '#D1FAE5', color: theme.colors.success },
+    Passed: { bg: '#DCFCE7', color: '#15803D' },
   } as const;
   const { bg, color } = map[status];
   return <Badge label={status} bg={bg} color={color} testID={testID} />;

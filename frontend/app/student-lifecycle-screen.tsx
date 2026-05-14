@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown } from 'lucide-react-native';
+import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown, Pencil, Trash2, Trophy } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb } from '../src/mockDb';
 import { Card, ProgressBar, StatusBadge, Badge } from '../src/ui';
+import { BottomSheet } from '../src/BottomSheet';
 import { SimpleBarChart } from '../src/SimpleBarChart';
 import { useAuth } from '../src/AuthContext';
 import { isPro } from '../src/proPlan';
@@ -28,11 +29,93 @@ export default function StudentLifecycleScreen() {
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [busyInvoice, setBusyInvoice] = useState(false);
   const id = (params.id as string) || 's1';
-  const student = mockDb.getStudent(id) || mockDb.listStudents()[0];
-  const lessons = useMemo(() => mockDb.listLessonsForStudent(student.id), [student.id]);
+  const [reloadKey, setReloadKey] = useState(0);
+  const student = useMemo(() => mockDb.getStudent(id) || mockDb.listStudents()[0], [id, reloadKey]);
+  const lessons = useMemo(() => mockDb.listLessonsForStudent(student.id), [student.id, reloadKey]);
   const competencies = useMemo(() => mockDb.getCompetencies(student.id), [student.id]);
 
   const [tab, setTab] = useState<Tab>('overview');
+
+  // Amend (edit) sheet state
+  const [amendOpen, setAmendOpen] = useState(false);
+  const [aName, setAName] = useState(student.name);
+  const [aEmail, setAEmail] = useState(student.email);
+  const [aPhone, setAPhone] = useState(student.phone);
+  const [aAddress, setAAddress] = useState(student.address);
+  const [aPostcode, setAPostcode] = useState(student.postcode);
+  const [aHourlyRate, setAHourlyRate] = useState(String(student.hourly_rate));
+  const [aTestDate, setATestDate] = useState(student.test_date ? student.test_date.slice(0, 10) : '');
+
+  const openAmend = () => {
+    setAName(student.name);
+    setAEmail(student.email);
+    setAPhone(student.phone);
+    setAAddress(student.address);
+    setAPostcode(student.postcode);
+    setAHourlyRate(String(student.hourly_rate));
+    setATestDate(student.test_date ? student.test_date.slice(0, 10) : '');
+    setAmendOpen(true);
+  };
+
+  const saveAmend = () => {
+    const rate = parseInt(aHourlyRate, 10);
+    if (!aName.trim()) {
+      Alert.alert('Name required', 'Please enter the student\u2019s full name.');
+      return;
+    }
+    mockDb.updateStudent(student.id, {
+      name: aName.trim(),
+      email: aEmail.trim(),
+      phone: aPhone.trim(),
+      address: aAddress.trim(),
+      postcode: aPostcode.trim().toUpperCase(),
+      hourly_rate: Number.isFinite(rate) && rate > 0 ? rate : student.hourly_rate,
+      test_date: aTestDate ? new Date(aTestDate).toISOString() : undefined,
+    });
+    setAmendOpen(false);
+    setReloadKey((k) => k + 1);
+  };
+
+  const confirmAndRun = (title: string, message: string, confirmLabel: string, onConfirm: () => void, destructive = false) => {
+    if (Platform.OS === 'web') {
+      // eslint-disable-next-line no-alert
+      if (typeof window !== 'undefined' && window.confirm(`${title}\n\n${message}`)) onConfirm();
+      return;
+    }
+    Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: confirmLabel, style: destructive ? 'destructive' : 'default', onPress: onConfirm },
+    ]);
+  };
+
+  const handleMarkPassed = () => {
+    if (student.status === 'Passed') {
+      Alert.alert('Already passed', `${student.name} is already marked as Passed on ${student.test_passed_at ? new Date(student.test_passed_at).toLocaleDateString('en-GB') : ''}.`);
+      return;
+    }
+    confirmAndRun(
+      'Mark as Passed?',
+      `Confirm that ${student.name} has passed their practical test. Progress will be set to 100%.`,
+      'Mark as Passed',
+      () => {
+        mockDb.markStudentPassed(student.id);
+        setReloadKey((k) => k + 1);
+      },
+    );
+  };
+
+  const handleDelete = () => {
+    confirmAndRun(
+      'Delete student?',
+      `This will permanently remove ${student.name} and all their lessons from your records. This cannot be undone.`,
+      'Delete',
+      () => {
+        mockDb.deleteStudent(student.id);
+        router.back();
+      },
+      true,
+    );
+  };
 
   const totalEarnings = lessons.reduce((sum, l) => sum + (l.amount_paid || 0), 0);
   const totalHours = lessons.reduce((sum, l) => sum + l.duration_hours, 0);
@@ -116,6 +199,25 @@ export default function StudentLifecycleScreen() {
                 <ContactRow icon={<MapPin size={16} color={theme.colors.textMuted} />} text={`${student.address}, ${student.postcode}`} />
               </View>
             </Card>
+
+            <View style={styles.actionRow} testID="student-actions">
+              <TouchableOpacity style={[styles.actionBtn, styles.actionAmend]} onPress={openAmend} testID="btn-amend-student">
+                <Pencil size={16} color={theme.colors.primary} />
+                <Text style={[styles.actionText, { color: theme.colors.primary }]}>Amend</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionPassed, student.status === 'Passed' && styles.actionDisabled]}
+                onPress={handleMarkPassed}
+                testID="btn-passed-student"
+              >
+                <Trophy size={16} color={'#fff'} />
+                <Text style={[styles.actionText, { color: '#fff' }]}>{student.status === 'Passed' ? 'Passed' : 'Passed'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.actionBtn, styles.actionDelete]} onPress={handleDelete} testID="btn-delete-student">
+                <Trash2 size={16} color={theme.colors.danger} />
+                <Text style={[styles.actionText, { color: theme.colors.danger }]}>Delete</Text>
+              </TouchableOpacity>
+            </View>
 
             <View style={styles.statsRow}>
               <StatCard label="Lessons" value={student.lessons_count.toString()} />
@@ -261,6 +363,43 @@ export default function StudentLifecycleScreen() {
         onClose={() => setPaywallOpen(false)}
         reason="Invoice PDF download is a Pro feature. Upgrade to generate UK-compliant invoices in one tap."
       />
+
+      <BottomSheet visible={amendOpen} onClose={() => setAmendOpen(false)} title="Amend student" testID="sheet-amend-student">
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <Text style={styles.fieldLabel}>Full name</Text>
+          <TextInput style={styles.input} value={aName} onChangeText={setAName} placeholder="Full name" placeholderTextColor={theme.colors.textMuted} testID="amend-name" />
+
+          <Text style={styles.fieldLabel}>Email</Text>
+          <TextInput style={styles.input} value={aEmail} onChangeText={setAEmail} keyboardType="email-address" autoCapitalize="none" placeholder="name@example.com" placeholderTextColor={theme.colors.textMuted} testID="amend-email" />
+
+          <Text style={styles.fieldLabel}>Phone</Text>
+          <TextInput style={styles.input} value={aPhone} onChangeText={setAPhone} keyboardType="phone-pad" placeholder="07xxx xxxxxx" placeholderTextColor={theme.colors.textMuted} testID="amend-phone" />
+
+          <Text style={styles.fieldLabel}>Address</Text>
+          <TextInput style={styles.input} value={aAddress} onChangeText={setAAddress} placeholder="Street address" placeholderTextColor={theme.colors.textMuted} testID="amend-address" />
+
+          <Text style={styles.fieldLabel}>Postcode</Text>
+          <TextInput style={styles.input} value={aPostcode} onChangeText={setAPostcode} autoCapitalize="characters" placeholder="e.g. SW1A 1AA" placeholderTextColor={theme.colors.textMuted} testID="amend-postcode" />
+
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.fieldLabel}>Hourly rate (£)</Text>
+              <TextInput style={styles.input} value={aHourlyRate} onChangeText={setAHourlyRate} keyboardType="numeric" placeholder="36" placeholderTextColor={theme.colors.textMuted} testID="amend-rate" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.fieldLabel}>Test date (YYYY-MM-DD)</Text>
+              <TextInput style={styles.input} value={aTestDate} onChangeText={setATestDate} placeholder="2026-06-01" placeholderTextColor={theme.colors.textMuted} testID="amend-test-date" />
+            </View>
+          </View>
+
+          <TouchableOpacity style={styles.saveBtn} onPress={saveAmend} testID="btn-save-amend">
+            <Text style={styles.saveBtnText}>Save changes</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.cancelBtn} onPress={() => setAmendOpen(false)} testID="btn-cancel-amend">
+            <Text style={styles.cancelBtnText}>Cancel</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </BottomSheet>
     </SafeAreaView>
   );
 }
@@ -337,4 +476,35 @@ const styles = StyleSheet.create({
   },
   invoiceBtnLocked: { backgroundColor: theme.colors.accent },
   invoiceBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  actionRow: { flexDirection: 'row', gap: 8 },
+  actionBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+  },
+  actionText: { fontWeight: '700', fontSize: 13 },
+  actionAmend: { backgroundColor: theme.colors.surface, borderColor: theme.colors.primary },
+  actionPassed: { backgroundColor: theme.colors.success, borderColor: theme.colors.success },
+  actionDelete: { backgroundColor: theme.colors.surface, borderColor: theme.colors.danger },
+  actionDisabled: { opacity: 0.55 },
+  fieldLabel: { ...theme.font.caption, fontWeight: '600', marginBottom: 6, color: theme.colors.text },
+  input: {
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: 14,
+    height: 48,
+    marginBottom: 12,
+    backgroundColor: theme.colors.background,
+    color: theme.colors.text,
+  },
+  saveBtn: { backgroundColor: theme.colors.primary, height: 52, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  cancelBtn: { height: 44, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', marginTop: 8, marginBottom: 8 },
+  cancelBtnText: { color: theme.colors.textMuted, fontWeight: '600', fontSize: 14 },
 });

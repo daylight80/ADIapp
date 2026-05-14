@@ -1,7 +1,7 @@
 // Mock data store - structured for easy Supabase swap.
 // All entities use UUID-like strings; timestamps as ISO strings.
 
-export type StudentStatus = 'New' | 'Active' | 'Test Ready';
+export type StudentStatus = 'New' | 'Active' | 'Test Ready' | 'Passed';
 
 export type Student = {
   id: string;
@@ -15,6 +15,7 @@ export type Student = {
   lessons_count: number;
   next_lesson?: string; // ISO
   test_date?: string; // ISO
+  test_passed_at?: string; // ISO — set when instructor marks the student as Passed
   hourly_rate: number; // GBP
   avatar?: string;
   joined_at: string;
@@ -370,6 +371,24 @@ export const mockDb = {
     _students = [newStudent, ..._students];
     _competencies[newStudent.id] = generateCompetencies(_students.length);
     return newStudent;
+  },
+  updateStudent: (id: string, patch: Partial<Student>): Student | undefined => {
+    _students = _students.map((s) => (s.id === id ? { ...s, ...patch } : s));
+    return _students.find((s) => s.id === id);
+  },
+  markStudentPassed: (id: string): Student | undefined => {
+    const passedAt = new Date().toISOString();
+    _students = _students.map((s) =>
+      s.id === id ? { ...s, status: 'Passed' as StudentStatus, test_passed_at: passedAt, progress: 100 } : s
+    );
+    return _students.find((s) => s.id === id);
+  },
+  deleteStudent: (id: string): boolean => {
+    const before = _students.length;
+    _students = _students.filter((s) => s.id !== id);
+    _lessons = _lessons.filter((l) => l.student_id !== id);
+    delete _competencies[id];
+    return _students.length < before;
   },
 
   // Lessons

@@ -27,7 +27,7 @@ import { api } from '../src/api';
 
 type FilterChip = 'All' | StudentStatus;
 
-const FILTERS: FilterChip[] = ['All', 'Active', 'Test Ready', 'New'];
+const FILTERS: FilterChip[] = ['All', 'Active', 'Test Ready', 'New', 'Passed'];
 
 export default function StudentCrmScreen() {
   const router = useRouter();

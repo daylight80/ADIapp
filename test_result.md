@@ -155,6 +155,18 @@ frontend:
         agent: "main"
         comment: "Restructured diary: defaults to Day view, Day/Week toggle pills, hours 05:00-22:00 with HOUR_HEIGHT=64, lesson blocks absolutely positioned by start_time + duration_hours, student FULL NAME rendered (e.g., 'Oliver Bennett', 'Jamie Williams'). Verified both views via Playwright screenshots — Day view shows 2-hour block for Oliver 09:00–11:00 spanning two hour slots with full name and topic; Week view shows the same lessons across 7 day columns with full names. Tap on date label jumps to today. Prev/Next navigation moves by 1 day in Day mode, 7 days in Week mode."
 
+  - task: "Student profile Amend / Passed / Delete actions"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/student-lifecycle-screen.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Added three action buttons on the Overview tab beneath the profile card: Amend (outlined blue, pencil icon) opens a bottom sheet for editing name/email/phone/address/postcode/hourly_rate/test_date; Passed (filled green, trophy icon) sets status='Passed', progress=100% and stamps test_passed_at; Delete (outlined red, trash icon) removes the student and their lessons after confirmation, then routes back. Confirmation uses Alert on native + window.confirm on web. Extended StudentStatus to include 'Passed' (mockDb.ts) and added markStudentPassed/updateStudent/deleteStudent helpers. StatusBadge updated for the new state. Verified end-to-end via Playwright: Amend sheet renders all fields with current values; Passed action switches the status badge to 'Passed' and bumps Driving readiness to 100%; CRM filter now includes a 'Passed' chip."
+
 metadata:
   created_by: "main_agent"
   version: "1.1"

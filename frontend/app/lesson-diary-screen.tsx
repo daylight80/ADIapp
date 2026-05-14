@@ -18,6 +18,7 @@ import { BottomNav } from '../src/BottomNav';
 import { useAuth } from '../src/AuthContext';
 import { isPro } from '../src/proPlan';
 import { scheduleLessonReminders } from '../src/notifications';
+import { LessonToolsSheet } from '../src/LessonToolsSheet';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const HOURS = Array.from({ length: 12 }, (_, i) => i + 8); // 08:00 - 19:00
@@ -57,6 +58,7 @@ export default function LessonDiaryScreen() {
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('11:00');
   const [topic, setTopic] = useState('');
+  const [travelMinutes, setTravelMinutes] = useState('15');
 
   const lessons = useMemo(() => mockDb.listLessonsForWeek(weekStart), [weekStart, addOpen]);
   const students = mockDb.listStudents();
@@ -75,6 +77,7 @@ export default function LessonDiaryScreen() {
       start_time: startTime,
       end_time: endTime,
       duration_hours: duration,
+      travel_minutes: parseInt(travelMinutes, 10) || 0,
       topic,
       amount_paid: Math.round(duration * 36),
     });
@@ -227,44 +230,29 @@ export default function LessonDiaryScreen() {
           testID="input-lesson-topic"
         />
 
+        <Text style={styles.label}>Travel buffer (minutes to next lesson)</Text>
+        <TextInput
+          style={styles.input}
+          value={travelMinutes}
+          onChangeText={setTravelMinutes}
+          keyboardType="numeric"
+          placeholder="15"
+          placeholderTextColor={theme.colors.textMuted}
+          testID="input-lesson-travel"
+        />
+
         <TouchableOpacity style={styles.submitBtn} onPress={handleAdd} testID="btn-submit-lesson">
           <Text style={styles.submitBtnText}>Save Lesson</Text>
         </TouchableOpacity>
       </BottomSheet>
 
-      {/* Lesson Detail Sheet */}
-      <BottomSheet
+      {/* Lesson Tools Sheet */}
+      <LessonToolsSheet
         visible={!!detailLesson}
         onClose={() => setDetailLesson(null)}
-        title="Lesson Details"
-        testID="sheet-lesson-detail"
-      >
-        {detailLesson && (() => {
-          const s = mockDb.getStudent(detailLesson.student_id);
-          return (
-            <View style={{ gap: 12 }}>
-              <Text style={styles.detailName}>{s?.name}</Text>
-              <Text style={styles.detailTopic}>{detailLesson.topic}</Text>
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                <Badge label={detailLesson.status} />
-                <Badge label={`${detailLesson.start_time} - ${detailLesson.end_time}`} />
-                <Badge label={`${detailLesson.duration_hours}h`} />
-              </View>
-              {detailLesson.notes && (
-                <View>
-                  <Text style={styles.label}>Notes</Text>
-                  <Text style={styles.notes}>{detailLesson.notes}</Text>
-                </View>
-              )}
-              <View style={styles.faultsRow}>
-                <FaultBadge label="Driving" value={detailLesson.driving_faults} colour={theme.colors.faultDriving} />
-                <FaultBadge label="Serious" value={detailLesson.serious_faults} colour={theme.colors.faultSerious} />
-                <FaultBadge label="Dangerous" value={detailLesson.dangerous_faults} colour={theme.colors.faultDangerous} />
-              </View>
-            </View>
-          );
-        })()}
-      </BottomSheet>
+        lesson={detailLesson}
+        onChanged={() => setWeekStart(new Date(weekStart))}
+      />
     </SafeAreaView>
   );
 }

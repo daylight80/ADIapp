@@ -1,18 +1,22 @@
-import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
+import React, { useCallback, useState, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Check, X, FileCheck, MessageCircle, ChevronRight, Award } from 'lucide-react-native';
+import { Check, X, FileCheck, MessageCircle, ChevronRight, Award, Trophy, BookOpen, Pencil, Wallet } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
-import { mockDb, readiness } from '../src/mockDb';
+import { mockDb, readiness, mockDb_ext } from '../src/mockDb';
 import { Card, ProgressBar, Badge } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
+import { BottomSheet } from '../src/BottomSheet';
 
 export default function StudentHomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
+  const [reflectOpen, setReflectOpen] = useState(false);
+  const [reflectText, setReflectText] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Find student record by email (demo) or default to s2
   const studentRecord = user?.email ? mockDb.getStudentByEmail(user.email) : undefined;
@@ -21,6 +25,8 @@ export default function StudentHomeScreen() {
   const competencies = mockDb.getCompetencies(student.id);
   const lessons = mockDb.listLessonsForStudent(student.id);
   const recentLesson = lessons.find((l) => l.status === 'Completed') || lessons[0];
+  const badges = useMemo(() => mockDb_ext.getBadges(student.id), [student.id, reloadKey]);
+  const reflections = useMemo(() => mockDb_ext.listReflections(student.id), [student.id, reloadKey]);
 
   const met = readiness.criteria.filter((c) => c.met).length;
   const total = readiness.criteria.length;
@@ -28,8 +34,23 @@ export default function StudentHomeScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 600);
+    setTimeout(() => {
+      setReloadKey((k) => k + 1);
+      setRefreshing(false);
+    }, 600);
   }, []);
+
+  const saveReflection = () => {
+    if (!recentLesson) return;
+    if (reflectText.trim().length < 5) {
+      Alert.alert('Please write a few words about your last lesson.');
+      return;
+    }
+    mockDb_ext.addReflection(recentLesson.id, student.id, reflectText.trim());
+    setReflectText('');
+    setReflectOpen(false);
+    setReloadKey((k) => k + 1);
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -134,10 +155,77 @@ export default function StudentHomeScreen() {
           )}
         </Card>
 
+        {/* Badges */}
+        {badges.length > 0 && (
+          <Card style={{ gap: 10 }} testID="badges-card">
+            <View style={styles.row}>
+              <Trophy size={22} color={theme.colors.accent} />
+              <Text style={styles.sectionTitle}>Your badges</Text>
+            </View>
+            <View style={styles.badgesRow}>
+              {badges.map((b) => (
+                <View key={b.key} style={styles.badgeChip} testID={`badge-${b.key}`}>
+                  <Text style={styles.badgeChipText}>🏆 {b.name}</Text>
+                </View>
+              ))}
+            </View>
+          </Card>
+        )}
+
+        {/* Theory + Wallet shortcuts */}
+        <View style={styles.shortcutRow}>
+          <TouchableOpacity style={[styles.shortcut, { backgroundColor: theme.colors.primary }]} onPress={() => router.push('/theory-test-screen')} testID="shortcut-theory">
+            <BookOpen size={22} color="#fff" />
+            <Text style={styles.shortcutText}>Theory Test</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.shortcut, { backgroundColor: theme.colors.success }]} onPress={() => router.push({ pathname: '/wallet-screen', params: { studentId: student.id } })} testID="shortcut-wallet">
+            <Wallet size={22} color="#fff" />
+            <Text style={styles.shortcutText}>Wallet</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Reflective Logs */}
+        <Card style={{ gap: 10 }} testID="reflections-card">
+          <View style={styles.reflectHead}>
+            <Pencil size={20} color={theme.colors.primary} />
+            <Text style={styles.sectionTitle}>Reflective log</Text>
+            <TouchableOpacity onPress={() => setReflectOpen(true)} testID="btn-add-reflection">
+              <Text style={styles.linkText}>+ Add</Text>
+            </TouchableOpacity>
+          </View>
+          {reflections.length === 0 ? (
+            <Text style={styles.emptyText}>Reflect on what you learnt — a key part of modern learner-centred driving instruction.</Text>
+          ) : (
+            reflections.slice(0, 3).map((r) => (
+              <View key={r.id} style={styles.reflectItem} testID={`reflection-${r.id}`}>
+                <Text style={styles.reflectDate}>{new Date(r.created_at).toLocaleDateString('en-GB')}</Text>
+                <Text style={styles.reflectText}>"{r.text}"</Text>
+              </View>
+            ))
+          )}
+        </Card>
+
         <View style={{ height: 24 }} />
       </ScrollView>
 
       <BottomNav role="student" />
+
+      <BottomSheet visible={reflectOpen} onClose={() => setReflectOpen(false)} title="Reflective log" testID="sheet-reflection">
+        <Text style={styles.hint}>What went well? What could improve next lesson?</Text>
+        <TextInput
+          style={styles.reflectInput}
+          value={reflectText}
+          onChangeText={setReflectText}
+          placeholder="Today I worked on roundabouts. I felt more confident with signalling but need to practise observation when exiting…"
+          placeholderTextColor={theme.colors.textMuted}
+          multiline
+          textAlignVertical="top"
+          testID="input-reflection"
+        />
+        <TouchableOpacity style={styles.saveBtn} onPress={saveReflection} testID="btn-save-reflection">
+          <Text style={styles.saveBtnText}>Save reflection</Text>
+        </TouchableOpacity>
+      </BottomSheet>
     </SafeAreaView>
   );
 }
@@ -182,4 +270,20 @@ const styles = StyleSheet.create({
   fbDate: { ...theme.font.caption, fontWeight: '600', color: theme.colors.primary },
   fbTopic: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
   fbNotes: { fontSize: 14, color: theme.colors.text, fontStyle: 'italic', lineHeight: 20 },
+  badgesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  badgeChip: { backgroundColor: '#FFF7ED', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: theme.colors.accent },
+  badgeChipText: { color: theme.colors.accent, fontWeight: '700', fontSize: 13 },
+  shortcutRow: { flexDirection: 'row', gap: 10 },
+  shortcut: { flex: 1, height: 60, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  shortcutText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  reflectHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  linkText: { color: theme.colors.primary, fontWeight: '700', fontSize: 13, marginLeft: 'auto' },
+  emptyText: { color: theme.colors.textMuted, fontSize: 13 },
+  reflectItem: { borderLeftWidth: 3, borderLeftColor: theme.colors.primary, paddingLeft: 10, paddingVertical: 4 },
+  reflectDate: { fontSize: 11, color: theme.colors.textMuted, fontWeight: '600' },
+  reflectText: { fontSize: 14, color: theme.colors.text, fontStyle: 'italic', marginTop: 2 },
+  hint: { color: theme.colors.textMuted, marginBottom: 12 },
+  reflectInput: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, padding: 14, minHeight: 120, backgroundColor: theme.colors.background, fontSize: 15 },
+  saveBtn: { marginTop: 12, backgroundColor: theme.colors.primary, height: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
 });

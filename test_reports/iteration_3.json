@@ -1,0 +1,51 @@
+{
+  "summary": "Wave 1 frontend testing for Expo/RN UK driving-instructor portal. Tested THEORY test, WALLET, ONBOARDING T&C, LessonToolsSheet (partial — diary nav issue), Add-Lesson travel buffer, student-home badges/shortcuts/reflective-log, instructor ADI flow, student profile link-wallet & adi copy. Backend not in scope.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      { "component": "OnboardingTcScreen", "issue": "tc-saved-note is rendered then router.back() is called 400ms later, so the success note is barely observable. Either extend timeout (>=1500ms) or remove auto-back and let user dismiss.", "testID": "tc-saved-note", "priority": "MEDIUM" }
+    ],
+    "integration_issues": [
+      { "flow": "Instructor saves ADI → Student profile reads instructorProfile.adi_number", "issue": "instructorProfile.adi_number defaults to empty string in mockDb.ts (line 548). On a fresh student session (or full reload) the 'Instructor's ADI number' card is hidden because the condition `role==='student' && instructorProfile.adi_number` evaluates false. Pre-seed a default ADI (e.g. '123456') so demo student immediately sees adi-value + btn-copy-adi without first having to log in as instructor in the same JS session.", "affected_testIDs": ["adi-value", "btn-copy-adi"] },
+      { "flow": "Lesson Diary → LessonToolsSheet", "issue": "Demo data lessons in mockDb.ts may not fall inside the *current* week, so the weekly grid showed 0 lesson blocks during the test run and we could not open LessonToolsSheet via the normal user path. Recommendation: seed at least one lesson dated to `new Date()` (or `startOfWeek(new Date())`) so the diary always has tappable blocks for QA and demos.", "affected_testIDs": ["lesson-block-*", "lesson-tools-close", "nav-google", "nav-waze", "nav-apple", "btn-im-here", "precheck-eye", "precheck-fit", "precheck-lic", "btn-confirm-precheck", "btn-cancel-lesson", "gap-broadcast-modal", "btn-broadcast"] },
+      { "flow": "Cancel lesson → gap-broadcast-modal", "issue": "Cancel triggers Alert.alert with a destructive button. On web preview, Alert.alert renders as window.confirm() so the modal CAN open if the user accepts, but our automated test couldn't reach this code path because no lesson blocks existed. Needs retest after lesson seed fix above.", "affected_testIDs": ["btn-cancel-lesson", "gap-broadcast-modal", "btn-broadcast"] }
+    ],
+    "design_issues": [
+      { "screen": "Global", "issues": ["Console deprecation warnings: 'shadow*' style props are deprecated — use 'boxShadow' (RN-Web 0.19+). Non-blocking but noisy.", "'props.pointerEvents is deprecated. Use style.pointerEvents' — appears repeatedly in BottomSheet/Modal."] }
+    ],
+    "react_native_issues": []
+  },
+  "verified_flows": [
+    "Instructor login via demo-instructor button",
+    "Student login via demo-student button",
+    "Theory test: 10 questions render with topic chips, btn-submit-theory disabled until all 10 answered (verified), submission shows theory-result card (FAIL 2/10 in test because we picked option 0 for each)",
+    "Wallet: wallet-hours hero renders (0.0h), btn-buy-block opens sheet-buy-block with block-5h/10h/20h, tapping block-10h adds booking (1 booking) and wallet-hours becomes 10.0h",
+    "Onboarding T&C: checkbox-accept toggles, input-signature accepts text (defaulted to user.name='Alex Thompson'), signature-preview appears when length>=3, btn-sign-tc disabled before accept (true) and enabled after accept+name (verified)",
+    "Add Lesson sheet: input-lesson-travel exists and defaults to '15'",
+    "Profile (instructor): input-adi + btn-save-adi + link-tc all present; saving ADI fires alert dialog",
+    "Profile (student): link-wallet routes to /wallet-screen with studentId param",
+    "Student home: badges-card with badge chips (mirror_master + parallel_park_pro seeded; First Gear key is 'first_lesson' in catalog → renders as badge-first_lesson), shortcut-theory routes to /theory-test-screen, shortcut-wallet routes to /wallet-screen, reflections-card + btn-add-reflection opens sheet-reflection, input-reflection + btn-save-reflection adds a reflection-* item"
+  ],
+  "test_report_links": ["No backend test file — frontend-only iteration. Playwright run executed inline via browser_automation_tool."],
+  "action_items": [
+    "Seed at least one demo lesson dated inside the current ISO week so the Lesson Diary always shows tappable lesson-block-* cards (required to reach LessonToolsSheet / pre-check / cancel-broadcast flow).",
+    "Set a non-empty default `instructorProfile.adi_number` in /app/frontend/src/mockDb.ts (e.g. '123456') so the student profile's adi-value + btn-copy-adi card renders without instructor needing to save first (in-memory state is lost across reloads).",
+    "Increase tc-saved-note display time (or remove auto router.back()) so the signed confirmation is reliably visible to user/tests.",
+    "(Optional) Retest LessonToolsSheet end-to-end after lesson-seed fix: nav-google/waze/apple click, btn-im-here (web fallback should copy to clipboard, not crash), precheck-eye/fit/lic toggling, btn-confirm-precheck disabled→enabled, btn-cancel-lesson → confirm → gap-broadcast-modal → btn-broadcast."
+  ],
+  "critical_code_review_comments": [
+    "All new screens correctly use testID attributes, StyleSheet.create, and wrap text in <Text>. No red-screen errors observed.",
+    "instructorProfile and mockDb_ext are module-level singletons — adequate for an MVP mock, but state resets on page reload (acceptable for native, surfaces on web preview).",
+    "OnboardingTcScreen pre-fills signature from user.name; consider also auto-saving when user reloads (currently `setSaved(!!instructorProfile.tc_signed_at)` does check this, good).",
+    "LessonToolsSheet handles missing lesson/student via early-return null — safe.",
+    "Theory result card colors PASS green / FAIL red — accessible.",
+    "Deprecation warnings (shadow*, pointerEvents) suggest a minor upgrade pass on theme/ui helpers."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "n/a (not in scope)", "frontend": "~85% (8/10 flows fully verified; LessonToolsSheet flow blocked by lesson-seed; student-side adi-value blocked by empty default)" },
+  "seed_data_creation": "None created. Recommending seed adjustments to mockDb.ts (see action_items).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "After main agent (a) seeds at least one lesson in the current week and (b) sets a default instructorProfile.adi_number, please re-run: (1) instructor → /lesson-diary-screen → tap any lesson-block-* → verify LessonToolsSheet shows all nav/precheck/cancel testIDs, toggling all 3 prechecks enables btn-confirm-precheck, tapping btn-cancel-lesson → accept confirm → gap-broadcast-modal opens with btn-broadcast; (2) student → /profile-screen → adi-value visible, btn-copy-adi works. Everything else passed in iteration 3.",
+  "rca_of_issue": "Two integration gaps trace back to mock data seeding rather than code defects: (a) listLessonsForWeek(weekStart) filters by date; if seeded lessons fall outside today's ISO week the diary appears empty; (b) the cross-role ADI display depends on a module-level value that defaults to '' — on a fresh JS load (which always happens on the web preview after login/logout cycles) the student view sees no ADI. Both are 1-line fixes in /app/frontend/src/mockDb.ts."
+}

@@ -1,14 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown } from 'lucide-react-native';
+import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown, ShieldCheck, Wallet, Copy, IdCard } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
-import { mockDb } from '../src/mockDb';
+import { mockDb, instructorProfile } from '../src/mockDb';
 import { Card, Badge, StatusBadge } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
 import { useRouter } from 'expo-router';
 import { isPro } from '../src/proPlan';
+import { copyToClipboard } from '../src/tools';
+import { Alert, TextInput } from 'react-native';
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
@@ -16,6 +18,21 @@ export default function ProfileScreen() {
   const role = user?.role || 'student';
   const student = user?.email ? mockDb.getStudentByEmail(user.email) : undefined;
   const pro = isPro(user?.subscription_status);
+  const [adi, setAdi] = useState(instructorProfile.adi_number);
+
+  const saveAdi = () => {
+    instructorProfile.adi_number = adi.trim();
+    Alert.alert('ADI number saved', `Students can copy this number when booking their test.`);
+  };
+
+  const copyAdi = () => {
+    if (!instructorProfile.adi_number) {
+      Alert.alert('Your instructor has not provided an ADI number yet.');
+      return;
+    }
+    const ok = copyToClipboard(instructorProfile.adi_number);
+    Alert.alert(ok ? 'Copied' : 'ADI number', instructorProfile.adi_number);
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -59,6 +76,69 @@ export default function ProfileScreen() {
               </View>
             </Card>
           </>
+        )}
+
+        {role === 'instructor' && (
+          <Card style={{ gap: 10 }}>
+            <View style={styles.contactRow}>
+              <IdCard size={18} color={theme.colors.primary} />
+              <Text style={styles.cardTitle}>ADI number</Text>
+            </View>
+            <Text style={styles.hint}>Your DVSA Approved Driving Instructor number. Students can copy it for the DVSA booking site.</Text>
+            <View style={styles.adiRow}>
+              <TextInput
+                style={styles.adiInput}
+                value={adi}
+                onChangeText={setAdi}
+                placeholder="e.g. 123456"
+                placeholderTextColor={theme.colors.textMuted}
+                keyboardType="numeric"
+                testID="input-adi"
+              />
+              <TouchableOpacity style={styles.adiSave} onPress={saveAdi} testID="btn-save-adi">
+                <Text style={styles.adiSaveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </Card>
+        )}
+
+        {role === 'student' && instructorProfile.adi_number ? (
+          <Card style={{ gap: 10 }}>
+            <View style={styles.contactRow}>
+              <IdCard size={18} color={theme.colors.primary} />
+              <Text style={styles.cardTitle}>Instructor's ADI number</Text>
+            </View>
+            <View style={styles.adiRow}>
+              <Text style={styles.adiValue} testID="adi-value">{instructorProfile.adi_number}</Text>
+              <TouchableOpacity style={styles.adiSave} onPress={copyAdi} testID="btn-copy-adi">
+                <Copy size={14} color="#fff" />
+                <Text style={styles.adiSaveText}>Copy</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.hint}>Paste this into the DVSA booking site to link your instructor.</Text>
+          </Card>
+        ) : null}
+
+        <TouchableOpacity
+          style={styles.linkRow}
+          onPress={() => router.push('/onboarding-tc-screen')}
+          testID="link-tc"
+        >
+          <ShieldCheck size={18} color={theme.colors.primary} />
+          <Text style={styles.linkRowText}>
+            {instructorProfile.tc_signed_at ? 'Pupil Agreement (signed ✓)' : 'Pupil Agreement — sign now'}
+          </Text>
+        </TouchableOpacity>
+
+        {role === 'student' && student && (
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => router.push({ pathname: '/wallet-screen', params: { studentId: student.id } })}
+            testID="link-wallet"
+          >
+            <Wallet size={18} color={theme.colors.success} />
+            <Text style={styles.linkRowText}>Payment Wallet</Text>
+          </TouchableOpacity>
         )}
 
         <TouchableOpacity
@@ -128,4 +208,12 @@ const styles = StyleSheet.create({
   },
   proCtaActive: { backgroundColor: theme.colors.primary },
   proCtaText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  hint: { color: theme.colors.textMuted, fontSize: 12 },
+  adiRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  adiInput: { flex: 1, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, paddingHorizontal: 12, height: 44, backgroundColor: theme.colors.background },
+  adiSave: { backgroundColor: theme.colors.primary, paddingHorizontal: 16, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 },
+  adiSaveText: { color: '#fff', fontWeight: '700' },
+  adiValue: { flex: 1, fontSize: 18, fontWeight: '700', color: theme.colors.primary, letterSpacing: 2 },
+  linkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.colors.surface, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border },
+  linkRowText: { fontSize: 15, fontWeight: '600', color: theme.colors.text, flex: 1 },
 });

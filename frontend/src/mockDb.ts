@@ -27,6 +27,8 @@ export type Lesson = {
   start_time: string; // "HH:mm"
   end_time: string; // "HH:mm"
   duration_hours: number;
+  travel_minutes?: number; // travel buffer to next lesson
+  pickup_address?: string;
   topic: string;
   notes?: string;
   driving_faults: number;
@@ -35,6 +37,40 @@ export type Lesson = {
   grade?: number; // 1-5
   amount_paid?: number;
   status: 'Scheduled' | 'Completed' | 'Cancelled';
+  student_reflection?: string;
+  pre_check_completed_at?: string;
+};
+
+export type Badge = {
+  key: string;
+  name: string;
+  description: string;
+  earned_at?: string;
+};
+
+export type ReflectiveLog = {
+  id: string;
+  lesson_id: string;
+  student_id: string;
+  text: string;
+  created_at: string;
+};
+
+export type BlockBooking = {
+  id: string;
+  student_id: string;
+  hours: number;
+  amount: number;
+  purchased_at: string;
+  hours_used: number;
+};
+
+export type TestAttempt = {
+  id: string;
+  student_id: string;
+  scheduled_for: string;
+  changed_count: number; // DVSA "two-change" rule
+  test_centre?: string;
 };
 
 export type CompetencyCategory = {
@@ -394,4 +430,122 @@ export const readiness = {
     { key: 'manoeuvres', label: 'All manoeuvres at Level 4+', met: true },
     { key: 'independent', label: 'Independent driving (20 min)', met: false },
   ],
+};
+
+// ============= Badges =============
+const BADGE_CATALOG: Badge[] = [
+  { key: 'first_lesson', name: 'First Gear', description: 'Completed your first lesson' },
+  { key: 'mirror_master', name: 'Mirror Master', description: '5 lessons with zero mirror faults' },
+  { key: 'parallel_park_pro', name: 'Parallel Park Pro', description: 'Manoeuvres at Level 4+' },
+  { key: 'roundabout_ranger', name: 'Roundabout Ranger', description: 'Roundabouts at Level 4+' },
+  { key: 'theory_passed', name: 'Theory Champion', description: 'Passed an in-app theory test' },
+  { key: 'mock_passed', name: 'Mock Marvel', description: 'Passed a DL25 mock test' },
+];
+
+const _badges: Record<string, Badge[]> = {};
+const _reflections: ReflectiveLog[] = [];
+const _blockBookings: BlockBooking[] = [];
+const _testAttempts: Record<string, TestAttempt> = {};
+
+// ============= Theory Test (UK Highway Code seed) =============
+export type TheoryQ = { id: string; question: string; options: string[]; answer_index: number; topic: string };
+
+export const THEORY_BANK: TheoryQ[] = [
+  { id: 't1', topic: 'Signs', question: 'A red circle with a white horizontal bar means…', options: ['No entry', 'No overtaking', 'Stop', 'Roundabout ahead'], answer_index: 0 },
+  { id: 't2', topic: 'Speed', question: 'The national speed limit on a single carriageway for a car is…', options: ['50 mph', '60 mph', '70 mph', '40 mph'], answer_index: 1 },
+  { id: 't3', topic: 'Safety', question: 'In good conditions, the typical stopping distance at 60 mph is…', options: ['36 metres', '53 metres', '73 metres', '96 metres'], answer_index: 2 },
+  { id: 't4', topic: 'Manoeuvres', question: 'Before reversing into a parking bay you should…', options: ['Sound the horn', 'Check all-round, including blind spots', 'Switch on the hazard lights', 'Open the door to look'], answer_index: 1 },
+  { id: 't5', topic: 'Junctions', question: 'You approach a roundabout. You should give way to traffic from the…', options: ['Left', 'Right', 'Both directions', 'Whoever is largest'], answer_index: 1 },
+  { id: 't6', topic: 'Pedestrians', question: 'At a zebra crossing you must…', options: ['Wave pedestrians across', 'Stop only if they step out', 'Give way to pedestrians on the crossing', 'Use your horn'], answer_index: 2 },
+  { id: 't7', topic: 'Eyesight', question: 'You must be able to read a number plate from…', options: ['10 metres', '15 metres', '20 metres', '30 metres'], answer_index: 2 },
+  { id: 't8', topic: 'Signs', question: 'A triangular sign with a red border means…', options: ['Prohibition', 'Warning', 'Information', 'Order'], answer_index: 1 },
+  { id: 't9', topic: 'Roads', question: 'In wet weather, stopping distances are at least…', options: ['Twice the normal', 'The same', 'Three times the normal', 'Four times the normal'], answer_index: 0 },
+  { id: 't10', topic: 'Alcohol', question: 'The legal blood-alcohol limit for driving in England is…', options: ['50 mg/100 ml', '80 mg/100 ml', '100 mg/100 ml', 'Zero'], answer_index: 1 },
+];
+
+export const mockDb_ext = {
+  // Badges
+  badgeCatalog: () => BADGE_CATALOG,
+  getBadges: (studentId: string): Badge[] => {
+    if (_badges[studentId]) return _badges[studentId];
+    // Auto-compute from competencies + lessons on first call
+    const lessons = _lessons.filter((l) => l.student_id === studentId && l.status === 'Completed');
+    const earned: Badge[] = [];
+    if (lessons.length >= 1) earned.push({ ...BADGE_CATALOG[0], earned_at: lessons[0].date });
+    const comps = _competencies[studentId] || [];
+    if (comps.find((c) => c.key === 'mirrors' && c.level >= 4)) earned.push({ ...BADGE_CATALOG[1], earned_at: new Date().toISOString() });
+    if (comps.find((c) => c.key === 'manoeuvres' && c.level >= 4)) earned.push({ ...BADGE_CATALOG[2], earned_at: new Date().toISOString() });
+    if (comps.find((c) => c.key === 'roundabouts' && c.level >= 4)) earned.push({ ...BADGE_CATALOG[3], earned_at: new Date().toISOString() });
+    _badges[studentId] = earned;
+    return earned;
+  },
+  awardBadge: (studentId: string, key: string) => {
+    const cat = BADGE_CATALOG.find((b) => b.key === key);
+    if (!cat) return;
+    const current = _badges[studentId] || [];
+    if (current.find((b) => b.key === key)) return;
+    _badges[studentId] = [...current, { ...cat, earned_at: new Date().toISOString() }];
+  },
+
+  // Reflective logs
+  listReflections: (studentId: string): ReflectiveLog[] =>
+    _reflections.filter((r) => r.student_id === studentId).sort((a, b) => b.created_at.localeCompare(a.created_at)),
+  addReflection: (lessonId: string, studentId: string, text: string): ReflectiveLog => {
+    const log: ReflectiveLog = {
+      id: `r${Date.now()}`,
+      lesson_id: lessonId,
+      student_id: studentId,
+      text,
+      created_at: new Date().toISOString(),
+    };
+    _reflections.unshift(log);
+    return log;
+  },
+
+  // Block bookings & wallet
+  listBlockBookings: (studentId: string): BlockBooking[] =>
+    _blockBookings.filter((b) => b.student_id === studentId),
+  addBlockBooking: (studentId: string, hours: number, amount: number): BlockBooking => {
+    const bb: BlockBooking = {
+      id: `bb${Date.now()}`,
+      student_id: studentId,
+      hours,
+      amount,
+      purchased_at: new Date().toISOString(),
+      hours_used: 0,
+    };
+    _blockBookings.push(bb);
+    return bb;
+  },
+  getWalletBalance: (studentId: string): { hours_remaining: number; total_paid: number } => {
+    const bbs = _blockBookings.filter((b) => b.student_id === studentId);
+    return {
+      hours_remaining: bbs.reduce((s, b) => s + (b.hours - b.hours_used), 0),
+      total_paid: bbs.reduce((s, b) => s + b.amount, 0),
+    };
+  },
+
+  // Test attempts (Two-Change rule)
+  getTestAttempt: (studentId: string): TestAttempt | undefined => _testAttempts[studentId],
+  setTestAttempt: (studentId: string, date: string, centre?: string) => {
+    const existing = _testAttempts[studentId];
+    if (existing) {
+      _testAttempts[studentId] = { ...existing, scheduled_for: date, changed_count: existing.changed_count + 1, test_centre: centre };
+    } else {
+      _testAttempts[studentId] = { id: `ta${Date.now()}`, student_id: studentId, scheduled_for: date, changed_count: 0, test_centre: centre };
+    }
+    return _testAttempts[studentId];
+  },
+  canChangeTest: (studentId: string): { allowed: boolean; remaining: number } => {
+    const ta = _testAttempts[studentId];
+    if (!ta) return { allowed: true, remaining: 2 };
+    return { allowed: ta.changed_count < 2, remaining: Math.max(0, 2 - ta.changed_count) };
+  },
+};
+
+// Per-instructor metadata (singleton-ish for v1)
+export const instructorProfile = {
+  adi_number: '' as string,
+  tc_signed_at: null as string | null,
+  tc_signature_name: '' as string,
 };

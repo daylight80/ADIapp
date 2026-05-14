@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, ChevronRight, Plus, ArrowLeft, AlertTriangle, Car } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Plus, ArrowLeft, AlertTriangle, Car, Calendar, CalendarDays } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb, Lesson } from '../src/mockDb';
 import { Card, Badge } from '../src/ui';
@@ -22,7 +22,11 @@ import { LessonToolsSheet } from '../src/LessonToolsSheet';
 import { getTravelTime, addressForStudent, lessonAddress, minutesBetween, formatEta } from '../src/maps';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const HOURS = Array.from({ length: 12 }, (_, i) => i + 8); // 08:00 - 19:00
+const TOP_HOUR = 5;
+const BOTTOM_HOUR = 22;
+const HOURS = Array.from({ length: BOTTOM_HOUR - TOP_HOUR + 1 }, (_, i) => i + TOP_HOUR); // 05:00 - 22:00
+const HOUR_HEIGHT = 64;
+const TOTAL_HEIGHT = (BOTTOM_HOUR - TOP_HOUR) * HOUR_HEIGHT;
 
 function startOfWeek(d: Date): Date {
   const c = new Date(d);
@@ -49,7 +53,9 @@ export default function LessonDiaryScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const pro = isPro(user?.subscription_status);
-  const [weekStart, setWeekStart] = useState<Date>(startOfWeek(new Date()));
+  const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
+  const [selectedDate, setSelectedDate] = useState<Date>(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
+  const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
   const [addOpen, setAddOpen] = useState(false);
   const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
 
@@ -95,8 +101,27 @@ export default function LessonDiaryScreen() {
     return () => { cancelled = true; };
   }, [addOpen, studentId, date, startTime, lessons]);
 
-  const goPrev = () => setWeekStart(addDays(weekStart, -7));
-  const goNext = () => setWeekStart(addDays(weekStart, 7));
+  const goPrev = () => setSelectedDate(addDays(selectedDate, viewMode === 'day' ? -1 : -7));
+  const goNext = () => setSelectedDate(addDays(selectedDate, viewMode === 'day' ? 1 : 7));
+  const goToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); setSelectedDate(d); };
+  const navLabel = viewMode === 'day'
+    ? selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })
+    : formatDateRange(weekStart);
+  const selectedKey = selectedDate.toISOString().slice(0, 10);
+  const todayKey = new Date().toISOString().slice(0, 10);
+
+  const computePos = (l: Lesson) => {
+    const [sh, sm] = l.start_time.split(':').map(Number);
+    const top = ((sh - TOP_HOUR) + sm / 60) * HOUR_HEIGHT;
+    const height = Math.max(28, l.duration_hours * HOUR_HEIGHT - 2);
+    return { top, height };
+  };
+
+  const prevLessonFor = (l: Lesson) => mockDb
+    .listLessons()
+    .filter((x) => x.date === l.date && x.end_time <= l.start_time && x.id !== l.id && x.status !== 'Cancelled')
+    .sort((a, b) => a.end_time.localeCompare(b.end_time))
+    .pop();
 
   const handleAdd = () => {
     if (!studentId || !date || !topic) return;
@@ -137,67 +162,154 @@ export default function LessonDiaryScreen() {
         </TouchableOpacity>
       </View>
 
+      <View style={styles.toggleRow}>
+        <TouchableOpacity
+          style={[styles.toggleBtn, viewMode === 'day' && styles.toggleBtnActive]}
+          onPress={() => setViewMode('day')}
+          testID="view-day"
+        >
+          <Calendar size={14} color={viewMode === 'day' ? '#fff' : theme.colors.primary} />
+          <Text style={[styles.toggleText, viewMode === 'day' && styles.toggleTextActive]}>Day</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.toggleBtn, viewMode === 'week' && styles.toggleBtnActive]}
+          onPress={() => setViewMode('week')}
+          testID="view-week"
+        >
+          <CalendarDays size={14} color={viewMode === 'week' ? '#fff' : theme.colors.primary} />
+          <Text style={[styles.toggleText, viewMode === 'week' && styles.toggleTextActive]}>Week</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.weekNav} testID="week-nav">
         <TouchableOpacity onPress={goPrev} style={styles.weekArrow} testID="week-prev">
           <ChevronLeft size={20} color={theme.colors.primary} />
         </TouchableOpacity>
-        <Text style={styles.weekLabel}>{formatDateRange(weekStart)}</Text>
+        <TouchableOpacity onPress={goToday} testID="btn-today" style={{ alignItems: 'center' }}>
+          <Text style={styles.weekLabel}>{navLabel}</Text>
+          {selectedKey !== todayKey && <Text style={styles.todayHint}>Tap to jump to today</Text>}
+        </TouchableOpacity>
         <TouchableOpacity onPress={goNext} style={styles.weekArrow} testID="week-next">
           <ChevronRight size={20} color={theme.colors.primary} />
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <View style={styles.grid} testID="weekly-grid">
-            {/* Header row */}
-            <View style={styles.gridRow}>
-              <View style={[styles.timeCell, styles.headerCell]} />
-              {DAYS.map((d, i) => {
-                const date = addDays(weekStart, i);
-                return (
-                  <View key={d} style={[styles.dayCell, styles.headerCell]}>
-                    <Text style={styles.dayName}>{d}</Text>
-                    <Text style={styles.dayNum}>{date.getDate()}</Text>
-                  </View>
-                );
-              })}
+        {viewMode === 'day' ? (
+          <View style={styles.dayGrid} testID="day-grid">
+            <View style={styles.dayGridHeader}>
+              <View style={{ width: TIME_W }} />
+              <View style={styles.dayHeaderCol}>
+                <Text style={styles.dayName}>{selectedDate.toLocaleDateString('en-GB', { weekday: 'short' })}</Text>
+                <Text style={styles.dayNum}>{selectedDate.getDate()}</Text>
+              </View>
             </View>
-            {/* Time rows */}
-            {HOURS.map((h) => (
-              <View key={h} style={styles.gridRow}>
-                <View style={styles.timeCell}>
-                  <Text style={styles.timeText}>{`${h.toString().padStart(2, '0')}:00`}</Text>
+            <View style={{ flexDirection: 'row' }}>
+              <View style={{ width: TIME_W }}>
+                {HOURS.slice(0, -1).map((h) => (
+                  <View key={h} style={styles.hourLabelCell}>
+                    <Text style={styles.timeText}>{`${h.toString().padStart(2, '0')}:00`}</Text>
+                  </View>
+                ))}
+              </View>
+              <View style={[styles.dayLessonCol, { height: TOTAL_HEIGHT }]}>
+                <View style={StyleSheet.absoluteFill}>
+                  {HOURS.slice(0, -1).map((h) => (
+                    <View key={h} style={styles.hourSlot} />
+                  ))}
+                </View>
+                {lessons
+                  .filter((l) => l.date === selectedKey && l.status !== 'Cancelled')
+                  .map((l) => {
+                    const s = mockDb.getStudent(l.student_id);
+                    const { top, height } = computePos(l);
+                    const prev = prevLessonFor(l);
+                    const gapMin = prev ? minutesBetween(prev.end_time, prev.date, l.start_time, l.date) : null;
+                    const needed = l.travel_minutes ?? prev?.travel_minutes ?? 0;
+                    const tooTight = gapMin !== null && gapMin < needed;
+                    return (
+                      <TouchableOpacity
+                        key={l.id}
+                        style={[styles.lessonBlockDay, tooTight && styles.lessonBlockWarn, { top, height }]}
+                        onPress={() => setDetailLesson(l)}
+                        testID={`lesson-block-${l.id}`}
+                      >
+                        <Text style={styles.lessonBlockTimeBig}>
+                          {l.start_time}–{l.end_time}
+                        </Text>
+                        <Text style={styles.lessonBlockNameFull} numberOfLines={2}>
+                          {s?.name || 'Student'}
+                        </Text>
+                        {height >= HOUR_HEIGHT * 1.2 && (
+                          <Text style={styles.lessonBlockTopic} numberOfLines={1}>
+                            {l.topic}
+                          </Text>
+                        )}
+                        {tooTight && (
+                          <View style={styles.warnDot} testID={`gap-warn-${l.id}`}>
+                            <AlertTriangle size={10} color="#fff" />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+              </View>
+            </View>
+          </View>
+        ) : (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={styles.grid} testID="weekly-grid">
+              {/* Header row */}
+              <View style={styles.gridRow}>
+                <View style={[{ width: TIME_W }, styles.headerCell]} />
+                {DAYS.map((d, i) => {
+                  const date = addDays(weekStart, i);
+                  return (
+                    <View key={d} style={[styles.dayHeaderCellWeek, styles.headerCell]}>
+                      <Text style={styles.dayName}>{d}</Text>
+                      <Text style={styles.dayNum}>{date.getDate()}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+              {/* Body row: hour labels + 7 day columns with absolute-positioned lessons */}
+              <View style={{ flexDirection: 'row' }}>
+                <View style={{ width: TIME_W }}>
+                  {HOURS.slice(0, -1).map((h) => (
+                    <View key={h} style={styles.hourLabelCell}>
+                      <Text style={styles.timeText}>{`${h.toString().padStart(2, '0')}:00`}</Text>
+                    </View>
+                  ))}
                 </View>
                 {DAYS.map((_, di) => {
                   const cellDate = addDays(weekStart, di).toISOString().slice(0, 10);
-                  const cellLessons = lessons.filter(
-                    (l) => l.date === cellDate && parseInt(l.start_time.split(':')[0], 10) === h
-                  );
+                  const dayLessons = lessons.filter((l) => l.date === cellDate && l.status !== 'Cancelled');
                   return (
-                    <View key={di} style={styles.dayCell}>
-                      {cellLessons.map((l) => {
+                    <View key={di} style={[styles.weekDayCol, { height: TOTAL_HEIGHT }]}>
+                      <View style={StyleSheet.absoluteFill}>
+                        {HOURS.slice(0, -1).map((h) => (
+                          <View key={h} style={styles.hourSlot} />
+                        ))}
+                      </View>
+                      {dayLessons.map((l) => {
                         const s = mockDb.getStudent(l.student_id);
-                        // Find previous lesson same day to check gap
-                        const prev = lessons
-                          .filter((x) => x.date === l.date && x.end_time <= l.start_time && x.id !== l.id && x.status !== 'Cancelled')
-                          .sort((a, b) => a.end_time.localeCompare(b.end_time))
-                          .pop();
+                        const { top, height } = computePos(l);
+                        const prev = prevLessonFor(l);
                         const gapMin = prev ? minutesBetween(prev.end_time, prev.date, l.start_time, l.date) : null;
                         const needed = l.travel_minutes ?? prev?.travel_minutes ?? 0;
                         const tooTight = gapMin !== null && gapMin < needed;
                         return (
                           <TouchableOpacity
                             key={l.id}
-                            style={[styles.lessonBlock, tooTight && styles.lessonBlockWarn]}
+                            style={[styles.lessonBlockWeek, tooTight && styles.lessonBlockWarn, { top, height }]}
                             onPress={() => setDetailLesson(l)}
                             testID={`lesson-block-${l.id}`}
                           >
                             <Text style={styles.lessonBlockTime}>
-                              {l.start_time}-{l.end_time}
+                              {l.start_time}–{l.end_time}
                             </Text>
-                            <Text style={styles.lessonBlockName} numberOfLines={1}>
-                              {s?.name?.split(' ')[0] || 'Student'}
+                            <Text style={styles.lessonBlockNameWeek} numberOfLines={2}>
+                              {s?.name || 'Student'}
                             </Text>
                             {tooTight && (
                               <View style={styles.warnDot} testID={`gap-warn-${l.id}`}>
@@ -211,9 +323,9 @@ export default function LessonDiaryScreen() {
                   );
                 })}
               </View>
-            ))}
-          </View>
-        </ScrollView>
+            </View>
+          </ScrollView>
+        )}
       </ScrollView>
 
       <BottomNav role="instructor" />
@@ -302,7 +414,7 @@ export default function LessonDiaryScreen() {
         visible={!!detailLesson}
         onClose={() => setDetailLesson(null)}
         lesson={detailLesson}
-        onChanged={() => setWeekStart(new Date(weekStart))}
+        onChanged={() => setSelectedDate(new Date(selectedDate))}
       />
     </SafeAreaView>
   );
@@ -317,8 +429,8 @@ function FaultBadge({ label, value, colour }: { label: string; value: number; co
   );
 }
 
-const CELL_W = 90;
-const TIME_W = 60;
+const CELL_W = 100;
+const TIME_W = 50;
 const CELL_H = 60;
 
 const styles = StyleSheet.create({
@@ -326,46 +438,91 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12 },
   iconBtn: { padding: 8, borderRadius: 8 },
   title: { ...theme.font.h2 },
-  weekNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, paddingVertical: 8 },
+  toggleRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, paddingBottom: 4 },
+  toggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.surface,
+  },
+  toggleBtnActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  toggleText: { color: theme.colors.primary, fontWeight: '700', fontSize: 13 },
+  toggleTextActive: { color: '#fff' },
+  weekNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, paddingVertical: 8 },
   weekArrow: { padding: 8, borderRadius: 8, backgroundColor: theme.colors.primaryLight },
   weekLabel: { ...theme.font.h3 },
+  todayHint: { fontSize: 11, color: theme.colors.textMuted, marginTop: 2 },
   scroll: { paddingHorizontal: 12, paddingBottom: 96 },
   grid: { backgroundColor: theme.colors.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' },
   gridRow: { flexDirection: 'row' },
-  headerCell: { backgroundColor: theme.colors.primaryLight, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
-  timeCell: {
-    width: TIME_W,
-    height: CELL_H,
+  headerCell: { backgroundColor: theme.colors.primaryLight, borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingVertical: 8 },
+  hourLabelCell: {
+    height: HOUR_HEIGHT,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 2,
     borderRightWidth: 1,
     borderRightColor: theme.colors.border,
   },
-  timeText: { fontSize: 12, color: theme.colors.textMuted },
-  dayCell: {
-    width: CELL_W,
-    height: CELL_H,
-    borderRightWidth: 1,
-    borderRightColor: theme.colors.border,
+  timeText: { fontSize: 11, color: theme.colors.textMuted, fontWeight: '500' },
+  hourSlot: {
+    height: HOUR_HEIGHT,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
-    padding: 2,
-    gap: 2,
   },
-  dayName: { fontWeight: '600', color: theme.colors.text, fontSize: 12 },
-  dayNum: { fontSize: 16, fontWeight: '700', color: theme.colors.primary },
-  lessonBlock: {
+  // ---------- Day view ----------
+  dayGrid: { backgroundColor: theme.colors.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' },
+  dayGridHeader: { flexDirection: 'row', backgroundColor: theme.colors.primaryLight, borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingVertical: 10 },
+  dayHeaderCol: { flex: 1, alignItems: 'center' },
+  dayLessonCol: { flex: 1, position: 'relative' },
+  lessonBlockDay: {
+    position: 'absolute',
+    left: 4,
+    right: 4,
+    backgroundColor: theme.colors.primary,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    overflow: 'hidden',
+  },
+  lessonBlockTimeBig: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  lessonBlockNameFull: { color: '#fff', fontSize: 15, fontWeight: '700', marginTop: 2 },
+  lessonBlockTopic: { color: 'rgba(255,255,255,0.85)', fontSize: 12, marginTop: 2 },
+  // ---------- Week view ----------
+  dayHeaderCellWeek: {
+    width: CELL_W,
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderRightWidth: 1,
+    borderRightColor: theme.colors.border,
+  },
+  weekDayCol: {
+    width: CELL_W,
+    borderRightWidth: 1,
+    borderRightColor: theme.colors.border,
+    position: 'relative',
+  },
+  lessonBlockWeek: {
+    position: 'absolute',
+    left: 2,
+    right: 2,
     backgroundColor: theme.colors.primary,
     borderRadius: 6,
-    padding: 4,
-    flex: 1,
-    justifyContent: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    overflow: 'hidden',
   },
+  lessonBlockNameWeek: { color: '#fff', fontSize: 11, fontWeight: '700', marginTop: 2 },
   lessonBlockWarn: { backgroundColor: theme.colors.faultDriving },
   warnDot: {
     position: 'absolute',
-    top: 2,
-    right: 2,
+    top: 4,
+    right: 4,
     width: 16,
     height: 16,
     borderRadius: 8,
@@ -373,6 +530,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  dayName: { fontWeight: '600', color: theme.colors.text, fontSize: 12 },
+  dayNum: { fontSize: 16, fontWeight: '700', color: theme.colors.primary },
+  // ---------- Shared / Form ----------
   travelInfoBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -386,7 +546,6 @@ const styles = StyleSheet.create({
   },
   travelInfoText: { color: theme.colors.primary, fontSize: 12, fontWeight: '600', flex: 1 },
   lessonBlockTime: { color: '#fff', fontSize: 10, fontWeight: '600' },
-  lessonBlockName: { color: '#fff', fontSize: 11 },
   label: { ...theme.font.caption, fontWeight: '600', marginBottom: 6, color: theme.colors.text },
   input: {
     borderWidth: 1,

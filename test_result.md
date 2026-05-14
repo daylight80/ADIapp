@@ -143,6 +143,17 @@ frontend:
       - working: true
         agent: "main"
         comment: "Verified end-to-end with Playwright screenshot: selecting Amelia + date 2026-05-12 + start 13:00 (after prior Jamie lesson 10:00-12:00) auto-fills travel buffer to 41 minutes and displays 'Predicted 41m via traffic · 26.8km · from previous lesson (estimate)'. Gap-warning logic in calendar cells (tooTight = gapMin < travel_minutes) renders red AlertTriangle dot; logic confirmed in code, will trigger when back-to-back lessons have insufficient buffer."
+  - task: "Lesson Diary Day/Week views, 05:00–22:00 hours, duration-spanning blocks with full name"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/lesson-diary-screen.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Restructured diary: defaults to Day view, Day/Week toggle pills, hours 05:00-22:00 with HOUR_HEIGHT=64, lesson blocks absolutely positioned by start_time + duration_hours, student FULL NAME rendered (e.g., 'Oliver Bennett', 'Jamie Williams'). Verified both views via Playwright screenshots — Day view shows 2-hour block for Oliver 09:00–11:00 spanning two hour slots with full name and topic; Week view shows the same lessons across 7 day columns with full names. Tap on date label jumps to today. Prev/Next navigation moves by 1 day in Day mode, 7 days in Week mode."
 
 metadata:
   created_by: "main_agent"

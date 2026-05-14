@@ -101,3 +101,64 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "Complete Google Maps traffic-aware travel-time integration for the UK driving instructor app (Live ETA card in LessonToolsSheet, Add-Lesson auto-fill, Diary gap warnings)."
+
+backend:
+  - task: "POST /api/maps/travel-time (with mock fallback when no Google key)"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Verified manually with curl using demo instructor JWT. Endpoint returns deterministic mock travel time (e.g., 31 min normal / 33 min traffic / 23.7 km) when GOOGLE_MAPS_API_KEY is not set. Includes 5-minute in-memory cache. Auth-protected via get_current_user dependency. Real Google Distance Matrix branch present for when the key is added later."
+      - working: true
+        agent: "testing"
+        comment: "Full backend test suite run via /app/backend_test.py against the public preview URL — 14/14 PASSED. Specifically for POST /api/maps/travel-time: (a) happy path returns 200 with correct shape {duration_minutes:int, duration_in_traffic_minutes:int, distance_km:float, status:'fallback', cached:bool}; (b) first call returns cached=false, immediate second call with identical payload returns cached=true (5-min in-memory cache works); (c) deterministic mock — same origin/destination returns identical numbers across calls, distinct payloads produce different numbers; (d) auth gating — missing Authorization header → 401, invalid bearer token → 401; (e) departure_at ISO timestamp accepted and still returns correct fallback shape. Regression smoke also green: /api/auth/login works for both demo accounts, /api/auth/me returns instructor profile, /api/billing/create-checkout-session returns a real Stripe checkout URL (checkout.stripe.com/c/pay/cs_test_...), /api/instructor/invite-student returns invite_token + invite_url containing ?invite=<jwt>. No 5xx errors observed in backend logs during the run."
+
+frontend:
+  - task: "LessonToolsSheet Live ETA card"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/LessonToolsSheet.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "useEffect fetches /api/maps/travel-time from previous lesson's pickup to current lesson when sheet opens. Renders an etaCard with traffic-minutes primary text, normal minutes + distance secondary text, and '(estimate)' tag in fallback mode. Styles (etaCard, etaPrimary, etaSecondary) added cleanly; file compiles in Metro (verified via screenshot of running app). No syntax errors."
+  - task: "Add Lesson travel auto-suggest + diary gap warnings"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/lesson-diary-screen.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Verified end-to-end with Playwright screenshot: selecting Amelia + date 2026-05-12 + start 13:00 (after prior Jamie lesson 10:00-12:00) auto-fills travel buffer to 41 minutes and displays 'Predicted 41m via traffic · 26.8km · from previous lesson (estimate)'. Gap-warning logic in calendar cells (tooTight = gapMin < travel_minutes) renders red AlertTriangle dot; logic confirmed in code, will trigger when back-to-back lessons have insufficient buffer."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.1"
+  test_sequence: 5
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "POST /api/maps/travel-time (with mock fallback when no Google key)"
+    - "LessonToolsSheet Live ETA card"
+    - "Add Lesson travel auto-suggest + diary gap warnings"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: "Google Maps travel-time integration is now feature-complete with mock fallback. Backend endpoint verified via curl. Frontend integration verified via Playwright screenshot showing 'Predicted 41m via traffic · 26.8km · from previous lesson (estimate)' auto-fill on the Add Lesson form. LessonToolsSheet ETA card wired and styled. Ready for backend testing agent to verify /api/maps/travel-time edge cases (empty origin/dest, same-origin-destination, cache behaviour, auth gating)."

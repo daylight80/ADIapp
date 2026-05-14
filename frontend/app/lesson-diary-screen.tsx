@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, ChevronRight, Plus, ArrowLeft } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Plus, ArrowLeft, AlertTriangle, Car } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb, Lesson } from '../src/mockDb';
 import { Card, Badge } from '../src/ui';
@@ -19,6 +19,7 @@ import { useAuth } from '../src/AuthContext';
 import { isPro } from '../src/proPlan';
 import { scheduleLessonReminders } from '../src/notifications';
 import { LessonToolsSheet } from '../src/LessonToolsSheet';
+import { getTravelTime, addressForStudent, lessonAddress, minutesBetween, formatEta } from '../src/maps';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const HOURS = Array.from({ length: 12 }, (_, i) => i + 8); // 08:00 - 19:00
@@ -62,6 +63,37 @@ export default function LessonDiaryScreen() {
 
   const lessons = useMemo(() => mockDb.listLessonsForWeek(weekStart), [weekStart, addOpen]);
   const students = mockDb.listStudents();
+
+  // Travel-time auto-suggest when a student is picked for a new lesson
+  const [travelInfo, setTravelInfo] = useState<string | null>(null);
+  useEffect(() => {
+    if (!addOpen || !studentId || !date) return;
+    const newStudent = mockDb.getStudent(studentId);
+    if (!newStudent) return;
+    // Find most recent lesson on this date before the new one
+    const todays = lessons
+      .filter((l) => l.date === date && l.status !== 'Cancelled')
+      .sort((a, b) => a.end_time.localeCompare(b.end_time));
+    const prior = todays.filter((l) => l.end_time <= startTime).pop();
+    const newDest = lessonAddress(
+      { pickup_address: '', student_id: newStudent.id } as any,
+      newStudent
+    );
+    const origin = prior
+      ? lessonAddress(prior, mockDb.getStudent(prior.student_id))
+      : null;
+    if (!origin || !newDest) {
+      setTravelInfo(null);
+      return;
+    }
+    let cancelled = false;
+    getTravelTime(origin, newDest, new Date(`${date}T${startTime}:00`)).then((t) => {
+      if (cancelled || !t) return;
+      setTravelMinutes(String(t.duration_in_traffic_minutes));
+      setTravelInfo(`Predicted ${t.duration_in_traffic_minutes}m via traffic · ${t.distance_km}km · from previous lesson${t.status === 'fallback' ? ' (estimate)' : ''}`);
+    });
+    return () => { cancelled = true; };
+  }, [addOpen, studentId, date, startTime, lessons]);
 
   const goPrev = () => setWeekStart(addDays(weekStart, -7));
   const goNext = () => setWeekStart(addDays(weekStart, 7));
@@ -146,10 +178,18 @@ export default function LessonDiaryScreen() {
                     <View key={di} style={styles.dayCell}>
                       {cellLessons.map((l) => {
                         const s = mockDb.getStudent(l.student_id);
+                        // Find previous lesson same day to check gap
+                        const prev = lessons
+                          .filter((x) => x.date === l.date && x.end_time <= l.start_time && x.id !== l.id && x.status !== 'Cancelled')
+                          .sort((a, b) => a.end_time.localeCompare(b.end_time))
+                          .pop();
+                        const gapMin = prev ? minutesBetween(prev.end_time, prev.date, l.start_time, l.date) : null;
+                        const needed = l.travel_minutes ?? prev?.travel_minutes ?? 0;
+                        const tooTight = gapMin !== null && gapMin < needed;
                         return (
                           <TouchableOpacity
                             key={l.id}
-                            style={styles.lessonBlock}
+                            style={[styles.lessonBlock, tooTight && styles.lessonBlockWarn]}
                             onPress={() => setDetailLesson(l)}
                             testID={`lesson-block-${l.id}`}
                           >
@@ -159,6 +199,11 @@ export default function LessonDiaryScreen() {
                             <Text style={styles.lessonBlockName} numberOfLines={1}>
                               {s?.name?.split(' ')[0] || 'Student'}
                             </Text>
+                            {tooTight && (
+                              <View style={styles.warnDot} testID={`gap-warn-${l.id}`}>
+                                <AlertTriangle size={10} color="#fff" />
+                              </View>
+                            )}
                           </TouchableOpacity>
                         );
                       })}
@@ -240,6 +285,12 @@ export default function LessonDiaryScreen() {
           placeholderTextColor={theme.colors.textMuted}
           testID="input-lesson-travel"
         />
+        {travelInfo && (
+          <View style={styles.travelInfoBox} testID="travel-info">
+            <Car size={14} color={theme.colors.primary} />
+            <Text style={styles.travelInfoText}>{travelInfo}</Text>
+          </View>
+        )}
 
         <TouchableOpacity style={styles.submitBtn} onPress={handleAdd} testID="btn-submit-lesson">
           <Text style={styles.submitBtnText}>Save Lesson</Text>
@@ -310,6 +361,30 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
+  lessonBlockWarn: { backgroundColor: theme.colors.faultDriving },
+  warnDot: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: theme.colors.faultSerious,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  travelInfoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: theme.colors.primaryLight,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: -6,
+    marginBottom: 12,
+  },
+  travelInfoText: { color: theme.colors.primary, fontSize: 12, fontWeight: '600', flex: 1 },
   lessonBlockTime: { color: '#fff', fontSize: 10, fontWeight: '600' },
   lessonBlockName: { color: '#fff', fontSize: 11 },
   label: { ...theme.font.caption, fontWeight: '600', marginBottom: 6, color: theme.colors.text },

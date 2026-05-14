@@ -24,6 +24,7 @@ JWT_EXPIRATION_HOURS = int(os.environ.get("JWT_EXPIRATION_HOURS", "720"))
 STRIPE_API_KEY = os.environ.get("STRIPE_API_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 APP_DOMAIN = os.environ.get("APP_DOMAIN", "http://localhost:3000")
+GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 
 stripe.api_key = STRIPE_API_KEY
 
@@ -403,6 +404,105 @@ async def create_portal_session(current_user: dict = Depends(get_current_user)):
 async def cancel_mock(current_user: dict = Depends(get_current_user)):
     await db.users.update_one({"id": current_user["id"]}, {"$set": {"subscription_status": "free", "stripe_subscription_id": None}})
     return {"subscription_status": "free"}
+
+
+# ============= MAPS / TRAVEL TIME =============
+import httpx
+import hashlib
+
+_travel_cache: dict[str, tuple[float, dict]] = {}
+TRAVEL_CACHE_TTL = 300  # 5 minutes
+
+
+class TravelTimeRequest(BaseModel):
+    origin: str = Field(..., min_length=3)
+    destination: str = Field(..., min_length=3)
+    departure_at: Optional[datetime] = None
+
+
+class TravelTimeResponse(BaseModel):
+    duration_minutes: int
+    duration_in_traffic_minutes: int
+    distance_km: float
+    status: Literal["ok", "fallback", "no_route", "error"]
+    cached: bool = False
+
+
+def _mock_travel(origin: str, destination: str) -> dict:
+    """Deterministic mock travel time based on string hash. Used when no Google key set."""
+    h = int(hashlib.sha256(f"{origin}|{destination}".encode()).hexdigest(), 16)
+    base = 8 + (h % 28)  # 8 to 35 min base
+    traffic = base + 1 + (h % 9)  # add 1-9 mins for traffic
+    distance = round(base * 0.7 + (h % 5), 1)  # rough km estimate
+    return {
+        "duration_minutes": base,
+        "duration_in_traffic_minutes": traffic,
+        "distance_km": distance,
+        "status": "fallback",
+    }
+
+
+@api_router.post("/maps/travel-time", response_model=TravelTimeResponse)
+async def travel_time(req: TravelTimeRequest, current_user: dict = Depends(get_current_user)):
+    cache_key = f"{req.origin.lower().strip()}|{req.destination.lower().strip()}"
+    now_ts = datetime.now(timezone.utc).timestamp()
+
+    # Cache hit
+    if cache_key in _travel_cache:
+        ts, data = _travel_cache[cache_key]
+        if now_ts - ts < TRAVEL_CACHE_TTL:
+            return TravelTimeResponse(**{**data, "cached": True})
+
+    # No key → mock fallback (still cached so the diary doesn't flicker)
+    if not GOOGLE_MAPS_API_KEY:
+        data = _mock_travel(req.origin, req.destination)
+        _travel_cache[cache_key] = (now_ts, data)
+        return TravelTimeResponse(**data, cached=False)
+
+    # Live Google Distance Matrix API
+    departure = int((req.departure_at or datetime.now(timezone.utc)).timestamp())
+    params = {
+        "origins": req.origin,
+        "destinations": req.destination,
+        "mode": "driving",
+        "units": "metric",
+        "departure_time": max(departure, int(now_ts)),  # must be now or future
+        "traffic_model": "best_guess",
+        "region": "uk",
+        "key": GOOGLE_MAPS_API_KEY,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client_h:
+            r = await client_h.get("https://maps.googleapis.com/maps/api/distancematrix/json", params=params)
+            r.raise_for_status()
+            body = r.json()
+    except Exception as e:
+        logger.warning(f"Google Maps API failed, using fallback: {e}")
+        data = _mock_travel(req.origin, req.destination)
+        _travel_cache[cache_key] = (now_ts, data)
+        return TravelTimeResponse(**data)
+
+    try:
+        top = body["rows"][0]["elements"][0]
+        if top["status"] != "OK":
+            data = {**_mock_travel(req.origin, req.destination), "status": "no_route"}
+            _travel_cache[cache_key] = (now_ts, data)
+            return TravelTimeResponse(**data)
+        normal_sec = top["duration"]["value"]
+        traffic_sec = top.get("duration_in_traffic", top["duration"])["value"]
+        dist_m = top["distance"]["value"]
+        data = {
+            "duration_minutes": int(round(normal_sec / 60)),
+            "duration_in_traffic_minutes": int(round(traffic_sec / 60)),
+            "distance_km": round(dist_m / 1000, 1),
+            "status": "ok",
+        }
+        _travel_cache[cache_key] = (now_ts, data)
+        return TravelTimeResponse(**data)
+    except Exception as e:
+        logger.error(f"Failed to parse Distance Matrix response: {e}")
+        data = {**_mock_travel(req.origin, req.destination), "status": "error"}
+        return TravelTimeResponse(**data)
 
 
 @api_router.post("/billing/webhook")

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, ScrollView } from 'react-native';
 import {
   X,
@@ -9,12 +9,14 @@ import {
   Activity,
   FileCheck,
   Megaphone,
+  Car,
 } from 'lucide-react-native';
 import { theme } from './theme';
 import { Lesson, Student, mockDb } from './mockDb';
 import { openNavigation, openSmsComposer } from './tools';
 import { fireInstantNotification } from './notifications';
 import { Badge } from './ui';
+import { getTravelTime, lessonAddress } from './maps';
 
 type Props = {
   visible: boolean;
@@ -26,6 +28,34 @@ type Props = {
 export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props) {
   const [precheck, setPrecheck] = useState<{ eye: boolean; fit: boolean; lic: boolean }>({ eye: false, fit: false, lic: false });
   const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const [eta, setEta] = useState<{ traffic: number; normal: number; distance: number; fallback: boolean } | null>(null);
+
+  useEffect(() => {
+    setEta(null);
+    if (!visible || !lesson) return;
+    const student = mockDb.getStudent(lesson.student_id);
+    const dest = lessonAddress(lesson, student);
+    if (!dest) return;
+    // Find previous lesson today as the origin; otherwise use student address as both (returns ~0; skip)
+    const prior = mockDb
+      .listLessons()
+      .filter((x) => x.date === lesson.date && x.end_time <= lesson.start_time && x.id !== lesson.id && x.status !== 'Cancelled')
+      .sort((a, b) => a.end_time.localeCompare(b.end_time))
+      .pop();
+    const origin = prior ? lessonAddress(prior, mockDb.getStudent(prior.student_id)) : null;
+    if (!origin) return;
+    let cancelled = false;
+    getTravelTime(origin, dest, new Date(`${lesson.date}T${lesson.start_time}:00`)).then((t) => {
+      if (cancelled || !t) return;
+      setEta({
+        traffic: t.duration_in_traffic_minutes,
+        normal: t.duration_minutes,
+        distance: t.distance_km,
+        fallback: t.status === 'fallback',
+      });
+    });
+    return () => { cancelled = true; };
+  }, [visible, lesson]);
 
   if (!lesson) return null;
   const student = mockDb.getStudent(lesson.student_id);
@@ -98,6 +128,19 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
             <Text style={styles.address}>
               {lesson.pickup_address || `${student.address}, ${student.postcode}`}
             </Text>
+            {eta && (
+              <View style={styles.etaCard} testID="live-eta">
+                <Car size={16} color={theme.colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.etaPrimary}>
+                    {eta.traffic} min via traffic{eta.fallback ? ' (estimate)' : ''}
+                  </Text>
+                  <Text style={styles.etaSecondary}>
+                    {eta.normal} min normally · {eta.distance} km from previous lesson
+                  </Text>
+                </View>
+              </View>
+            )}
             <View style={styles.navRow}>
               <NavBtn
                 label="Google"
@@ -249,6 +292,9 @@ const styles = StyleSheet.create({
   badgeRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 12 },
   section: { fontSize: 15, fontWeight: '700', color: theme.colors.text, marginTop: 8, marginBottom: 8 },
   address: { fontSize: 14, color: theme.colors.text, marginBottom: 10 },
+  etaCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.colors.primaryLight, borderRadius: 10, padding: 12, marginBottom: 10 },
+  etaPrimary: { color: theme.colors.primary, fontWeight: '700', fontSize: 14 },
+  etaSecondary: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
   navRow: { flexDirection: 'row', gap: 8 },
   navBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: theme.colors.primary, borderRadius: 10, paddingVertical: 12 },
   navBtnText: { color: theme.colors.primary, fontWeight: '700', fontSize: 13 },

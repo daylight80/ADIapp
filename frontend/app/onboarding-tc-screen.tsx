@@ -27,7 +27,7 @@ export default function OnboardingTcScreen() {
     instructorProfile.tc_signed_at = new Date().toISOString();
     instructorProfile.tc_signature_name = signature.trim();
     setSaved(true);
-    setTimeout(() => router.back(), 400);
+    setTimeout(() => router.back(), 1800);
   };
 
   return (

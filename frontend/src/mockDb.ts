@@ -181,15 +181,25 @@ let _students: Student[] = [
   },
 ];
 
-// Lessons (some today, some this week)
+// Lessons (seeded relative to the current week so they always show in the diary)
+const weekMonday = (() => {
+  const d = new Date();
+  const day = d.getDay();
+  d.setDate(d.getDate() - ((day + 6) % 7));
+  d.setHours(0, 0, 0, 0);
+  return d;
+})();
+const weekDate = (offset: number) => iso(addDays(weekMonday, offset)).slice(0, 10);
 let _lessons: Lesson[] = [
   {
     id: 'l1',
     student_id: 's3',
-    date: iso(today).slice(0, 10),
+    date: weekDate(1),
     start_time: '09:00',
     end_time: '11:00',
     duration_hours: 2,
+    travel_minutes: 20,
+    pickup_address: '88 High Street, Bristol, BS1 3AB',
     topic: 'Roundabouts & Junctions',
     notes: 'Worked on mini-roundabouts at Mill Lane.',
     driving_faults: 3,
@@ -202,10 +212,12 @@ let _lessons: Lesson[] = [
   {
     id: 'l2',
     student_id: 's1',
-    date: iso(today).slice(0, 10),
+    date: weekDate(2),
     start_time: '13:00',
     end_time: '15:00',
     duration_hours: 2,
+    travel_minutes: 15,
+    pickup_address: '12 Abbey Road, London, NW8 9AY',
     topic: 'Mock Test Practice',
     notes: 'Final preparation; full route.',
     driving_faults: 1,
@@ -218,10 +230,12 @@ let _lessons: Lesson[] = [
   {
     id: 'l3',
     student_id: 's2',
-    date: iso(today).slice(0, 10),
+    date: weekDate(3),
     start_time: '16:00',
     end_time: '17:30',
     duration_hours: 1.5,
+    travel_minutes: 10,
+    pickup_address: '45 King Street, Manchester, M2 4WQ',
     topic: 'Manoeuvres - Parallel Park',
     notes: 'Improving spatial awareness.',
     driving_faults: 2,
@@ -545,7 +559,7 @@ export const mockDb_ext = {
 
 // Per-instructor metadata (singleton-ish for v1)
 export const instructorProfile = {
-  adi_number: '' as string,
+  adi_number: '123456' as string,
   tc_signed_at: null as string | null,
   tc_signature_name: '' as string,
 };

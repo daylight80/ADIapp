@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Search, Plus, ArrowLeft, Mail, Phone, MapPin, CalendarDays, Check, Crown } from 'lucide-react-native';
+import { Search, Plus, ArrowLeft, Mail, Phone, MapPin, CalendarDays, Check, Crown, Send, Copy } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb, StudentStatus } from '../src/mockDb';
 import { Card, ProgressBar, StatusBadge } from '../src/ui';
@@ -22,6 +22,8 @@ import { useAuth } from '../src/AuthContext';
 import { canAddStudent, isPro, FREE_STUDENT_LIMIT } from '../src/proPlan';
 import { PaywallModal } from '../src/PaywallModal';
 import { fireInstantNotification } from '../src/notifications';
+import { openSmsComposer, copyToClipboard } from '../src/tools';
+import { api } from '../src/api';
 
 type FilterChip = 'All' | StudentStatus;
 
@@ -37,6 +39,9 @@ export default function StudentCrmScreen() {
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [snack, setSnack] = useState<string | null>(null);
+  const [busyInvite, setBusyInvite] = useState(false);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteRecipient, setInviteRecipient] = useState<{ name: string; phone: string } | null>(null);
 
   // Form
   const [name, setName] = useState('');
@@ -80,7 +85,7 @@ export default function StudentCrmScreen() {
     setTimeout(() => setSnack(null), 2500);
   };
 
-  const submit = () => {
+  const submit = async () => {
     setFormError(null);
     if (!name.trim() || name.trim().length < 2) {
       setFormError('Please enter the full name');
@@ -100,25 +105,45 @@ export default function StudentCrmScreen() {
       setPaywallOpen(true);
       return;
     }
-    const created = mockDb.addStudent({
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      phone: phone.trim(),
-      address: address.trim(),
-      postcode: postcode.trim().toUpperCase(),
-    });
-    setName('');
-    setEmail('');
-    setPhone('');
-    setAddress('');
-    setPostcode('');
-    setReloadKey((k) => k + 1);
-    setAddOpen(false);
-    showSnack('Student added successfully');
 
-    // Pro notification: instructor-side alert
-    if (pro) {
-      fireInstantNotification('New student added', `${created.name} has joined your roster.`).catch(() => {});
+    setBusyInvite(true);
+    try {
+      const res = await api.post('/instructor/invite-student', {
+        email: email.trim().toLowerCase(),
+        name: name.trim(),
+        phone: phone.trim(),
+      });
+      const inviteUrl = res.data.invite_url as string;
+      const studentName = name.trim();
+      const studentPhone = phone.trim();
+
+      // Also add to local mockDb so the CRM list reflects the invitee immediately
+      mockDb.addStudent({
+        name: studentName,
+        email: email.trim().toLowerCase(),
+        phone: studentPhone,
+        address: address.trim(),
+        postcode: postcode.trim().toUpperCase(),
+      });
+
+      // Clear form
+      setName('');
+      setEmail('');
+      setPhone('');
+      setAddress('');
+      setPostcode('');
+      setReloadKey((k) => k + 1);
+      setAddOpen(false);
+
+      // Show invite-link sheet
+      setInviteLink(inviteUrl);
+      setInviteRecipient({ name: studentName, phone: studentPhone });
+
+      if (pro) fireInstantNotification('Student invited', `${studentName} now has an invite link.`).catch(() => {});
+    } catch (e: any) {
+      setFormError(e?.response?.data?.detail || 'Failed to create invite');
+    } finally {
+      setBusyInvite(false);
     }
   };
 
@@ -128,6 +153,18 @@ export default function StudentCrmScreen() {
       return;
     }
     setAddOpen(true);
+  };
+
+  const copyInviteLink = () => {
+    if (!inviteLink) return;
+    const ok = copyToClipboard(inviteLink);
+    showSnack(ok ? 'Invite link copied to clipboard' : 'Could not copy automatically — long-press to copy.');
+  };
+
+  const smsInviteLink = async () => {
+    if (!inviteLink || !inviteRecipient) return;
+    const body = `Hi ${inviteRecipient.name.split(' ')[0]}, your driving instructor has invited you to DriveHub UK. Tap to sign up: ${inviteLink}`;
+    await openSmsComposer(inviteRecipient.phone, body);
   };
 
   return (
@@ -273,7 +310,9 @@ export default function StudentCrmScreen() {
         </View>
       )}
 
-      <BottomSheet visible={addOpen} onClose={() => setAddOpen(false)} title="Add New Student" testID="sheet-add-student">
+      <BottomSheet visible={addOpen} onClose={() => setAddOpen(false)} title="Invite New Student" testID="sheet-add-student">
+        <Text style={styles.hint}>We'll generate a private invite link you can copy or send by SMS.</Text>
+
         <Text style={styles.label}>Full name</Text>
         <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="e.g. Charlotte Smith" placeholderTextColor={theme.colors.textMuted} testID="input-student-name" />
 
@@ -300,7 +339,7 @@ export default function StudentCrmScreen() {
           testID="input-student-phone"
         />
 
-        <Text style={styles.label}>Address</Text>
+        <Text style={styles.label}>Address (optional)</Text>
         <TextInput
           style={styles.input}
           value={address}
@@ -310,7 +349,7 @@ export default function StudentCrmScreen() {
           testID="input-student-address"
         />
 
-        <Text style={styles.label}>Postcode</Text>
+        <Text style={styles.label}>Postcode (optional)</Text>
         <TextInput
           style={styles.input}
           value={postcode}
@@ -323,9 +362,47 @@ export default function StudentCrmScreen() {
 
         {formError && <Text style={styles.error}>{formError}</Text>}
 
-        <TouchableOpacity style={styles.submitBtn} onPress={submit} testID="btn-submit-student">
-          <Text style={styles.submitBtnText}>Add Student</Text>
+        <TouchableOpacity
+          style={[styles.submitBtn, busyInvite && styles.submitBtnDisabled]}
+          onPress={submit}
+          disabled={busyInvite}
+          testID="btn-submit-student"
+        >
+          <Send size={16} color="#fff" />
+          <Text style={styles.submitBtnText}>{busyInvite ? 'Creating invite...' : 'Generate invite link'}</Text>
         </TouchableOpacity>
+      </BottomSheet>
+
+      {/* Invite link reveal sheet */}
+      <BottomSheet
+        visible={!!inviteLink}
+        onClose={() => {
+          setInviteLink(null);
+          setInviteRecipient(null);
+        }}
+        title="Invite link ready"
+        testID="sheet-invite-link"
+      >
+        {inviteLink && inviteRecipient && (
+          <View style={{ gap: 14 }}>
+            <Text style={styles.hint}>
+              Send this link to {inviteRecipient.name}. It expires in 7 days. They'll set their own password and join your roster.
+            </Text>
+            <View style={styles.linkBox} testID="invite-link-value">
+              <Text style={styles.linkText} numberOfLines={2}>{inviteLink}</Text>
+            </View>
+            <View style={styles.linkRow}>
+              <TouchableOpacity style={[styles.linkBtn, { backgroundColor: theme.colors.primary }]} onPress={copyInviteLink} testID="btn-copy-invite">
+                <Copy size={16} color="#fff" />
+                <Text style={styles.linkBtnText}>Copy link</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.linkBtn, { backgroundColor: theme.colors.accent }]} onPress={smsInviteLink} testID="btn-sms-invite">
+                <Send size={16} color="#fff" />
+                <Text style={styles.linkBtnText}>Send via SMS</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </BottomSheet>
     </SafeAreaView>
   );
@@ -428,8 +505,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   error: { color: theme.colors.danger, marginBottom: 8 },
-  submitBtn: { backgroundColor: theme.colors.primary, height: 52, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
+  submitBtn: { backgroundColor: theme.colors.primary, height: 52, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', marginTop: 8, flexDirection: 'row', gap: 8 },
+  submitBtnDisabled: { opacity: 0.6 },
   submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  hint: { color: theme.colors.textMuted, marginBottom: 12, fontSize: 13 },
+  linkBox: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, padding: 12, backgroundColor: theme.colors.background },
+  linkText: { color: theme.colors.primary, fontWeight: '600', fontSize: 13 },
+  linkRow: { flexDirection: 'row', gap: 10 },
+  linkBtn: { flex: 1, height: 48, borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  linkBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   snackbar: {
     position: 'absolute',
     bottom: 110,

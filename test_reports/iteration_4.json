@@ -1,0 +1,42 @@
+{
+  "summary": "Tested ADI instructor signup + student invite flow end-to-end. 11/11 backend tests pass. Frontend tabs, FAB → 'Invite New Student' sheet, invite-link reveal sheet (Copy/SMS), and student-side ?invite=TOKEN acceptance flow all work. Discovered and fixed one critical backend bug (sparse unique index on adi_number breaking 2nd student creation).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_auth_invite.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Already fixed) Verify on next deploys that the partial-index migration in startup_event runs once and doesn't error on fresh environments.",
+    "Optional polish: Demo Instructor has 5/5 students in mockDb so the FAB shows Crown/paywall — that's expected on free tier; if main agent wants the invite flow demoable end-to-end, consider seeding the demo instructor with 1-2 students instead of 5 OR auto-upgrading the demo instructor to Pro at seed time.",
+    "Optional: copy-to-clipboard / SMS deep-link fall back silently on web preview as expected — no action needed."
+  ],
+  "critical_code_review_comments": [
+    "server.py originally created index `db.users.create_index('adi_number', unique=True, sparse=True)`. Sparse only excludes documents missing the field; documents with adi_number=null are still indexed and collide. Fixed by switching to partialFilterExpression={'adi_number':{'$type':'string'}} with an in-place drop+recreate so existing environments self-heal on startup.",
+    "RegisterInstructorRequest does not set model_config={'extra':'forbid'} — extra fields like role=student are silently ignored. Currently OK because the endpoint always forces role='instructor', but worth documenting.",
+    "register_instructor returns 400 with 'An instructor with this ADI number already exists'. Acceptable; the spec wording 'ADI number already exists' is a substring match.",
+    "Duplicate username collision on email returns 400 BEFORE the explicit ADI check — fine, but if you ever want clearer field-level errors, consider returning a structured error.",
+    "Invite tokens are JWTs signed with JWT_SECRET — preview endpoint is unauthenticated, which is correct for an invite link. Invite contains email/name/phone in JWT (signed, not encrypted) — acceptable for this use case."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (fixed partial unique index for adi_number)",
+    "/app/backend/tests/test_auth_invite.py (new pytest suite, 11 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11)",
+    "frontend": "100% of targeted flows"
+  },
+  "seed_data_creation": "Tests create TEST_ prefixed instructors and ui_invitee_* students; all were cleaned up after the run. Demo instructor's subscription_status was briefly set to 'pro' to bypass the 5/5 free-tier FAB gate, and reverted back to 'free' at the end.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Demo instructor on free tier has 5/5 mockDb students; FAB shows Crown (paywall) instead of opening invite sheet. To test the invite UI flow you must either (a) flip subscription_status to 'pro' in users collection, or (b) ask main agent to reduce the seeded mockDb students. Backend tests are independent of this and can be run any time via `pytest backend/tests/test_auth_invite.py`.",
+  "rca_of_issue": "Backend 500 on second POST /api/auth/accept-invite. RCA: startup_event created `users.adi_number` unique index with sparse=True. MongoDB's sparse only skips docs that don't have the field; docs with adi_number=null (seeded demo student + every invited student) ARE indexed and collide on the unique key. Reproduction: invite & accept two different students → 2nd accept raises DuplicateKeyError {adi_number: null}. Fix: replaced with a partial unique index `partialFilterExpression={'adi_number': {'$type':'string'}}` and added an in-place drop+recreate in startup so existing environments migrate automatically. Verified by running the full pytest suite (which inserts 2 invite-accept students) + UI end-to-end accept flow on the live preview."
+}

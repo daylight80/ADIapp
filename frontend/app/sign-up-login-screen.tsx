@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,23 +12,57 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Car, Mail, Lock, User as UserIcon, GraduationCap, Briefcase } from 'lucide-react-native';
+import { useLocalSearchParams } from 'expo-router';
+import { Car, Mail, Lock, User as UserIcon, IdCard, MailCheck, Briefcase, GraduationCap } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
+import { api } from '../src/api';
 
 type Tab = 'signin' | 'signup';
 
+type InvitePreview = {
+  email: string;
+  name: string;
+  instructor_name: string;
+  instructor_adi: string;
+  expires_at: string;
+};
+
 export default function SignUpLoginScreen() {
-  const [tab, setTab] = useState<Tab>('signin');
+  const params = useLocalSearchParams();
+  const inviteToken = (params.invite as string) || '';
+
+  const [tab, setTab] = useState<Tab>(inviteToken ? 'signup' : 'signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState<'instructor' | 'student'>('student');
+  const [adi, setAdi] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { signIn, signUp } = useAuth();
+
+  // Invite state
+  const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
+
+  const { signIn, signUp, acceptInvite } = useAuth();
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
+
+  // Fetch invite preview if invite token provided
+  useEffect(() => {
+    if (!inviteToken) return;
+    setInviteLoading(true);
+    api
+      .get(`/auth/invite/${inviteToken}`)
+      .then((res) => {
+        setInvitePreview(res.data);
+        setEmail(res.data.email);
+        setName(res.data.name);
+        setTab('signup');
+      })
+      .catch((e) => setError(e?.response?.data?.detail || 'Invite link invalid or expired'))
+      .finally(() => setInviteLoading(false));
+  }, [inviteToken]);
 
   const handleSignIn = async () => {
     setError(null);
@@ -49,7 +83,19 @@ export default function SignUpLoginScreen() {
       return;
     }
     setBusy(true);
-    const r = await signUp(email.trim(), password, name.trim(), role);
+    let r;
+    if (invitePreview) {
+      // Student accepts an invite
+      r = await acceptInvite(inviteToken, password);
+    } else {
+      // Instructor self-registers
+      if (!adi.trim() || adi.trim().length < 4) {
+        setBusy(false);
+        setError('Please enter your DVSA ADI number');
+        return;
+      }
+      r = await signUp(email.trim(), password, name.trim(), adi.trim());
+    }
     setBusy(false);
     if (!r.ok) setError(r.error || 'Registration failed');
   };
@@ -57,10 +103,9 @@ export default function SignUpLoginScreen() {
   const demoLogin = async (which: 'instructor' | 'student') => {
     setError(null);
     setBusy(true);
-    const creds =
-      which === 'instructor'
-        ? { email: 'instructor@demo.uk', password: 'password123' }
-        : { email: 'student@demo.uk', password: 'password123' };
+    const creds = which === 'instructor'
+      ? { email: 'instructor@demo.uk', password: 'password123' }
+      : { email: 'student@demo.uk', password: 'password123' };
     setEmail(creds.email);
     setPassword(creds.password);
     const r = await signIn(creds.email, creds.password);
@@ -68,12 +113,11 @@ export default function SignUpLoginScreen() {
     if (!r.ok) setError(r.error || 'Demo login failed');
   };
 
+  const isInvite = !!invitePreview;
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-      >
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView
           contentContainerStyle={[styles.scroll, isTablet && styles.scrollTablet]}
           keyboardShouldPersistTaps="handled"
@@ -87,22 +131,36 @@ export default function SignUpLoginScreen() {
               <Text style={styles.brandSub}>Instructor & Student Portal</Text>
             </View>
 
-            <View style={styles.tabs}>
-              <TouchableOpacity
-                style={[styles.tab, tab === 'signin' && styles.tabActive]}
-                onPress={() => setTab('signin')}
-                testID="tab-signin"
-              >
-                <Text style={[styles.tabText, tab === 'signin' && styles.tabTextActive]}>Sign In</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.tab, tab === 'signup' && styles.tabActive]}
-                onPress={() => setTab('signup')}
-                testID="tab-signup"
-              >
-                <Text style={[styles.tabText, tab === 'signup' && styles.tabTextActive]}>Create Account</Text>
-              </TouchableOpacity>
-            </View>
+            {isInvite && (
+              <View style={styles.inviteBanner} testID="invite-banner">
+                <MailCheck size={20} color={theme.colors.success} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.inviteTitle}>You've been invited!</Text>
+                  <Text style={styles.inviteSub}>
+                    {invitePreview!.instructor_name} (ADI {invitePreview!.instructor_adi}) has invited you to join DriveHub UK as a student.
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {!isInvite && (
+              <View style={styles.tabs}>
+                <TouchableOpacity
+                  style={[styles.tab, tab === 'signin' && styles.tabActive]}
+                  onPress={() => setTab('signin')}
+                  testID="tab-signin"
+                >
+                  <Text style={[styles.tabText, tab === 'signin' && styles.tabTextActive]}>Sign In</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.tab, tab === 'signup' && styles.tabActive]}
+                  onPress={() => setTab('signup')}
+                  testID="tab-signup"
+                >
+                  <Text style={[styles.tabText, tab === 'signup' && styles.tabTextActive]}>Create Instructor Account</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             {tab === 'signup' && (
               <View style={styles.field}>
@@ -113,6 +171,7 @@ export default function SignUpLoginScreen() {
                   placeholderTextColor={theme.colors.textMuted}
                   value={name}
                   onChangeText={setName}
+                  editable={!isInvite}
                   testID="input-name"
                 />
               </View>
@@ -128,6 +187,7 @@ export default function SignUpLoginScreen() {
                 autoCapitalize="none"
                 value={email}
                 onChangeText={setEmail}
+                editable={!isInvite || tab === 'signin'}
                 testID="input-email"
               />
             </View>
@@ -145,100 +205,88 @@ export default function SignUpLoginScreen() {
               />
             </View>
 
-            {tab === 'signup' && (
-              <View style={styles.roleRow}>
-                <TouchableOpacity
-                  style={[styles.roleBtn, role === 'student' && styles.roleBtnActive]}
-                  onPress={() => setRole('student')}
-                  testID="role-student"
-                >
-                  <GraduationCap
-                    size={18}
-                    color={role === 'student' ? theme.colors.primary : theme.colors.textMuted}
+            {tab === 'signup' && !isInvite && (
+              <>
+                <View style={styles.field}>
+                  <IdCard size={18} color={theme.colors.textMuted} />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="DVSA ADI number (e.g. 123456)"
+                    placeholderTextColor={theme.colors.textMuted}
+                    keyboardType="numeric"
+                    value={adi}
+                    onChangeText={setAdi}
+                    testID="input-adi"
                   />
-                  <Text
-                    style={[styles.roleText, role === 'student' && styles.roleTextActive]}
-                  >
-                    Student
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.roleBtn, role === 'instructor' && styles.roleBtnActive]}
-                  onPress={() => setRole('instructor')}
-                  testID="role-instructor"
-                >
-                  <Briefcase
-                    size={18}
-                    color={role === 'instructor' ? theme.colors.primary : theme.colors.textMuted}
-                  />
-                  <Text
-                    style={[styles.roleText, role === 'instructor' && styles.roleTextActive]}
-                  >
-                    Instructor
-                  </Text>
-                </TouchableOpacity>
-              </View>
+                </View>
+                <Text style={styles.helper}>
+                  Your ADI number is the unique reference that secures your account and all your students.
+                </Text>
+              </>
             )}
 
             {error && (
-              <Text style={styles.error} testID="auth-error">
-                {error}
-              </Text>
+              <Text style={styles.error} testID="auth-error">{error}</Text>
             )}
 
             <TouchableOpacity
               style={[styles.primaryBtn, busy && styles.btnDisabled]}
               onPress={tab === 'signin' ? handleSignIn : handleSignUp}
-              disabled={busy}
+              disabled={busy || inviteLoading}
               testID={tab === 'signin' ? 'btn-signin' : 'btn-signup'}
             >
               {busy ? (
                 <ActivityIndicator color="#fff" />
               ) : (
                 <Text style={styles.primaryBtnText}>
-                  {tab === 'signin' ? 'Sign In' : 'Create Account'}
+                  {tab === 'signin' ? 'Sign In' : isInvite ? 'Accept invite & create account' : 'Create Instructor Account'}
                 </Text>
               )}
             </TouchableOpacity>
 
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>Try the demo</Text>
-              <View style={styles.dividerLine} />
-            </View>
+            {!isInvite && (
+              <>
+                <View style={styles.divider}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>Try the demo</Text>
+                  <View style={styles.dividerLine} />
+                </View>
 
-            <View style={styles.demoPanel} testID="demo-panel">
-              <TouchableOpacity
-                style={[styles.demoBtn, styles.demoBtnInstructor]}
-                onPress={() => demoLogin('instructor')}
-                disabled={busy}
-                testID="demo-instructor"
-              >
-                <Briefcase size={16} color="#fff" />
-                <Text style={styles.demoBtnText}>Demo Instructor</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.demoBtn, styles.demoBtnStudent]}
-                onPress={() => demoLogin('student')}
-                disabled={busy}
-                testID="demo-student"
-              >
-                <GraduationCap size={16} color="#fff" />
-                <Text style={styles.demoBtnText}>Demo Student</Text>
-              </TouchableOpacity>
-            </View>
+                <View style={styles.demoPanel} testID="demo-panel">
+                  <TouchableOpacity
+                    style={[styles.demoBtn, styles.demoBtnInstructor]}
+                    onPress={() => demoLogin('instructor')}
+                    disabled={busy}
+                    testID="demo-instructor"
+                  >
+                    <Briefcase size={16} color="#fff" />
+                    <Text style={styles.demoBtnText}>Demo Instructor</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.demoBtn, styles.demoBtnStudent]}
+                    onPress={() => demoLogin('student')}
+                    disabled={busy}
+                    testID="demo-student"
+                  >
+                    <GraduationCap size={16} color="#fff" />
+                    <Text style={styles.demoBtnText}>Demo Student</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {tab === 'signup' && (
+                  <Text style={styles.studentNote}>
+                    Students cannot self-register. Ask your instructor for an invite link.
+                  </Text>
+                )}
+              </>
+            )}
 
             <View style={styles.legal}>
               <Text style={styles.legalText}>
                 By continuing you agree to our{' '}
-                <Text style={styles.legalLink} testID="link-tos">
-                  Terms of Service
-                </Text>{' '}
-                and{' '}
-                <Text style={styles.legalLink} testID="link-privacy">
-                  Privacy Policy
-                </Text>
-                .
+                <Text style={styles.legalLink} testID="link-tos">Terms of Service</Text>
+                {' '}and{' '}
+                <Text style={styles.legalLink} testID="link-privacy">Privacy Policy</Text>.
               </Text>
             </View>
           </View>
@@ -252,91 +300,36 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme.colors.background },
   scroll: { padding: 16, flexGrow: 1, justifyContent: 'center' },
   scrollTablet: { alignItems: 'center', padding: 32 },
-  card: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.xl,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
+  card: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.xl, padding: 24, borderWidth: 1, borderColor: theme.colors.border },
   cardTablet: { width: 480, maxWidth: '100%' },
   brand: { alignItems: 'center', marginBottom: 24 },
-  brandIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: theme.colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
+  brandIcon: { width: 56, height: 56, borderRadius: 16, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   brandTitle: { ...theme.font.h1 },
   brandSub: { ...theme.font.caption, marginTop: 4 },
-  tabs: {
-    flexDirection: 'row',
-    backgroundColor: theme.colors.background,
-    borderRadius: theme.radius.md,
-    padding: 4,
-    marginBottom: 20,
-  },
+  tabs: { flexDirection: 'row', backgroundColor: theme.colors.background, borderRadius: theme.radius.md, padding: 4, marginBottom: 20 },
   tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8 },
   tabActive: { backgroundColor: theme.colors.surface, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
-  tabText: { ...theme.font.body, color: theme.colors.textMuted, fontWeight: '600' },
+  tabText: { ...theme.font.body, color: theme.colors.textMuted, fontWeight: '600', fontSize: 13 },
   tabTextActive: { color: theme.colors.primary },
-  field: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.background,
-    borderRadius: theme.radius.md,
-    paddingHorizontal: 14,
-    height: 52,
-    marginBottom: 12,
-  },
+  inviteBanner: { flexDirection: 'row', gap: 10, padding: 14, borderRadius: 12, backgroundColor: '#D1FAE5', borderWidth: 1, borderColor: theme.colors.success, marginBottom: 16 },
+  inviteTitle: { fontWeight: '700', color: theme.colors.success, fontSize: 15 },
+  inviteSub: { color: theme.colors.text, fontSize: 13, marginTop: 4 },
+  field: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.background, borderRadius: theme.radius.md, paddingHorizontal: 14, height: 52, marginBottom: 12 },
   input: { flex: 1, ...theme.font.body, paddingVertical: 0 },
-  roleRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
-  roleBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  roleBtnActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primaryLight },
-  roleText: { ...theme.font.body, fontWeight: '600', color: theme.colors.textMuted },
-  roleTextActive: { color: theme.colors.primary },
+  helper: { fontSize: 12, color: theme.colors.textMuted, marginBottom: 12, marginTop: -4 },
   error: { color: theme.colors.danger, marginBottom: 8, fontSize: 14 },
-  primaryBtn: {
-    height: 52,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 4,
-  },
+  primaryBtn: { height: 52, borderRadius: theme.radius.md, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   btnDisabled: { opacity: 0.6 },
   primaryBtnText: { ...theme.font.button },
   divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 20, gap: 12 },
   dividerLine: { flex: 1, height: 1, backgroundColor: theme.colors.border },
   dividerText: { ...theme.font.caption },
   demoPanel: { gap: 10 },
-  demoBtn: {
-    height: 48,
-    borderRadius: theme.radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 8,
-  },
+  demoBtn: { height: 48, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
   demoBtnInstructor: { backgroundColor: theme.colors.accent },
   demoBtnStudent: { backgroundColor: theme.colors.primary },
   demoBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  studentNote: { textAlign: 'center', color: theme.colors.textMuted, fontSize: 12, marginTop: 12, fontStyle: 'italic' },
   legal: { marginTop: 20 },
   legalText: { ...theme.font.caption, textAlign: 'center' },
   legalLink: { color: theme.colors.primary, fontWeight: '600' },

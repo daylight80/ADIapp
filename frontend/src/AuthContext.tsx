@@ -15,8 +15,9 @@ type AuthContextType = {
   user: User | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
-  signUp: (email: string, password: string, name: string, role: 'instructor' | 'student') => Promise<{ ok: boolean; error?: string }>;
+  signUp: (email: string, password: string, name: string, adi_number: string) => Promise<{ ok: boolean; error?: string }>;
   signOut: () => Promise<void>;
+  acceptInvite: (invite_token: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   refreshUser: () => Promise<void>;
 };
 
@@ -53,14 +54,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signUp = async (email: string, password: string, name: string, role: 'instructor' | 'student') => {
+  const signUp = async (email: string, password: string, name: string, adi_number: string) => {
     try {
-      const res = await api.post('/auth/register', { email, password, name, role });
+      const res = await api.post('/auth/register', { email, password, name, adi_number });
       await tokenStore.set(res.data.access_token);
       setUser(res.data.user);
       return { ok: true };
     } catch (e: any) {
       return { ok: false, error: e?.response?.data?.detail || 'Registration failed' };
+    }
+  };
+
+  const acceptInvite = async (invite_token: string, password: string) => {
+    try {
+      const res = await api.post('/auth/accept-invite', { invite_token, password });
+      await tokenStore.set(res.data.access_token);
+      setUser(res.data.user);
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: e?.response?.data?.detail || 'Failed to accept invite' };
     }
   };
 
@@ -79,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut, refreshUser, acceptInvite }}>
       {children}
     </AuthContext.Provider>
   );

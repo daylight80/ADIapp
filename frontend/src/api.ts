@@ -42,6 +42,19 @@ export const api = axios.create({
 });
 
 api.interceptors.request.use(async (config) => {
+  // Prefer the live Supabase access token (post-Wave-2). Fall back to the legacy
+  // tokenStore for any code that still issues FastAPI auth flows.
+  try {
+    const { supabase } = await import('./supabaseClient');
+    const { data } = await supabase.auth.getSession();
+    const sbToken = data.session?.access_token;
+    if (sbToken) {
+      config.headers.Authorization = `Bearer ${sbToken}`;
+      return config;
+    }
+  } catch {
+    // ignore — fall through to legacy token
+  }
   const token = await tokenStore.get();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;

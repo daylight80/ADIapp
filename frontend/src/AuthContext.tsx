@@ -1,97 +1,285 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { api, tokenStore } from './api';
+import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
+import type { Session } from '@supabase/supabase-js';
+import { supabase } from './supabaseClient';
+
+export type Role = 'instructor' | 'student' | 'owner';
 
 export type User = {
-  id: string;
+  id: string;                         // Supabase auth.users.id
   email: string;
   name: string;
-  role: 'instructor' | 'student';
-  subscription_status?: 'free' | 'pro' | 'past_due' | 'canceled';
-  stripe_customer_id?: string | null;
+  role: Role;
+  // Instructor / school context
+  school_id?: string | null;
+  instructor_id?: string | null;
+  student_id?: string | null;
+  adi_number?: string | null;
+  subscription_status?: 'free' | 'active' | 'past_due' | 'cancelled' | 'trialing';
   created_at: string;
 };
 
+type SignUpResult = { ok: boolean; error?: string; needs_confirmation?: boolean };
+
 type AuthContextType = {
   user: User | null;
+  session: Session | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
-  signUp: (email: string, password: string, name: string, adi_number: string) => Promise<{ ok: boolean; error?: string }>;
+  signIn: (email: string, password: string) => Promise<SignUpResult>;
+  signUp: (email: string, password: string, name: string, adi_number: string) => Promise<SignUpResult>;
   signOut: () => Promise<void>;
-  acceptInvite: (invite_token: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  acceptInvite: (invite_token: string, password: string, name?: string) => Promise<SignUpResult>;
   refreshUser: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function loadProfile(session: Session): Promise<User> {
+  const authUser = session.user;
+  const email = authUser.email || '';
+  const meta = (authUser.user_metadata || {}) as Record<string, any>;
+  const fallbackName = meta.name || meta.full_name || email.split('@')[0];
+
+  // 1) Try instructor lookup — single source of truth for instructor role
+  const { data: instructor } = await supabase
+    .from('instructors')
+    .select('id, full_name, adi_number, school_id, driving_schools(id, business_name, subscription_status)')
+    .eq('auth_user_id', authUser.id)
+    .maybeSingle();
+
+  if (instructor) {
+    return {
+      id: authUser.id,
+      email,
+      name: instructor.full_name,
+      role: 'instructor',
+      school_id: instructor.school_id,
+      instructor_id: instructor.id,
+      adi_number: instructor.adi_number,
+      subscription_status: (instructor as any).driving_schools?.subscription_status || 'free',
+      created_at: authUser.created_at || new Date().toISOString(),
+    };
+  }
+
+  // 2) Try student lookup (by email match — students don't have auth_user_id in the spec'd schema)
+  const { data: student } = await supabase
+    .from('students')
+    .select('id, full_name, school_id, instructor_id')
+    .eq('email', email)
+    .maybeSingle();
+
+  if (student) {
+    return {
+      id: authUser.id,
+      email,
+      name: student.full_name,
+      role: 'student',
+      school_id: student.school_id,
+      instructor_id: student.instructor_id,
+      student_id: student.id,
+      subscription_status: 'free',
+      created_at: authUser.created_at || new Date().toISOString(),
+    };
+  }
+
+  // 3) Fall back to basic user info from auth metadata (e.g. just signed up,
+  //    school/instructor rows haven't been created yet for some reason).
+  return {
+    id: authUser.id,
+    email,
+    name: fallbackName,
+    role: (meta.role as Role) || 'instructor',
+    subscription_status: 'free',
+    created_at: authUser.created_at || new Date().toISOString(),
+  };
+}
+
+// Bootstrap school + instructor rows for a freshly-signed-up instructor.
+// Idempotent — if rows already exist for this auth user, it returns them.
+async function ensureInstructorBootstrap(args: {
+  authUserId: string;
+  email: string;
+  name: string;
+  adi_number: string;
+}) {
+  // 1. Find or create a driving_school owned by this auth user.
+  let schoolId: string | null = null;
+  const { data: existingSchool } = await supabase
+    .from('driving_schools')
+    .select('id')
+    .eq('owner_auth_id', args.authUserId)
+    .maybeSingle();
+
+  if (existingSchool) {
+    schoolId = existingSchool.id;
+  } else {
+    const businessName = `${args.name.split(' ')[0]}'s Driving School`;
+    const { data: school, error: schoolErr } = await supabase
+      .from('driving_schools')
+      .insert({
+        business_name: businessName,
+        owner_auth_id: args.authUserId,
+        subscription_status: 'free',
+      })
+      .select('id')
+      .single();
+    if (schoolErr) throw schoolErr;
+    schoolId = school.id;
+  }
+
+  // 2. Find or create the instructor row linked to this auth user.
+  const { data: existingInstructor } = await supabase
+    .from('instructors')
+    .select('id')
+    .eq('auth_user_id', args.authUserId)
+    .maybeSingle();
+
+  if (!existingInstructor) {
+    const { error: instErr } = await supabase.from('instructors').insert({
+      school_id: schoolId,
+      auth_user_id: args.authUserId,
+      full_name: args.name,
+      adi_number: args.adi_number,
+    });
+    if (instErr) throw instErr;
+  }
+
+  return { schoolId };
+}
+
+// ---------------------------------------------------------------------------
+// Provider
+// ---------------------------------------------------------------------------
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Restore session on mount + subscribe to auth state changes
   useEffect(() => {
+    let active = true;
+
     (async () => {
       try {
-        const token = await tokenStore.get();
-        if (token) {
-          const res = await api.get('/auth/me');
-          setUser(res.data);
+        const { data } = await supabase.auth.getSession();
+        if (!active) return;
+        setSession(data.session);
+        if (data.session) {
+          const profile = await loadProfile(data.session);
+          if (active) setUser(profile);
         }
-      } catch {
-        await tokenStore.clear();
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     })();
+
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_evt, newSession) => {
+      setSession(newSession);
+      if (!newSession) {
+        setUser(null);
+        return;
+      }
+      try {
+        const profile = await loadProfile(newSession);
+        setUser(profile);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[auth] loadProfile failed', e);
+      }
+    });
+
+    return () => {
+      active = false;
+      sub?.subscription.unsubscribe();
+    };
   }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn: AuthContextType['signIn'] = useCallback(async (email, password) => {
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  }, []);
+
+  const signUp: AuthContextType['signUp'] = useCallback(async (email, password, name, adi_number) => {
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: {
+        data: { name, role: 'instructor', adi_number },
+      },
+    });
+    if (error) return { ok: false, error: error.message };
+
+    // If email confirmation is enabled, signUp returns user but no session.
+    if (!data.session) {
+      return {
+        ok: true,
+        needs_confirmation: true,
+        error: 'Please check your email to confirm your account, then sign in.',
+      };
+    }
+
+    // Session present — bootstrap school + instructor rows.
     try {
-      const res = await api.post('/auth/login', { email, password });
-      await tokenStore.set(res.data.access_token);
-      setUser(res.data.user);
+      await ensureInstructorBootstrap({
+        authUserId: data.user!.id,
+        email: data.user!.email!,
+        name,
+        adi_number,
+      });
+    } catch (e: any) {
+      return { ok: false, error: e?.message || 'Profile setup failed' };
+    }
+    return { ok: true };
+  }, []);
+
+  const acceptInvite: AuthContextType['acceptInvite'] = useCallback(async (invite_token, password, name) => {
+    // Invite redemption is still served by the FastAPI invite registry until
+    // we migrate it. For now, just sign up the email passed via metadata.
+    // The invite-preview screen captures the email; we expect the caller to
+    // supply it through the invite_token (encoded base64 'email:school' for now).
+    try {
+      const decoded = (() => {
+        try {
+          return JSON.parse(atob(invite_token));
+        } catch {
+          return null;
+        }
+      })();
+      const email: string | undefined = decoded?.email;
+      if (!email) return { ok: false, error: 'Invalid invite token' };
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { name: name || email.split('@')[0], role: 'student' } },
+      });
+      if (error) return { ok: false, error: error.message };
+      if (!data.session) return { ok: true, needs_confirmation: true, error: 'Please confirm your email to finish signing up.' };
       return { ok: true };
     } catch (e: any) {
-      return { ok: false, error: e?.response?.data?.detail || 'Login failed' };
+      return { ok: false, error: e?.message || 'Invite acceptance failed' };
     }
-  };
+  }, []);
 
-  const signUp = async (email: string, password: string, name: string, adi_number: string) => {
-    try {
-      const res = await api.post('/auth/register', { email, password, name, adi_number });
-      await tokenStore.set(res.data.access_token);
-      setUser(res.data.user);
-      return { ok: true };
-    } catch (e: any) {
-      return { ok: false, error: e?.response?.data?.detail || 'Registration failed' };
-    }
-  };
-
-  const acceptInvite = async (invite_token: string, password: string) => {
-    try {
-      const res = await api.post('/auth/accept-invite', { invite_token, password });
-      await tokenStore.set(res.data.access_token);
-      setUser(res.data.user);
-      return { ok: true };
-    } catch (e: any) {
-      return { ok: false, error: e?.response?.data?.detail || 'Failed to accept invite' };
-    }
-  };
-
-  const signOut = async () => {
-    await tokenStore.clear();
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut();
     setUser(null);
-  };
+    setSession(null);
+  }, []);
 
-  const refreshUser = async () => {
-    try {
-      const res = await api.get('/auth/me');
-      setUser(res.data);
-    } catch {
-      // ignore
-    }
-  };
+  const refreshUser = useCallback(async () => {
+    const { data } = await supabase.auth.getSession();
+    if (!data.session) return;
+    const profile = await loadProfile(data.session);
+    setUser(profile);
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut, refreshUser, acceptInvite }}>
+    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut, refreshUser, acceptInvite }}>
       {children}
     </AuthContext.Provider>
   );

@@ -49,20 +49,24 @@ export default function SignUpLoginScreen() {
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
 
-  // Fetch invite preview if invite token provided
+  // Fetch invite preview if invite token provided.
+  // The token is a base64-encoded JSON payload: { email, name, instructor_name, instructor_adi, school_id }.
+  // (FastAPI invite endpoint is being decommissioned in favour of Supabase Auth.)
   useEffect(() => {
     if (!inviteToken) return;
     setInviteLoading(true);
-    api
-      .get(`/auth/invite/${inviteToken}`)
-      .then((res) => {
-        setInvitePreview(res.data);
-        setEmail(res.data.email);
-        setName(res.data.name);
-        setTab('signup');
-      })
-      .catch((e) => setError(e?.response?.data?.detail || 'Invite link invalid or expired'))
-      .finally(() => setInviteLoading(false));
+    try {
+      const decoded = JSON.parse(atob(String(inviteToken)));
+      if (!decoded?.email) throw new Error('missing email');
+      setInvitePreview(decoded);
+      setEmail(decoded.email);
+      setName(decoded.name || '');
+      setTab('signup');
+    } catch {
+      setError('Invite link invalid or expired');
+    } finally {
+      setInviteLoading(false);
+    }
   }, [inviteToken]);
 
   const handleSignIn = async () => {
@@ -104,12 +108,26 @@ export default function SignUpLoginScreen() {
   const demoLogin = async (which: 'instructor' | 'student') => {
     setError(null);
     setBusy(true);
-    const creds = which === 'instructor'
-      ? { email: 'instructor@demo.uk', password: 'password123' }
-      : { email: 'student@demo.uk', password: 'password123' };
+    const creds =
+      which === 'instructor'
+        ? { email: 'instructor@demo.uk', password: 'password123', name: 'Demo Instructor', adi: '123456' }
+        : { email: 'student@demo.uk', password: 'password123', name: 'Demo Student', adi: '' };
     setEmail(creds.email);
     setPassword(creds.password);
-    const r = await signIn(creds.email, creds.password);
+
+    // 1) try sign-in
+    let r = await signIn(creds.email, creds.password);
+    // 2) if account does not exist, auto-create then retry
+    if (!r.ok && /invalid|credentials|user/i.test(r.error || '')) {
+      const up = await signUp(creds.email, creds.password, creds.name, creds.adi || '000000');
+      if (up.needs_confirmation) {
+        setError('Email confirmation is enabled in Supabase. Disable it under Authentication → Providers → Email, then try again.');
+        setBusy(false);
+        return;
+      }
+      if (up.ok) r = await signIn(creds.email, creds.password);
+      else r = up;
+    }
     setBusy(false);
     if (!r.ok) setError(r.error || 'Demo login failed');
   };

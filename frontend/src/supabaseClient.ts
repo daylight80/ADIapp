@@ -10,6 +10,18 @@ import * as SecureStore from 'expo-secure-store';
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 
+// Polyfill WebSocket on Node < 22 (Metro SSR pass).
+// Without this, supabase-js Realtime fails on the SSR render. In the browser
+// and on native, the global WebSocket is already defined and this no-ops.
+if (typeof (globalThis as any).WebSocket === 'undefined') {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    (globalThis as any).WebSocket = require('ws');
+  } catch {
+    /* not available — realtime simply won't connect during SSR, fine for now */
+  }
+}
+
 // Native: bridge expo-secure-store into the AsyncStorage shape Supabase wants.
 const SecureStoreAdapter = {
   getItem: (key: string) => SecureStore.getItemAsync(key),
@@ -32,6 +44,9 @@ export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON
     persistSession: true,
     detectSessionInUrl: Platform.OS === 'web',
   },
+  // Realtime isn't used in Wave-2 yet — keep events minimal so the SDK doesn't
+  // try to open extra websockets during SSR.
+  realtime: { params: { eventsPerSecond: 1 } },
 });
 
 // Convenience: tiny "is configured?" check used by callers that want to fall

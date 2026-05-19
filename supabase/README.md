@@ -4,10 +4,17 @@ This folder holds the canonical Postgres schema for the **ADI Pro** UK driving-s
 
 ## Apply the schema
 
+Apply in order. Both files are idempotent — re-running them is safe.
+
+```
+supabase/migrations/001_initial_schema.sql      # the 6 spec'd tables + RLS
+supabase/migrations/002_extended_columns.sql    # CRM columns + auxiliary tables
+```
+
 ### Option A — Supabase Dashboard (fastest)
 1. Open your project → **SQL editor → New query**.
-2. Paste the contents of [`migrations/001_initial_schema.sql`](./migrations/001_initial_schema.sql).
-3. Press **Run**. All tables, RLS policies and helper functions are created idempotently.
+2. Paste **001_initial_schema.sql**, press **Run**.
+3. Open a new query, paste **002_extended_columns.sql**, press **Run**.
 
 ### Option B — Supabase CLI
 ```bash

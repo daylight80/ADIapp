@@ -56,7 +56,7 @@ export function buildInvoiceHtml(opts: {
 </style></head><body>
 <div class="header">
   <div>
-    <div class="brand">DriveHub<span class="accent">UK</span></div>
+    <div class="brand">ADI<span class="accent">Pro</span></div>
     <div class="muted">Driving Instructor Invoice</div>
   </div>
   <div style="text-align:right">
@@ -92,7 +92,7 @@ export function buildInvoiceHtml(opts: {
   <div class="row grand"><span>Total</span><span>£${total.toFixed(2)}</span></div>
 </div>
 
-<div class="footer">Thank you for your business. Payment terms: 14 days. DriveHub UK · drivehub.uk</div>
+<div class="footer">Thank you for your business. Payment terms: 14 days. ADI Pro · adipro.app</div>
 </body></html>`;
 }
 

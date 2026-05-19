@@ -163,7 +163,7 @@ export default function StudentCrmScreen() {
 
   const smsInviteLink = async () => {
     if (!inviteLink || !inviteRecipient) return;
-    const body = `Hi ${inviteRecipient.name.split(' ')[0]}, your driving instructor has invited you to DriveHub UK. Tap to sign up: ${inviteLink}`;
+    const body = `Hi ${inviteRecipient.name.split(' ')[0]}, your driving instructor has invited you to ADI Pro. Tap to sign up: ${inviteLink}`;
     await openSmsComposer(inviteRecipient.phone, body);
   };
 

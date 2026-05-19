@@ -9,11 +9,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Image,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
-import { Car, Mail, Lock, User as UserIcon, IdCard, MailCheck, Briefcase, GraduationCap } from 'lucide-react-native';
+import { Mail, Lock, User as UserIcon, IdCard, MailCheck, Briefcase, GraduationCap } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { api } from '../src/api';
@@ -124,10 +125,12 @@ export default function SignUpLoginScreen() {
         >
           <View style={[styles.card, isTablet && styles.cardTablet]} testID="auth-card">
             <View style={styles.brand}>
-              <View style={styles.brandIcon}>
-                <Car size={28} color="#fff" />
-              </View>
-              <Text style={styles.brandTitle}>DriveHub UK</Text>
+              <Image
+                source={require('../assets/images/adi-pro-logo.png')}
+                style={styles.brandLogo}
+                resizeMode="contain"
+              />
+              <Text style={styles.brandTitle}>ADI Pro</Text>
               <Text style={styles.brandSub}>Instructor & Student Portal</Text>
             </View>
 
@@ -137,7 +140,7 @@ export default function SignUpLoginScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.inviteTitle}>You've been invited!</Text>
                   <Text style={styles.inviteSub}>
-                    {invitePreview!.instructor_name} (ADI {invitePreview!.instructor_adi}) has invited you to join DriveHub UK as a student.
+                    {invitePreview!.instructor_name} (ADI {invitePreview!.instructor_adi}) has invited you to join ADI Pro as a student.
                   </Text>
                 </View>
               </View>
@@ -304,6 +307,7 @@ const styles = StyleSheet.create({
   cardTablet: { width: 480, maxWidth: '100%' },
   brand: { alignItems: 'center', marginBottom: 24 },
   brandIcon: { width: 56, height: 56, borderRadius: 16, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  brandLogo: { width: 96, height: 96, marginBottom: 12 },
   brandTitle: { ...theme.font.h1 },
   brandSub: { ...theme.font.caption, marginTop: 4 },
   tabs: { flexDirection: 'row', backgroundColor: theme.colors.background, borderRadius: theme.radius.md, padding: 4, marginBottom: 20 },

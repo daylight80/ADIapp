@@ -117,8 +117,16 @@ export default function SignUpLoginScreen() {
 
     // 1) try sign-in
     let r = await signIn(creds.email, creds.password);
-    // 2) if account does not exist, auto-create then retry
-    if (!r.ok && /invalid|credentials|user/i.test(r.error || '')) {
+
+    // 2) if email confirmation is still on, surface the clear instruction
+    if (!r.ok && /email\s*not\s*confirmed|confirm/i.test(r.error || '')) {
+      setError('Email confirmation is enabled in Supabase. Disable it under Authentication → Providers → Email, then try again. (If you can\u2019t disable it, manually confirm `' + creds.email + '` in the Supabase Authentication → Users panel.)');
+      setBusy(false);
+      return;
+    }
+
+    // 3) if account does not exist, auto-create then retry
+    if (!r.ok && /invalid|credentials|user|not.*found/i.test(r.error || '')) {
       const up = await signUp(creds.email, creds.password, creds.name, creds.adi || '000000');
       if (up.needs_confirmation) {
         setError('Email confirmation is enabled in Supabase. Disable it under Authentication → Providers → Email, then try again.');

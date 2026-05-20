@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown, Pencil, Trash2, Trophy } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb } from '../src/mockDb';
+import { useStudent, patchStudent, passStudent, removeStudent } from '../src/useSupabaseData';
 import { Card, ProgressBar, StatusBadge, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { SimpleBarChart } from '../src/SimpleBarChart';
@@ -28,11 +29,12 @@ export default function StudentLifecycleScreen() {
   const pro = isPro(user?.subscription_status);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [busyInvoice, setBusyInvoice] = useState(false);
-  const id = (params.id as string) || 's1';
-  const [reloadKey, setReloadKey] = useState(0);
-  const student = useMemo(() => mockDb.getStudent(id) || mockDb.listStudents()[0], [id, reloadKey]);
-  const lessons = useMemo(() => mockDb.listLessonsForStudent(student.id), [student.id, reloadKey]);
-  const competencies = useMemo(() => mockDb.getCompetencies(student.id), [student.id]);
+  const id = (params.id as string) || '';
+  const { student: sbStudent, loading: studentLoading } = useStudent(id);
+  // Fall back to mockDb until lessons + competencies are migrated in the next slice.
+  const student = sbStudent || (mockDb.getStudent(id) || mockDb.listStudents()[0]);
+  const lessons = useMemo(() => (student ? mockDb.listLessonsForStudent(student.id) : []), [student?.id]);
+  const competencies = useMemo(() => (student ? mockDb.getCompetencies(student.id) : []), [student?.id]);
 
   const [tab, setTab] = useState<Tab>('overview');
 
@@ -57,23 +59,27 @@ export default function StudentLifecycleScreen() {
     setAmendOpen(true);
   };
 
-  const saveAmend = () => {
+  const saveAmend = async () => {
     const rate = parseInt(aHourlyRate, 10);
     if (!aName.trim()) {
       Alert.alert('Name required', 'Please enter the student\u2019s full name.');
       return;
     }
-    mockDb.updateStudent(student.id, {
-      name: aName.trim(),
-      email: aEmail.trim(),
-      phone: aPhone.trim(),
-      address: aAddress.trim(),
-      postcode: aPostcode.trim().toUpperCase(),
-      hourly_rate: Number.isFinite(rate) && rate > 0 ? rate : student.hourly_rate,
-      test_date: aTestDate ? new Date(aTestDate).toISOString() : undefined,
-    });
+    try {
+      await patchStudent(student.id, {
+        name: aName.trim(),
+        email: aEmail.trim(),
+        phone: aPhone.trim(),
+        address: aAddress.trim(),
+        postcode: aPostcode.trim().toUpperCase(),
+        hourly_rate: Number.isFinite(rate) && rate > 0 ? rate : student.hourly_rate,
+        test_date: aTestDate ? new Date(aTestDate).toISOString() : null,
+      });
+    } catch (e: any) {
+      Alert.alert('Save failed', e?.message || 'Could not save changes');
+      return;
+    }
     setAmendOpen(false);
-    setReloadKey((k) => k + 1);
   };
 
   const confirmAndRun = (title: string, message: string, confirmLabel: string, onConfirm: () => void, destructive = false) => {
@@ -97,9 +103,12 @@ export default function StudentLifecycleScreen() {
       'Mark as Passed?',
       `Confirm that ${student.name} has passed their practical test. Progress will be set to 100%.`,
       'Mark as Passed',
-      () => {
-        mockDb.markStudentPassed(student.id);
-        setReloadKey((k) => k + 1);
+      async () => {
+        try {
+          await passStudent(student.id);
+        } catch (e: any) {
+          Alert.alert('Update failed', e?.message || 'Could not mark passed');
+        }
       },
     );
   };
@@ -109,8 +118,13 @@ export default function StudentLifecycleScreen() {
       'Delete student?',
       `This will permanently remove ${student.name} and all their lessons from your records. This cannot be undone.`,
       'Delete',
-      () => {
-        mockDb.deleteStudent(student.id);
+      async () => {
+        try {
+          await removeStudent(student.id);
+        } catch (e: any) {
+          Alert.alert('Delete failed', e?.message || 'Could not delete student');
+          return;
+        }
         router.back();
       },
       true,

@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router';
 import { Search, Plus, ArrowLeft, Mail, Phone, MapPin, CalendarDays, Check, Crown, Send, Copy } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb, StudentStatus } from '../src/mockDb';
+import { useStudents, createStudent, ensureDemoStudentsSeeded } from '../src/useSupabaseData';
 import { Card, ProgressBar, StatusBadge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { BottomNav } from '../src/BottomNav';
@@ -53,7 +54,12 @@ export default function StudentCrmScreen() {
 
   const [reloadKey, setReloadKey] = useState(0);
 
-  const students = useMemo(() => mockDb.listStudents(), [reloadKey]);
+  const { students, loading: studentsLoading, refresh: refreshStudents } = useStudents();
+
+  // Seed demo students on first login for this instructor (idempotent)
+  React.useEffect(() => {
+    ensureDemoStudentsSeeded().catch(() => {});
+  }, []);
 
   const filtered = useMemo(() => {
     return students.filter((s) => {
@@ -74,11 +80,8 @@ export default function StudentCrmScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    setTimeout(() => {
-      setReloadKey((k) => k + 1);
-      setRefreshing(false);
-    }, 600);
-  }, []);
+    refreshStudents().finally(() => setRefreshing(false));
+  }, [refreshStudents]);
 
   const showSnack = (msg: string) => {
     setSnack(msg);
@@ -108,23 +111,42 @@ export default function StudentCrmScreen() {
 
     setBusyInvite(true);
     try {
-      const res = await api.post('/instructor/invite-student', {
-        email: email.trim().toLowerCase(),
-        name: name.trim(),
-        phone: phone.trim(),
-      });
-      const inviteUrl = res.data.invite_url as string;
       const studentName = name.trim();
       const studentPhone = phone.trim();
 
-      // Also add to local mockDb so the CRM list reflects the invitee immediately
-      mockDb.addStudent({
+      // Persist student into Supabase (RLS enforced by school_id/instructor_id)
+      const created = await createStudent({
         name: studentName,
         email: email.trim().toLowerCase(),
         phone: studentPhone,
         address: address.trim(),
         postcode: postcode.trim().toUpperCase(),
+        provisional_licence: 'PENDING',
       });
+
+      // Generate an invite link via FastAPI (still serving invite URLs until
+      // we migrate the invite system). Fall back to a base64 payload if the
+      // backend is offline so the demo flow keeps working.
+      let inviteUrl: string;
+      try {
+        const res = await api.post('/instructor/invite-student', {
+          email: email.trim().toLowerCase(),
+          name: studentName,
+          phone: studentPhone,
+        });
+        inviteUrl = res.data.invite_url as string;
+      } catch {
+        const payload = btoa(
+          JSON.stringify({
+            email: email.trim().toLowerCase(),
+            name: studentName,
+            student_id: created.id,
+            instructor_id: created.instructor_id,
+            school_id: created.school_id,
+          })
+        );
+        inviteUrl = `${process.env.EXPO_PUBLIC_BACKEND_URL || ''}/?invite=${payload}`;
+      }
 
       // Clear form
       setName('');
@@ -141,7 +163,7 @@ export default function StudentCrmScreen() {
 
       if (pro) fireInstantNotification('Student invited', `${studentName} now has an invite link.`).catch(() => {});
     } catch (e: any) {
-      setFormError(e?.response?.data?.detail || 'Failed to create invite');
+      setFormError(e?.message || e?.response?.data?.detail || 'Failed to create student');
     } finally {
       setBusyInvite(false);
     }

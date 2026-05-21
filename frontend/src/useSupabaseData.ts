@@ -117,3 +117,107 @@ export async function ensureDemoStudentsSeeded() {
   if (r.created > 0) bump();
   return r;
 }
+
+// ---------------------------------------------------------------------------
+// Hooks — Lessons
+// ---------------------------------------------------------------------------
+
+export function useLessons() {
+  const version = useVersion();
+  const [lessons, setLessons] = useState<db.Lesson[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setLessons(await db.listLessons());
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load lessons');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh, version]);
+
+  return { lessons, loading, error, refresh };
+}
+
+export function useLessonsForStudent(studentId: string | undefined) {
+  const version = useVersion();
+  const [lessons, setLessons] = useState<db.Lesson[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    if (!studentId) {
+      setLessons([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      setLessons(await db.listLessonsForStudent(studentId));
+    } finally {
+      setLoading(false);
+    }
+  }, [studentId]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh, version]);
+
+  return { lessons, loading, refresh };
+}
+
+export function useLessonsForWeek(weekStart: Date) {
+  const version = useVersion();
+  const key = weekStart.toISOString().slice(0, 10);
+  const [lessons, setLessons] = useState<db.Lesson[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const from = new Date(weekStart);
+    from.setHours(0, 0, 0, 0);
+    const to = new Date(from);
+    to.setDate(to.getDate() + 7);
+    setLoading(true);
+    db.listLessonsBetween(from.toISOString(), to.toISOString())
+      .then(setLessons)
+      .catch(() => setLessons([]))
+      .finally(() => setLoading(false));
+  }, [key, version]);
+
+  return { lessons, loading };
+}
+
+// ---------------------------------------------------------------------------
+// Lesson mutations
+// ---------------------------------------------------------------------------
+
+export async function createLesson(input: db.AddLessonInput) {
+  const row = await db.addLesson(input);
+  bump();
+  return row;
+}
+
+export async function patchLesson(id: string, patch: db.UpdateLessonInput) {
+  const row = await db.updateLesson(id, patch);
+  bump();
+  return row;
+}
+
+export async function cancelLesson(id: string) {
+  const row = await db.updateLesson(id, { status: 'Cancelled' });
+  bump();
+  return row;
+}
+
+export async function removeLesson(id: string) {
+  const ok = await db.deleteLesson(id);
+  bump();
+  return ok;
+}

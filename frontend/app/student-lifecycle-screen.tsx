@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown, Pencil, Trash2, Trophy } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb } from '../src/mockDb';
-import { useStudent, patchStudent, passStudent, removeStudent } from '../src/useSupabaseData';
+import { useStudent, patchStudent, passStudent, removeStudent, useLessonsForStudent } from '../src/useSupabaseData';
 import { Card, ProgressBar, StatusBadge, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { SimpleBarChart } from '../src/SimpleBarChart';
@@ -33,7 +33,8 @@ export default function StudentLifecycleScreen() {
   const { student: sbStudent, loading: studentLoading } = useStudent(id);
   // Fall back to mockDb until lessons + competencies are migrated in the next slice.
   const student = sbStudent || (mockDb.getStudent(id) || mockDb.listStudents()[0]);
-  const lessons = useMemo(() => (student ? mockDb.listLessonsForStudent(student.id) : []), [student?.id]);
+  const { lessons: sbLessons } = useLessonsForStudent(student?.id);
+  const lessons = useMemo(() => (sbLessons && sbLessons.length > 0 ? sbLessons : (student ? mockDb.listLessonsForStudent(student.id) : [])), [sbLessons, student?.id]);
   const competencies = useMemo(() => (student ? mockDb.getCompetencies(student.id) : []), [student?.id]);
 
   const [tab, setTab] = useState<Tab>('overview');

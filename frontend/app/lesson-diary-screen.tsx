@@ -12,6 +12,7 @@ import { useRouter } from 'expo-router';
 import { ChevronLeft, ChevronRight, Plus, ArrowLeft, AlertTriangle, Car, Calendar, CalendarDays } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb, Lesson } from '../src/mockDb';
+import { useLessonsForWeek, useStudents, createLesson } from '../src/useSupabaseData';
 import { Card, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { BottomNav } from '../src/BottomNav';
@@ -67,14 +68,17 @@ export default function LessonDiaryScreen() {
   const [topic, setTopic] = useState('');
   const [travelMinutes, setTravelMinutes] = useState('15');
 
-  const lessons = useMemo(() => mockDb.listLessonsForWeek(weekStart), [weekStart, addOpen]);
-  const students = mockDb.listStudents();
+  const { lessons } = useLessonsForWeek(weekStart);
+  const { students } = useStudents();
+
+  // Lookup helper (mockDb shape used by callers)
+  const getStudent = (id: string) => students.find((s) => s.id === id);
 
   // Travel-time auto-suggest when a student is picked for a new lesson
   const [travelInfo, setTravelInfo] = useState<string | null>(null);
   useEffect(() => {
     if (!addOpen || !studentId || !date) return;
-    const newStudent = mockDb.getStudent(studentId);
+    const newStudent = getStudent(studentId);
     if (!newStudent) return;
     // Find most recent lesson on this date before the new one
     const todays = lessons
@@ -86,7 +90,7 @@ export default function LessonDiaryScreen() {
       newStudent
     );
     const origin = prior
-      ? lessonAddress(prior, mockDb.getStudent(prior.student_id))
+      ? lessonAddress(prior, getStudent(prior.student_id))
       : null;
     if (!origin || !newDest) {
       setTravelInfo(null);
@@ -117,36 +121,36 @@ export default function LessonDiaryScreen() {
     return { top, height };
   };
 
-  const prevLessonFor = (l: Lesson) => mockDb
-    .listLessons()
+  const prevLessonFor = (l: Lesson) => lessons
     .filter((x) => x.date === l.date && x.end_time <= l.start_time && x.id !== l.id && x.status !== 'Cancelled')
     .sort((a, b) => a.end_time.localeCompare(b.end_time))
     .pop();
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!studentId || !date || !topic) return;
-    const [sh, sm] = startTime.split(':').map(Number);
-    const [eh, em] = endTime.split(':').map(Number);
-    const duration = (eh + em / 60) - (sh + sm / 60);
-    const newLesson = mockDb.addLesson({
-      student_id: studentId,
-      date,
-      start_time: startTime,
-      end_time: endTime,
-      duration_hours: duration,
-      travel_minutes: parseInt(travelMinutes, 10) || 0,
-      topic,
-      amount_paid: Math.round(duration * 36),
-    });
-    setStudentId('');
-    setDate('');
-    setTopic('');
-    setAddOpen(false);
+    try {
+      const newLesson = await createLesson({
+        student_id: studentId,
+        date,
+        start_time: startTime,
+        end_time: endTime,
+        travel_minutes: parseInt(travelMinutes, 10) || 0,
+        topic,
+        amount_paid: undefined,
+      });
+      setStudentId('');
+      setDate('');
+      setTopic('');
+      setAddOpen(false);
 
-    // Pro: schedule 24h and 1h reminders
-    if (pro) {
-      const student = mockDb.getStudent(studentId);
-      if (student) scheduleLessonReminders(newLesson, student).catch(() => {});
+      // Pro: schedule 24h and 1h reminders
+      if (pro) {
+        const student = getStudent(studentId);
+        if (student) scheduleLessonReminders(newLesson as any, student as any).catch(() => {});
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[diary] addLesson failed', e);
     }
   };
 
@@ -221,7 +225,7 @@ export default function LessonDiaryScreen() {
                 {lessons
                   .filter((l) => l.date === selectedKey && l.status !== 'Cancelled')
                   .map((l) => {
-                    const s = mockDb.getStudent(l.student_id);
+                    const s = getStudent(l.student_id);
                     const { top, height } = computePos(l);
                     const prev = prevLessonFor(l);
                     const gapMin = prev ? minutesBetween(prev.end_time, prev.date, l.start_time, l.date) : null;
@@ -292,7 +296,7 @@ export default function LessonDiaryScreen() {
                         ))}
                       </View>
                       {dayLessons.map((l) => {
-                        const s = mockDb.getStudent(l.student_id);
+                        const s = getStudent(l.student_id);
                         const { top, height } = computePos(l);
                         const prev = prevLessonFor(l);
                         const gapMin = prev ? minutesBetween(prev.end_time, prev.date, l.start_time, l.date) : null;

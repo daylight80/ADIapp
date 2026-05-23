@@ -273,41 +273,10 @@ export default function SignUpLoginScreen() {
               )}
             </TouchableOpacity>
 
-            {!isInvite && (
-              <>
-                <View style={styles.divider}>
-                  <View style={styles.dividerLine} />
-                  <Text style={styles.dividerText}>Try the demo</Text>
-                  <View style={styles.dividerLine} />
-                </View>
-
-                <View style={styles.demoPanel} testID="demo-panel">
-                  <TouchableOpacity
-                    style={[styles.demoBtn, styles.demoBtnInstructor]}
-                    onPress={() => demoLogin('instructor')}
-                    disabled={busy}
-                    testID="demo-instructor"
-                  >
-                    <Briefcase size={16} color="#fff" />
-                    <Text style={styles.demoBtnText}>Demo Instructor</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.demoBtn, styles.demoBtnStudent]}
-                    onPress={() => demoLogin('student')}
-                    disabled={busy}
-                    testID="demo-student"
-                  >
-                    <GraduationCap size={16} color="#fff" />
-                    <Text style={styles.demoBtnText}>Demo Student</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {tab === 'signup' && (
-                  <Text style={styles.studentNote}>
-                    Students cannot self-register. Ask your instructor for an invite link.
-                  </Text>
-                )}
-              </>
+            {!isInvite && tab === 'signup' && (
+              <Text style={styles.studentNote}>
+                Students cannot self-register. Ask your instructor for an invite link.
+              </Text>
             )}
 
             <View style={styles.legal}>

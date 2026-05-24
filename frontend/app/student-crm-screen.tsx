@@ -16,6 +16,7 @@ import { Search, Plus, ArrowLeft, Mail, Phone, MapPin, CalendarDays, Check, Crow
 import { theme } from '../src/theme';
 import { mockDb, StudentStatus } from '../src/mockDb';
 import { useStudents, createStudent, ensureDemoStudentsSeeded } from '../src/useSupabaseData';
+import { explainLimitError } from '../src/tiers';
 import { Card, ProgressBar, StatusBadge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { BottomNav } from '../src/BottomNav';
@@ -163,7 +164,21 @@ export default function StudentCrmScreen() {
 
       if (pro) fireInstantNotification('Student invited', `${studentName} now has an invite link.`).catch(() => {});
     } catch (e: any) {
-      setFormError(e?.message || e?.response?.data?.detail || 'Failed to create student');
+      const upgradeMsg = explainLimitError(e);
+      if (upgradeMsg) {
+        setFormError(upgradeMsg + ' Tap below to upgrade.');
+        // Surface an Upgrade CTA via Alert as well so it's clearly actionable
+        Alert.alert(
+          'Student limit reached',
+          upgradeMsg,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'See plans', onPress: () => router.push('/pricing-screen') },
+          ],
+        );
+      } else {
+        setFormError(e?.message || e?.response?.data?.detail || 'Failed to create student');
+      }
     } finally {
       setBusyInvite(false);
     }

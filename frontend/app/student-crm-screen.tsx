@@ -43,7 +43,7 @@ export default function StudentCrmScreen() {
   const [snack, setSnack] = useState<string | null>(null);
   const [busyInvite, setBusyInvite] = useState(false);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
-  const [inviteRecipient, setInviteRecipient] = useState<{ name: string; phone: string } | null>(null);
+  const [inviteRecipient, setInviteRecipient] = useState<{ name: string; phone: string; email_sent?: boolean; detail?: string } | null>(null);
 
   // Form
   const [name, setName] = useState('');
@@ -125,29 +125,33 @@ export default function StudentCrmScreen() {
         provisional_licence: 'PENDING',
       });
 
-      // Generate an invite link via FastAPI (still serving invite URLs until
-      // we migrate the invite system). Fall back to a base64 payload if the
-      // backend is offline so the demo flow keeps working.
-      let inviteUrl: string;
+      // Trigger Supabase Auth invite email (Supabase's built-in email provider).
+      // The recipient gets a magic-link email and can set a password on landing.
+      let emailSent = false;
+      let inviteDetail = '';
       try {
-        const res = await api.post('/instructor/invite-student', {
+        const res = await api.post('/v2/students/invite', {
+          email: email.trim().toLowerCase(),
+          student_name: studentName,
+          student_id: created.id,
+        });
+        emailSent = !!res.data?.sent;
+        inviteDetail = res.data?.detail || '';
+      } catch (err: any) {
+        inviteDetail = err?.response?.data?.detail || err?.message || 'Could not send invite email';
+      }
+
+      // Build a shareable link as a fallback for sharing manually (SMS / WhatsApp).
+      const payload = btoa(
+        JSON.stringify({
           email: email.trim().toLowerCase(),
           name: studentName,
-          phone: studentPhone,
-        });
-        inviteUrl = res.data.invite_url as string;
-      } catch {
-        const payload = btoa(
-          JSON.stringify({
-            email: email.trim().toLowerCase(),
-            name: studentName,
-            student_id: created.id,
-            instructor_id: created.instructor_id,
-            school_id: created.school_id,
-          })
-        );
-        inviteUrl = `${process.env.EXPO_PUBLIC_BACKEND_URL || ''}/?invite=${payload}`;
-      }
+          student_id: created.id,
+          instructor_id: created.instructor_id,
+          school_id: created.school_id,
+        }),
+      );
+      const inviteUrl = `${process.env.EXPO_PUBLIC_BACKEND_URL || ''}/?invite=${payload}`;
 
       // Clear form
       setName('');
@@ -160,9 +164,14 @@ export default function StudentCrmScreen() {
 
       // Show invite-link sheet
       setInviteLink(inviteUrl);
-      setInviteRecipient({ name: studentName, phone: studentPhone });
+      setInviteRecipient({ name: studentName, phone: studentPhone, email_sent: emailSent, detail: inviteDetail });
 
-      if (pro) fireInstantNotification('Student invited', `${studentName} now has an invite link.`).catch(() => {});
+      if (pro) {
+        const note = emailSent
+          ? `Invite email sent to ${email.trim().toLowerCase()}.`
+          : `${studentName} added. ${inviteDetail || 'Share the invite link manually.'}`;
+        fireInstantNotification('Student invited', note).catch(() => {});
+      }
     } catch (e: any) {
       const upgradeMsg = explainLimitError(e);
       if (upgradeMsg) {
@@ -422,8 +431,23 @@ export default function StudentCrmScreen() {
       >
         {inviteLink && inviteRecipient && (
           <View style={{ gap: 14 }}>
+            {inviteRecipient.email_sent ? (
+              <View style={styles.emailBanner} testID="invite-email-sent">
+                <Text style={styles.emailBannerTitle}>📧 Invite email sent</Text>
+                <Text style={styles.emailBannerText}>
+                  {inviteRecipient.detail || `${inviteRecipient.name} will receive a sign-up link in their inbox.`}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.emailBannerWarn} testID="invite-email-fallback">
+                <Text style={styles.emailBannerWarnTitle}>⚠️ Email not sent</Text>
+                <Text style={styles.emailBannerText}>
+                  {inviteRecipient.detail || 'Could not send the invite email automatically. Share the link below manually.'}
+                </Text>
+              </View>
+            )}
             <Text style={styles.hint}>
-              Send this link to {inviteRecipient.name}. It expires in 7 days. They'll set their own password and join your roster.
+              You can also share this back-up link with {inviteRecipient.name}. They'll set their own password and join your roster.
             </Text>
             <View style={styles.linkBox} testID="invite-link-value">
               <Text style={styles.linkText} numberOfLines={2}>{inviteLink}</Text>
@@ -551,6 +575,25 @@ const styles = StyleSheet.create({
   linkRow: { flexDirection: 'row', gap: 10 },
   linkBtn: { flex: 1, height: 48, borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   linkBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  emailBanner: {
+    backgroundColor: '#D1FAE5',
+    borderColor: theme.colors.success,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    gap: 4,
+  },
+  emailBannerTitle: { color: theme.colors.success, fontSize: 14, fontWeight: '700' },
+  emailBannerText:  { color: theme.colors.text, fontSize: 13, lineHeight: 18 },
+  emailBannerWarn: {
+    backgroundColor: '#FEF3C7',
+    borderColor: theme.colors.accent,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    gap: 4,
+  },
+  emailBannerWarnTitle: { color: theme.colors.accent, fontSize: 14, fontWeight: '700' },
   snackbar: {
     position: 'absolute',
     bottom: 110,

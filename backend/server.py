@@ -955,6 +955,84 @@ async def stripe_webhook(request: FastAPIRequest):
     return {"received": True, "handled": True, "type": etype}
 
 
+# ============================================================================
+# STUDENT INVITE EMAIL — via Supabase Auth (built-in email provider)
+# ============================================================================
+
+class StudentInviteRequest(BaseModel):
+    email: EmailStr
+    student_name: Optional[str] = None
+    student_id: Optional[str] = None  # the existing students.id row in Supabase
+
+class StudentInviteResponse(BaseModel):
+    sent: bool
+    email: str
+    detail: Optional[str] = None
+
+
+@api_router.post("/v2/students/invite", response_model=StudentInviteResponse)
+async def v2_invite_student(req: StudentInviteRequest, sb_user: dict = Depends(get_current_supabase_user)):
+    """Send a Supabase Auth invite email to the given address. Uses the
+    school owner's auth context, and stamps the invitee with role=student
+    plus the inviting instructor/school metadata so AuthContext can wire
+    them up automatically when they accept."""
+    if not sb_user.get("school"):
+        raise HTTPException(status_code=400, detail="No driving school linked to this auth user")
+
+    school = sb_user["school"]
+    instructor_id = None
+    # Look up instructor row for this auth user (school owner is usually
+    # also an instructor — see ensureInstructorBootstrap in AuthContext)
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        ir = await client_http.get(
+            f"{_sb_rest_base}/instructors",
+            params={"auth_user_id": f"eq.{sb_user['auth_user_id']}", "select": "id,full_name", "limit": "1"},
+            headers=_sb_headers(),
+        )
+    if ir.status_code < 400 and ir.json():
+        instructor_row = ir.json()[0]
+        instructor_id = instructor_row["id"]
+        inviter_name = instructor_row.get("full_name") or school.get("business_name")
+    else:
+        inviter_name = school.get("business_name") or "Your driving instructor"
+
+    redirect_to = f"{APP_DOMAIN}/?invite_accept=1"
+
+    payload = {
+        "email": str(req.email),
+        "data": {
+            "role": "student",
+            "name": req.student_name or str(req.email).split("@")[0],
+            "school_id": school["id"],
+            "instructor_id": instructor_id,
+            "student_id": req.student_id,
+            "inviter_name": inviter_name,
+        },
+        "redirect_to": redirect_to,
+    }
+
+    async with httpx.AsyncClient(timeout=15.0) as client_http:
+        r = await client_http.post(
+            f"{SUPABASE_URL.rstrip('/')}/auth/v1/invite",
+            headers={
+                "apikey": SUPABASE_SERVICE_ROLE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+    if r.status_code >= 400:
+        # Supabase commonly returns 422 if the email already has an active user.
+        # In that case we still consider the invite "issued" — they already
+        # have credentials and can sign in.
+        body = r.text[:240]
+        if "already" in body.lower():
+            return StudentInviteResponse(sent=False, email=str(req.email), detail="Email already has an active account — they can sign in directly.")
+        raise HTTPException(status_code=502, detail=f"Supabase invite failed: {body}")
+
+    return StudentInviteResponse(sent=True, email=str(req.email), detail=f"Invite email sent to {req.email}.")
+
+
 app.include_router(api_router)
 
 app.add_middleware(

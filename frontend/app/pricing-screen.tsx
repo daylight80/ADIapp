@@ -73,7 +73,7 @@ export default function PricingScreen() {
     setSuccess(null);
     setBusyTier(tier);
     try {
-      const res = await api.post('/billing/create-checkout-session', { tier });
+      const res = await api.post('/v2/billing/checkout', { tier, seat_count: usage?.seat_count || 1 });
       const url = res.data?.url as string;
       if (!url) throw new Error('No checkout URL returned');
       if (Platform.OS === 'web') {
@@ -94,7 +94,7 @@ export default function PricingScreen() {
     setBusyTier(currentTier);
     setError(null);
     try {
-      const res = await api.post('/billing/create-portal-session');
+      const res = await api.post('/v2/billing/portal');
       const url = res.data?.url as string;
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
         window.location.href = url;

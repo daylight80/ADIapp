@@ -556,8 +556,10 @@ async def travel_time(req: TravelTimeRequest, current_user: dict = Depends(get_c
         return TravelTimeResponse(**data)
 
 
-@api_router.post("/billing/webhook")
-async def stripe_webhook(request: Request):
+@api_router.post("/billing/webhook-legacy")
+async def stripe_webhook_legacy(request: Request):
+    """Deprecated. Kept only for the legacy MongoDB-auth flow. The new
+    Supabase tier-aware handler is registered below as /api/billing/webhook."""
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature", "")
     try:
@@ -566,7 +568,7 @@ async def stripe_webhook(request: Request):
         else:
             import json
             event = json.loads(payload.decode("utf-8"))
-    except (ValueError, stripe.error.SignatureVerificationError) as e:
+    except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid webhook: {e}")
     event_type = event.get("type") if isinstance(event, dict) else event.type
     data_object = event["data"]["object"] if isinstance(event, dict) else event.data.object
@@ -650,6 +652,307 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     client.close()
+
+
+# ============================================================================
+# SUPABASE BRIDGE — verifier + service-role REST helpers
+# ============================================================================
+# This block lets the FastAPI backend speak to the Supabase project for
+# tier-aware Stripe operations. Two surfaces:
+#   1) get_current_supabase_user — verifies the JWT issued by Supabase Auth
+#      (HS256, signed with SUPABASE_JWT_SECRET). Returns the auth user id +
+#      a freshly-fetched driving_schools row for the owner.
+#   2) sb_* helpers — service-role HTTP calls (bypass RLS) for the webhook
+#      and seat-sync endpoint to update driving_schools.
+# ============================================================================
+
+from fastapi import Request as FastAPIRequest
+
+_sb_rest_base = f"{SUPABASE_URL.rstrip('/')}/rest/v1" if SUPABASE_URL else ""
+
+def _sb_headers(prefer: str = "") -> dict:
+    if not SUPABASE_SERVICE_ROLE_KEY:
+        raise HTTPException(status_code=500, detail="SUPABASE_SERVICE_ROLE_KEY is not configured")
+    h = {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json",
+    }
+    if prefer:
+        h["Prefer"] = prefer
+    return h
+
+
+async def sb_get_school_by_auth_user(auth_user_id: str) -> Optional[dict]:
+    """Return the driving_schools row owned by the given auth user, or None."""
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.get(
+            f"{_sb_rest_base}/driving_schools",
+            params={"owner_auth_id": f"eq.{auth_user_id}", "select": "*", "limit": "1"},
+            headers=_sb_headers(),
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase read failed: {r.text}")
+    rows = r.json()
+    return rows[0] if rows else None
+
+
+async def sb_get_school_by_customer(stripe_customer_id: str) -> Optional[dict]:
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.get(
+            f"{_sb_rest_base}/driving_schools",
+            params={"stripe_customer_id": f"eq.{stripe_customer_id}", "select": "*", "limit": "1"},
+            headers=_sb_headers(),
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase read failed: {r.text}")
+    rows = r.json()
+    return rows[0] if rows else None
+
+
+async def sb_update_school(school_id: str, patch: dict) -> dict:
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.patch(
+            f"{_sb_rest_base}/driving_schools",
+            params={"id": f"eq.{school_id}"},
+            headers=_sb_headers(prefer="return=representation"),
+            json=patch,
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase write failed: {r.text}")
+    rows = r.json()
+    return rows[0] if rows else {}
+
+
+async def get_current_supabase_user(authorization: Optional[str] = Header(None)) -> dict:
+    """FastAPI dependency: verify a Supabase Auth token by asking Supabase's
+    /auth/v1/user endpoint. Avoids us having to track ES256 JWKS rotation."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        raise HTTPException(status_code=500, detail="SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not configured")
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    token = authorization.split(" ", 1)[1]
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.get(
+            f"{SUPABASE_URL.rstrip('/')}/auth/v1/user",
+            headers={"Authorization": f"Bearer {token}", "apikey": SUPABASE_SERVICE_ROLE_KEY},
+        )
+    if r.status_code != 200:
+        raise HTTPException(status_code=401, detail=f"Invalid Supabase token: {r.text[:140]}")
+    user = r.json()
+    auth_user_id = user.get("id")
+    email = user.get("email")
+    if not auth_user_id:
+        raise HTTPException(status_code=401, detail="Supabase token missing user id")
+    school = await sb_get_school_by_auth_user(auth_user_id)
+    return {"auth_user_id": auth_user_id, "email": email, "school": school, "user": user}
+
+
+# ============================================================================
+# NEW TIER-AWARE BILLING ENDPOINTS (Supabase-authenticated)
+# ============================================================================
+
+class CheckoutV2Request(BaseModel):
+    tier: Literal["growth", "pro", "franchise"]
+    seat_count: Optional[int] = 1
+    success_url: Optional[str] = None
+    cancel_url: Optional[str] = None
+
+
+@api_router.post("/v2/billing/checkout", response_model=CheckoutSessionResponse)
+async def billing_v2_checkout(req: CheckoutV2Request, sb_user: dict = Depends(get_current_supabase_user)):
+    if not sb_user.get("school"):
+        raise HTTPException(status_code=400, detail="No driving school linked to this auth user")
+    school = sb_user["school"]
+    seat_count = max(1, int(req.seat_count or school.get("seat_count") or 1))
+
+    if school.get("tier") == req.tier:
+        raise HTTPException(status_code=400, detail=f"You already have an active {req.tier.capitalize()} subscription")
+
+    # Ensure a Stripe customer exists
+    customer_id = school.get("stripe_customer_id")
+    if not customer_id:
+        customer = stripe.Customer.create(
+            email=sb_user.get("email"),
+            name=school.get("business_name"),
+            metadata={"school_id": school["id"], "auth_user_id": sb_user["auth_user_id"]},
+        )
+        customer_id = customer.id
+        await sb_update_school(school["id"], {"stripe_customer_id": customer_id})
+
+    success_url = (req.success_url or f"{APP_DOMAIN}/pricing-screen") + "?status=success&session_id={CHECKOUT_SESSION_ID}"
+    cancel_url = req.cancel_url or f"{APP_DOMAIN}/pricing-screen?status=cancelled"
+
+    session = stripe.checkout.Session.create(
+        customer=customer_id,
+        mode="subscription",
+        payment_method_types=["card"],
+        line_items=tier_to_line_items(req.tier, seat_count=seat_count),
+        success_url=success_url,
+        cancel_url=cancel_url,
+        client_reference_id=school["id"],
+        metadata={"school_id": school["id"], "tier": req.tier, "seat_count": seat_count},
+        subscription_data={"metadata": {"school_id": school["id"], "tier": req.tier}},
+    )
+    return CheckoutSessionResponse(url=session.url)
+
+
+@api_router.post("/v2/billing/portal", response_model=CheckoutSessionResponse)
+async def billing_v2_portal(sb_user: dict = Depends(get_current_supabase_user)):
+    school = sb_user.get("school")
+    if not school or not school.get("stripe_customer_id"):
+        raise HTTPException(status_code=400, detail="No Stripe customer for this school yet")
+    session = stripe.billing_portal.Session.create(
+        customer=school["stripe_customer_id"],
+        return_url=f"{APP_DOMAIN}/pricing-screen",
+    )
+    return CheckoutSessionResponse(url=session.url)
+
+
+@api_router.post("/v2/billing/sync-seats")
+async def billing_v2_sync_seats(sb_user: dict = Depends(get_current_supabase_user)):
+    """Re-sync the Franchise seat-count to Stripe based on driving_schools.seat_count.
+
+    Call this whenever a school owner adds or removes an instructor. The DB
+    trigger has already updated seat_count; we just need to push the new
+    quantity to the Stripe subscription item that uses the seat price.
+    """
+    school = sb_user.get("school")
+    if not school:
+        raise HTTPException(status_code=400, detail="No school for this user")
+    if school.get("tier") != "franchise":
+        return {"updated": False, "reason": "Only Franchise tier uses per-seat billing"}
+    if not school.get("stripe_subscription_id"):
+        return {"updated": False, "reason": "No active subscription"}
+
+    sub_id = school["stripe_subscription_id"]
+    seat_count = max(1, int(school.get("seat_count") or 1))
+    target_seat_qty = max(0, seat_count - 1)
+
+    # Find the subscription item using the seat price
+    sub = stripe.Subscription.retrieve(sub_id, expand=["items.data.price"])
+    seat_item = None
+    for item in sub["items"]["data"]:
+        if item["price"]["id"] == STRIPE_PRICE_FRANCHISE_SEAT:
+            seat_item = item
+            break
+
+    if seat_item is None and target_seat_qty > 0:
+        # Add the seat line item now
+        seat_item = stripe.SubscriptionItem.create(
+            subscription=sub_id, price=STRIPE_PRICE_FRANCHISE_SEAT, quantity=target_seat_qty,
+        )
+        return {"updated": True, "action": "added", "quantity": target_seat_qty}
+
+    if seat_item is not None:
+        if target_seat_qty == 0:
+            stripe.SubscriptionItem.delete(seat_item["id"])
+            return {"updated": True, "action": "removed", "quantity": 0}
+        if int(seat_item.get("quantity") or 0) != target_seat_qty:
+            stripe.SubscriptionItem.modify(seat_item["id"], quantity=target_seat_qty, proration_behavior="create_prorations")
+            return {"updated": True, "action": "updated", "quantity": target_seat_qty}
+
+    return {"updated": False, "quantity": target_seat_qty}
+
+
+# ============================================================================
+# STRIPE WEBHOOK — syncs Stripe → driving_schools
+# ============================================================================
+
+def _tier_from_price_id(price_id: str) -> Optional[str]:
+    if price_id == STRIPE_PRICE_GROWTH:           return "growth"
+    if price_id == STRIPE_PRICE_PRO:              return "pro"
+    if price_id == STRIPE_PRICE_FRANCHISE_BASE:   return "franchise"
+    if price_id == STRIPE_PRICE_FRANCHISE_SEAT:   return "franchise"
+    return None
+
+
+def _tier_from_subscription(sub: dict) -> Optional[str]:
+    """Inspect a Stripe Subscription object and return our internal tier name."""
+    items = (sub.get("items") or {}).get("data") or []
+    for it in items:
+        pid = (it.get("price") or {}).get("id")
+        t = _tier_from_price_id(pid)
+        if t:
+            return t
+    return None
+
+
+def _seat_qty_from_subscription(sub: dict) -> int:
+    items = (sub.get("items") or {}).get("data") or []
+    base_qty = 0
+    seat_qty = 0
+    for it in items:
+        pid = (it.get("price") or {}).get("id")
+        q = int(it.get("quantity") or 0)
+        if pid == STRIPE_PRICE_FRANCHISE_BASE: base_qty = q
+        elif pid == STRIPE_PRICE_FRANCHISE_SEAT: seat_qty = q
+    return max(1, base_qty + seat_qty)
+
+
+@api_router.post("/billing/webhook")
+async def stripe_webhook(request: FastAPIRequest):
+    if not STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(status_code=500, detail="STRIPE_WEBHOOK_SECRET not configured")
+    payload = await request.body()
+    sig = request.headers.get("Stripe-Signature", "")
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid Stripe signature: {e}")
+
+    etype = event["type"]
+    data = event["data"]["object"]
+
+    try:
+        if etype == "checkout.session.completed":
+            school_id = (data.get("metadata") or {}).get("school_id") or data.get("client_reference_id")
+            sub_id = data.get("subscription")
+            if school_id and sub_id:
+                sub = stripe.Subscription.retrieve(sub_id, expand=["items.data.price"])
+                patch = {
+                    "tier": _tier_from_subscription(sub) or "pro",
+                    "subscription_status": "active",
+                    "stripe_subscription_id": sub_id,
+                    "seat_count": _seat_qty_from_subscription(sub),
+                    "current_period_end": datetime.fromtimestamp(sub["current_period_end"], tz=timezone.utc).isoformat() if sub.get("current_period_end") else None,
+                    "stripe_customer_id": data.get("customer"),
+                }
+                await sb_update_school(school_id, patch)
+
+        elif etype in ("customer.subscription.updated", "customer.subscription.created"):
+            customer_id = data.get("customer")
+            if customer_id:
+                school = await sb_get_school_by_customer(customer_id)
+                if school:
+                    patch = {
+                        "tier": _tier_from_subscription(data) or school.get("tier") or "pro",
+                        "subscription_status": data.get("status") or "active",
+                        "stripe_subscription_id": data.get("id"),
+                        "seat_count": _seat_qty_from_subscription(data),
+                        "current_period_end": datetime.fromtimestamp(data["current_period_end"], tz=timezone.utc).isoformat() if data.get("current_period_end") else None,
+                    }
+                    await sb_update_school(school["id"], patch)
+
+        elif etype == "customer.subscription.deleted":
+            customer_id = data.get("customer")
+            if customer_id:
+                school = await sb_get_school_by_customer(customer_id)
+                if school:
+                    await sb_update_school(school["id"], {
+                        "tier": "starter",
+                        "subscription_status": "cancelled",
+                        "stripe_subscription_id": None,
+                        "current_period_end": None,
+                    })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Stripe webhook handler failed: %s", e)
+        return {"received": True, "handled": False, "error": str(e)}
+
+    return {"received": True, "handled": True, "type": etype}
 
 
 app.include_router(api_router)

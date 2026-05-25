@@ -26,6 +26,46 @@ STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 APP_DOMAIN = os.environ.get("APP_DOMAIN", "http://localhost:3000")
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 
+# Stripe Price IDs per subscription tier (set in backend/.env)
+STRIPE_PRICE_GROWTH         = os.environ.get("STRIPE_PRICE_GROWTH", "")
+STRIPE_PRICE_PRO            = os.environ.get("STRIPE_PRICE_PRO", "")
+STRIPE_PRICE_FRANCHISE_BASE = os.environ.get("STRIPE_PRICE_FRANCHISE_BASE", "")
+STRIPE_PRICE_FRANCHISE_SEAT = os.environ.get("STRIPE_PRICE_FRANCHISE_SEAT", "")
+
+# Supabase (used by webhook + Supabase-auth-bridge endpoints)
+SUPABASE_URL              = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_JWT_SECRET       = os.environ.get("SUPABASE_JWT_SECRET", "")
+
+
+def tier_to_line_items(tier: str, seat_count: int = 1):
+    """Return the Stripe Checkout line_items list for a given subscription tier.
+
+    For 'franchise', the school is billed:
+        - £39.99/mo base (qty 1, always)
+        - £10/mo per additional instructor beyond the first (qty = seat_count - 1)
+    """
+    tier = (tier or "").lower()
+    if tier == "growth":
+        if not STRIPE_PRICE_GROWTH:
+            raise HTTPException(status_code=500, detail="STRIPE_PRICE_GROWTH is not configured")
+        return [{"price": STRIPE_PRICE_GROWTH, "quantity": 1}]
+    if tier == "pro":
+        if not STRIPE_PRICE_PRO:
+            raise HTTPException(status_code=500, detail="STRIPE_PRICE_PRO is not configured")
+        return [{"price": STRIPE_PRICE_PRO, "quantity": 1}]
+    if tier == "franchise":
+        if not STRIPE_PRICE_FRANCHISE_BASE or not STRIPE_PRICE_FRANCHISE_SEAT:
+            raise HTTPException(status_code=500, detail="STRIPE_PRICE_FRANCHISE_* prices are not configured")
+        items = [{"price": STRIPE_PRICE_FRANCHISE_BASE, "quantity": 1}]
+        # Extra instructors beyond the included one are billed via the seat price.
+        extra_seats = max(0, int(seat_count) - 1)
+        if extra_seats > 0:
+            items.append({"price": STRIPE_PRICE_FRANCHISE_SEAT, "quantity": extra_seats})
+        return items
+    raise HTTPException(status_code=400, detail=f"Unknown tier: {tier}")
+
+
 stripe.api_key = STRIPE_API_KEY
 
 client = AsyncIOMotorClient(MONGO_URL)
@@ -101,6 +141,8 @@ class AcceptInviteRequest(BaseModel):
 class CheckoutSessionRequest(BaseModel):
     success_url: Optional[str] = None
     cancel_url: Optional[str] = None
+    tier: Optional[Literal["growth", "pro", "franchise"]] = None
+    seat_count: Optional[int] = 1
 
 
 class CheckoutSessionResponse(BaseModel):
@@ -349,9 +391,16 @@ async def get_or_create_pro_price() -> str:
 async def create_checkout_session(req: CheckoutSessionRequest, current_user: dict = Depends(get_current_user)):
     if current_user["role"] != "instructor":
         raise HTTPException(status_code=403, detail="Only instructors can subscribe")
-    if current_user.get("subscription_status") == "pro":
-        raise HTTPException(status_code=400, detail="You already have an active Pro subscription")
-    price_id = await get_or_create_pro_price()
+
+    tier = (req.tier or "pro").lower()
+    seat_count = max(1, int(req.seat_count or 1))
+
+    # Don't let users buy the same tier twice if it's already active
+    if current_user.get("subscription_status") == tier:
+        raise HTTPException(status_code=400, detail=f"You already have an active {tier.capitalize()} subscription")
+
+    line_items = tier_to_line_items(tier, seat_count=seat_count)
+
     customer_id = current_user.get("stripe_customer_id")
     if not customer_id:
         customer = stripe.Customer.create(email=current_user["email"], name=current_user["name"], metadata={"user_id": current_user["id"]})
@@ -361,9 +410,11 @@ async def create_checkout_session(req: CheckoutSessionRequest, current_user: dic
     cancel_url = req.cancel_url or f"{APP_DOMAIN}/pricing-screen?status=cancelled"
     session = stripe.checkout.Session.create(
         customer=customer_id, mode="subscription", payment_method_types=["card"],
-        line_items=[{"price": price_id, "quantity": 1}],
+        line_items=line_items,
         success_url=success_url, cancel_url=cancel_url,
-        client_reference_id=current_user["id"], metadata={"user_id": current_user["id"]},
+        client_reference_id=current_user["id"],
+        metadata={"user_id": current_user["id"], "tier": tier, "seat_count": seat_count},
+        subscription_data={"metadata": {"user_id": current_user["id"], "tier": tier}},
     )
     return CheckoutSessionResponse(url=session.url)
 

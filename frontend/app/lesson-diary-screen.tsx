@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -69,6 +69,19 @@ export default function LessonDiaryScreen() {
   const [topic, setTopic] = useState('');
   const [travelMinutes, setTravelMinutes] = useState('15');
 
+  // ScrollView ref so we can auto-jump the diary to a newly-added lesson's
+  // start-time (otherwise lessons after midday fall below the scroll fold).
+  const scrollRef = useRef<ScrollView | null>(null);
+
+  // Scroll the diary so the given HH:mm time lands ~80px from the top.
+  const scrollToTime = (hhmm: string) => {
+    if (!scrollRef.current) return;
+    const [hh, mm] = hhmm.split(':').map(Number);
+    const offset = Math.max(0, ((hh - TOP_HOUR) + mm / 60) * HOUR_HEIGHT - 80);
+    // Fire on next tick so the lesson block has been laid out first.
+    setTimeout(() => scrollRef.current?.scrollTo({ y: offset, animated: true }), 100);
+  };
+
   const { lessons } = useLessonsForWeek(weekStart);
   const { students } = useStudents();
 
@@ -105,6 +118,19 @@ export default function LessonDiaryScreen() {
     });
     return () => { cancelled = true; };
   }, [addOpen, studentId, date, startTime, lessons]);
+
+  // On mount, if we're viewing today, scroll to roughly the current hour.
+  useEffect(() => {
+    const today = new Date();
+    if (selectedDate.toDateString() === today.toDateString()) {
+      const h = today.getHours();
+      const m = today.getMinutes();
+      const hhmm = `${String(Math.max(h, TOP_HOUR)).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      // Wait for layout — the lessons need to be rendered first.
+      setTimeout(() => scrollToTime(hhmm), 400);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const goPrev = () => setSelectedDate(addDays(selectedDate, viewMode === 'day' ? -1 : -7));
   const goNext = () => setSelectedDate(addDays(selectedDate, viewMode === 'day' ? 1 : 7));
@@ -143,6 +169,15 @@ export default function LessonDiaryScreen() {
       setDate('');
       setTopic('');
       setAddOpen(false);
+      // Auto-scroll the diary so the new lesson is visible without scrolling.
+      scrollToTime(startTime);
+      // Also flip the diary's selected day to the lesson's date if different.
+      if (newLesson && date) {
+        const lessonDate = new Date(`${date}T00:00:00`);
+        if (lessonDate.toDateString() !== selectedDate.toDateString()) {
+          setSelectedDate(lessonDate);
+        }
+      }
 
       // Pro: schedule 24h and 1h reminders
       if (pro) {
@@ -199,7 +234,7 @@ export default function LessonDiaryScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll}>
         {viewMode === 'day' ? (
           <View style={styles.dayGrid} testID="day-grid">
             <View style={styles.dayGridHeader}>

@@ -478,3 +478,284 @@ export async function deleteLesson(id: string): Promise<boolean> {
   if (error) throw error;
   return true;
 }
+
+// =============================================================================
+// COMPETENCIES (DVSA syllabus tracking)
+// =============================================================================
+
+export type Competency = {
+  id: string;
+  student_id: string;
+  category_key: string;
+  category_name: string;
+  manoeuvre: string;     // same as category_name in our model
+  level: number;         // 1-5 (competency_level column)
+  progress: number;      // 0-100
+  notes?: string;
+  assessed_at?: string;
+};
+
+// 28-strong UK DVSA syllabus categories (matches the mockDb seed list).
+export const DVSA_SYLLABUS: { key: string; name: string }[] = [
+  { key: 'eyesight',           name: 'Eyesight test' },
+  { key: 'show_me_tell_me',    name: 'Show me, tell me' },
+  { key: 'controls',           name: 'Controls' },
+  { key: 'moving_off',         name: 'Moving off & stopping' },
+  { key: 'mirrors',            name: 'Mirrors, signals, manoeuvres' },
+  { key: 'positioning',        name: 'Positioning on the road' },
+  { key: 'junctions',          name: 'Junctions' },
+  { key: 'roundabouts',        name: 'Roundabouts' },
+  { key: 'crossroads',         name: 'Crossroads' },
+  { key: 'traffic_lights',     name: 'Traffic lights' },
+  { key: 'pedestrian_crossing', name: 'Pedestrian crossings' },
+  { key: 'dual_carriageways',  name: 'Dual carriageways' },
+  { key: 'motorways',          name: 'Motorways' },
+  { key: 'meeting_traffic',    name: 'Meeting traffic' },
+  { key: 'overtaking',         name: 'Overtaking' },
+  { key: 'crossing_traffic',   name: 'Crossing traffic' },
+  { key: 'parallel_park',      name: 'Parallel park' },
+  { key: 'bay_park_forward',   name: 'Bay parking (forward)' },
+  { key: 'bay_park_reverse',   name: 'Bay parking (reverse)' },
+  { key: 'pull_up_right',      name: 'Pull up on the right' },
+  { key: 'emergency_stop',     name: 'Emergency stop' },
+  { key: 'independent_driving', name: 'Independent driving' },
+  { key: 'sat_nav',            name: 'Sat-nav following' },
+  { key: 'awareness',          name: 'Awareness & planning' },
+  { key: 'speed',              name: 'Speed appropriate to conditions' },
+  { key: 'progress',           name: 'Making progress' },
+  { key: 'use_of_signals',     name: 'Use of signals' },
+  { key: 'response_to_signs',  name: 'Response to road signs' },
+];
+
+const competencyFromRow = (r: any): Competency => ({
+  id: r.id,
+  student_id: r.student_id,
+  category_key: r.category_key || r.manoeuvre,
+  category_name: r.category_name || r.manoeuvre,
+  manoeuvre: r.manoeuvre,
+  level: Number(r.competency_level ?? 1),
+  progress: Number(r.progress ?? 0),
+  notes: r.notes ?? undefined,
+  assessed_at: r.assessed_at ?? undefined,
+});
+
+export async function listCompetencies(studentId: string): Promise<Competency[]> {
+  const { data, error } = await supabase
+    .from('dvsa_syllabus_tracking')
+    .select('*')
+    .eq('student_id', studentId)
+    .order('category_key', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(competencyFromRow);
+}
+
+export async function seedCompetenciesIfEmpty(studentId: string): Promise<number> {
+  const existing = await listCompetencies(studentId);
+  if (existing.length > 0) return 0;
+  const rows = DVSA_SYLLABUS.map((c) => ({
+    student_id: studentId,
+    manoeuvre: c.name,
+    category_key: c.key,
+    category_name: c.name,
+    competency_level: 1,
+    progress: 0,
+  }));
+  const { error } = await supabase.from('dvsa_syllabus_tracking').insert(rows);
+  if (error) throw error;
+  return rows.length;
+}
+
+export async function upsertCompetency(
+  studentId: string,
+  category_key: string,
+  patch: { level?: number; progress?: number; notes?: string },
+): Promise<Competency> {
+  // First find existing row
+  const { data: existing } = await supabase
+    .from('dvsa_syllabus_tracking')
+    .select('*')
+    .eq('student_id', studentId)
+    .eq('category_key', category_key)
+    .maybeSingle();
+
+  const payload: Record<string, any> = { assessed_at: new Date().toISOString() };
+  if (patch.level !== undefined) payload.competency_level = patch.level;
+  if (patch.progress !== undefined) payload.progress = patch.progress;
+  if (patch.notes !== undefined) payload.notes = patch.notes;
+
+  if (existing) {
+    const { data, error } = await supabase
+      .from('dvsa_syllabus_tracking')
+      .update(payload)
+      .eq('id', existing.id)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return competencyFromRow(data);
+  }
+
+  // Create new
+  const spec = DVSA_SYLLABUS.find((c) => c.key === category_key);
+  const { data, error } = await supabase
+    .from('dvsa_syllabus_tracking')
+    .insert({
+      student_id: studentId,
+      category_key,
+      category_name: spec?.name || category_key,
+      manoeuvre: spec?.name || category_key,
+      competency_level: patch.level ?? 1,
+      progress: patch.progress ?? 0,
+      notes: patch.notes,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return competencyFromRow(data);
+}
+
+// =============================================================================
+// REFLECTIVE LOGS
+// =============================================================================
+
+export type ReflectiveLog = {
+  id: string;
+  student_id: string;
+  lesson_id?: string;
+  what_well?: string;
+  what_difficult?: string;
+  next_focus?: string;
+  created_at: string;
+};
+
+const reflectiveFromRow = (r: any): ReflectiveLog => ({
+  id: r.id,
+  student_id: r.student_id,
+  lesson_id: r.lesson_id ?? undefined,
+  what_well: r.what_well ?? undefined,
+  what_difficult: r.what_difficult ?? undefined,
+  next_focus: r.next_focus ?? undefined,
+  created_at: r.created_at,
+});
+
+export async function listReflectiveLogs(studentId: string): Promise<ReflectiveLog[]> {
+  const { data, error } = await supabase
+    .from('reflective_logs')
+    .select('*')
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(reflectiveFromRow);
+}
+
+export async function addReflectiveLog(input: {
+  student_id: string;
+  lesson_id?: string;
+  what_well?: string;
+  what_difficult?: string;
+  next_focus?: string;
+}): Promise<ReflectiveLog> {
+  const { data, error } = await supabase
+    .from('reflective_logs')
+    .insert(input)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return reflectiveFromRow(data);
+}
+
+// =============================================================================
+// BADGES
+// =============================================================================
+
+export type Badge = {
+  id: string;
+  student_id: string;
+  badge_key: string;
+  badge_name: string;
+  description?: string;
+  earned_at: string;
+};
+
+export async function listBadges(studentId: string): Promise<Badge[]> {
+  const { data, error } = await supabase
+    .from('badges_earned')
+    .select('*')
+    .eq('student_id', studentId)
+    .order('earned_at', { ascending: false });
+  if (error) throw error;
+  return (data || []) as Badge[];
+}
+
+export async function awardBadge(input: { student_id: string; badge_key: string; badge_name: string; description?: string }): Promise<Badge> {
+  const { data, error } = await supabase
+    .from('badges_earned')
+    .insert(input)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as Badge;
+}
+
+// =============================================================================
+// BLOCK BOOKINGS (Wallet)
+// =============================================================================
+
+export type BlockBooking = {
+  id: string;
+  student_id: string;
+  hours_paid: number;
+  hours_used: number;
+  amount: number;
+  purchased_at: string;
+  notes?: string;
+};
+
+export async function listBlockBookings(studentId: string): Promise<BlockBooking[]> {
+  const { data, error } = await supabase
+    .from('block_bookings')
+    .select('*')
+    .eq('student_id', studentId)
+    .order('purchased_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map((r: any) => ({
+    id: r.id,
+    student_id: r.student_id,
+    hours_paid: Number(r.hours_paid),
+    hours_used: Number(r.hours_used),
+    amount: Number(r.amount),
+    purchased_at: r.purchased_at,
+    notes: r.notes ?? undefined,
+  }));
+}
+
+export async function addBlockBooking(input: { student_id: string; hours_paid: number; amount: number; notes?: string }): Promise<BlockBooking> {
+  const { data, error } = await supabase
+    .from('block_bookings')
+    .insert(input)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return {
+    id: data.id,
+    student_id: data.student_id,
+    hours_paid: Number(data.hours_paid),
+    hours_used: Number(data.hours_used),
+    amount: Number(data.amount),
+    purchased_at: data.purchased_at,
+    notes: data.notes ?? undefined,
+  };
+}
+
+// =============================================================================
+// Find a student row by email (used by AuthContext for newly-invited students)
+// =============================================================================
+
+export async function getStudentByEmail(email: string): Promise<Student | undefined> {
+  const { data, error } = await supabase
+    .from('students')
+    .select('*')
+    .eq('email', email.toLowerCase())
+    .maybeSingle();
+  if (error) throw error;
+  return data ? fromRow(data) : undefined;
+}

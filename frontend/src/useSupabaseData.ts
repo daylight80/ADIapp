@@ -221,3 +221,122 @@ export async function removeLesson(id: string) {
   bump();
   return ok;
 }
+
+// ---------------------------------------------------------------------------
+// Hooks — Competencies, Reflective Logs, Badges, Block Bookings
+// ---------------------------------------------------------------------------
+
+export function useCompetencies(studentId: string | undefined) {
+  const version = useVersion();
+  const [items, setItems] = useState<db.Competency[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!studentId) { setItems([]); setLoading(false); return; }
+    setLoading(true);
+    (async () => {
+      try {
+        await db.seedCompetenciesIfEmpty(studentId);
+        setItems(await db.listCompetencies(studentId));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [studentId, version]);
+
+  return { competencies: items, loading };
+}
+
+export async function updateCompetency(
+  studentId: string,
+  category_key: string,
+  patch: { level?: number; progress?: number; notes?: string },
+) {
+  const row = await db.upsertCompetency(studentId, category_key, patch);
+  bump();
+  return row;
+}
+
+export function useReflectiveLogs(studentId: string | undefined) {
+  const version = useVersion();
+  const [logs, setLogs] = useState<db.ReflectiveLog[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!studentId) { setLogs([]); setLoading(false); return; }
+    setLoading(true);
+    db.listReflectiveLogs(studentId)
+      .then(setLogs)
+      .catch(() => setLogs([]))
+      .finally(() => setLoading(false));
+  }, [studentId, version]);
+
+  return { logs, loading };
+}
+
+export async function createReflectiveLog(input: Parameters<typeof db.addReflectiveLog>[0]) {
+  const row = await db.addReflectiveLog(input);
+  bump();
+  return row;
+}
+
+export function useBadges(studentId: string | undefined) {
+  const version = useVersion();
+  const [badges, setBadges] = useState<db.Badge[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!studentId) { setBadges([]); setLoading(false); return; }
+    setLoading(true);
+    db.listBadges(studentId)
+      .then(setBadges)
+      .catch(() => setBadges([]))
+      .finally(() => setLoading(false));
+  }, [studentId, version]);
+
+  return { badges, loading };
+}
+
+export function useBlockBookings(studentId: string | undefined) {
+  const version = useVersion();
+  const [bookings, setBookings] = useState<db.BlockBooking[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!studentId) { setBookings([]); setLoading(false); return; }
+    setLoading(true);
+    db.listBlockBookings(studentId)
+      .then(setBookings)
+      .catch(() => setBookings([]))
+      .finally(() => setLoading(false));
+  }, [studentId, version]);
+
+  return { bookings, loading };
+}
+
+export async function purchaseBlock(input: Parameters<typeof db.addBlockBooking>[0]) {
+  const row = await db.addBlockBooking(input);
+  bump();
+  return row;
+}
+
+// ---------------------------------------------------------------------------
+// Student lookup (used by the new Student Home screen)
+// ---------------------------------------------------------------------------
+
+export function useStudentByEmail(email: string | undefined) {
+  const version = useVersion();
+  const [student, setStudent] = useState<db.Student | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!email) { setStudent(undefined); setLoading(false); return; }
+    setLoading(true);
+    db.getStudentByEmail(email)
+      .then(setStudent)
+      .catch(() => setStudent(undefined))
+      .finally(() => setLoading(false));
+  }, [email, version]);
+
+  return { student, loading };
+}

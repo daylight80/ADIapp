@@ -493,51 +493,85 @@ export type Competency = {
   progress: number;      // 0-100
   notes?: string;
   assessed_at?: string;
+  // ---- Back-compat aliases (legacy mockDb shape used across screens) -------
+  key: string;           // alias of category_key
+  name: string;          // alias of category_name
+  icon: string;          // lucide icon name
+  skills: { name: string; level: number; progress: number }[];
 };
 
 // 28-strong UK DVSA syllabus categories (matches the mockDb seed list).
-export const DVSA_SYLLABUS: { key: string; name: string }[] = [
-  { key: 'eyesight',           name: 'Eyesight test' },
-  { key: 'show_me_tell_me',    name: 'Show me, tell me' },
-  { key: 'controls',           name: 'Controls' },
-  { key: 'moving_off',         name: 'Moving off & stopping' },
-  { key: 'mirrors',            name: 'Mirrors, signals, manoeuvres' },
-  { key: 'positioning',        name: 'Positioning on the road' },
-  { key: 'junctions',          name: 'Junctions' },
-  { key: 'roundabouts',        name: 'Roundabouts' },
-  { key: 'crossroads',         name: 'Crossroads' },
-  { key: 'traffic_lights',     name: 'Traffic lights' },
-  { key: 'pedestrian_crossing', name: 'Pedestrian crossings' },
-  { key: 'dual_carriageways',  name: 'Dual carriageways' },
-  { key: 'motorways',          name: 'Motorways' },
-  { key: 'meeting_traffic',    name: 'Meeting traffic' },
-  { key: 'overtaking',         name: 'Overtaking' },
-  { key: 'crossing_traffic',   name: 'Crossing traffic' },
-  { key: 'parallel_park',      name: 'Parallel park' },
-  { key: 'bay_park_forward',   name: 'Bay parking (forward)' },
-  { key: 'bay_park_reverse',   name: 'Bay parking (reverse)' },
-  { key: 'pull_up_right',      name: 'Pull up on the right' },
-  { key: 'emergency_stop',     name: 'Emergency stop' },
-  { key: 'independent_driving', name: 'Independent driving' },
-  { key: 'sat_nav',            name: 'Sat-nav following' },
-  { key: 'awareness',          name: 'Awareness & planning' },
-  { key: 'speed',              name: 'Speed appropriate to conditions' },
-  { key: 'progress',           name: 'Making progress' },
-  { key: 'use_of_signals',     name: 'Use of signals' },
-  { key: 'response_to_signs',  name: 'Response to road signs' },
+// `icon` matches a lucide-react-native icon name used in the UI grid.
+export const DVSA_SYLLABUS: { key: string; name: string; icon: string }[] = [
+  { key: 'eyesight',            name: 'Eyesight test',                   icon: 'eye' },
+  { key: 'show_me_tell_me',     name: 'Show me, tell me',                icon: 'help-circle' },
+  { key: 'controls',            name: 'Controls',                        icon: 'settings' },
+  { key: 'moving_off',          name: 'Moving off & stopping',           icon: 'play' },
+  { key: 'mirrors',             name: 'Mirrors, signals, manoeuvres',    icon: 'eye' },
+  { key: 'positioning',         name: 'Positioning on the road',         icon: 'map-pin' },
+  { key: 'junctions',           name: 'Junctions',                       icon: 'git-branch' },
+  { key: 'roundabouts',         name: 'Roundabouts',                     icon: 'rotate-cw' },
+  { key: 'crossroads',          name: 'Crossroads',                      icon: 'plus' },
+  { key: 'traffic_lights',      name: 'Traffic lights',                  icon: 'traffic-cone' },
+  { key: 'pedestrian_crossing', name: 'Pedestrian crossings',            icon: 'users' },
+  { key: 'dual_carriageways',   name: 'Dual carriageways',               icon: 'minus' },
+  { key: 'motorways',           name: 'Motorways',                       icon: 'fast-forward' },
+  { key: 'meeting_traffic',     name: 'Meeting traffic',                 icon: 'car' },
+  { key: 'overtaking',          name: 'Overtaking',                      icon: 'chevrons-right' },
+  { key: 'crossing_traffic',    name: 'Crossing traffic',                icon: 'shuffle' },
+  { key: 'parallel_park',       name: 'Parallel park',                   icon: 'parking-square' },
+  { key: 'bay_park_forward',    name: 'Bay parking (forward)',           icon: 'square' },
+  { key: 'bay_park_reverse',    name: 'Bay parking (reverse)',           icon: 'square' },
+  { key: 'pull_up_right',       name: 'Pull up on the right',            icon: 'arrow-right' },
+  { key: 'emergency_stop',      name: 'Emergency stop',                  icon: 'octagon' },
+  { key: 'independent_driving', name: 'Independent driving',             icon: 'compass' },
+  { key: 'sat_nav',             name: 'Sat-nav following',               icon: 'navigation' },
+  { key: 'awareness',           name: 'Awareness & planning',            icon: 'compass' },
+  { key: 'speed',               name: 'Speed appropriate to conditions', icon: 'gauge' },
+  { key: 'progress',            name: 'Making progress',                 icon: 'trending-up' },
+  { key: 'use_of_signals',      name: 'Use of signals',                  icon: 'radio' },
+  { key: 'response_to_signs',   name: 'Response to road signs',          icon: 'alert-triangle' },
 ];
 
-const competencyFromRow = (r: any): Competency => ({
-  id: r.id,
-  student_id: r.student_id,
-  category_key: r.category_key || r.manoeuvre,
-  category_name: r.category_name || r.manoeuvre,
-  manoeuvre: r.manoeuvre,
-  level: Number(r.competency_level ?? 1),
-  progress: Number(r.progress ?? 0),
-  notes: r.notes ?? undefined,
-  assessed_at: r.assessed_at ?? undefined,
-});
+// Map of category_key -> icon (resolved without re-iterating the array).
+const ICON_BY_KEY: Record<string, string> = DVSA_SYLLABUS.reduce((acc, c) => {
+  acc[c.key] = c.icon;
+  return acc;
+}, {} as Record<string, string>);
+
+// Synthesise the 3 sub-skills the legacy detail screen expects (Theory /
+// Practical / Independent). Derived purely from the row's level + progress so
+// the UI keeps rendering whilst we don't have a per-skill table yet.
+function deriveSkills(name: string, level: number, progress: number) {
+  return [
+    { name: `${name} - Theory`,       level,                          progress },
+    { name: `${name} - Practical`,    level: Math.max(1, level - 1),  progress: Math.max(0, progress - 15) },
+    { name: `${name} - Independent`,  level: Math.max(1, level - 2),  progress: Math.max(0, progress - 30) },
+  ];
+}
+
+const competencyFromRow = (r: any): Competency => {
+  const category_key  = r.category_key || r.manoeuvre || 'controls';
+  const category_name = r.category_name || r.manoeuvre || category_key;
+  const level    = Number(r.competency_level ?? 1);
+  const progress = Number(r.progress ?? 0);
+  return {
+    id: r.id,
+    student_id: r.student_id,
+    category_key,
+    category_name,
+    manoeuvre: r.manoeuvre || category_name,
+    level,
+    progress,
+    notes: r.notes ?? undefined,
+    assessed_at: r.assessed_at ?? undefined,
+    // Back-compat aliases
+    key:  category_key,
+    name: category_name,
+    icon: ICON_BY_KEY[category_key] || 'circle',
+    skills: deriveSkills(category_name, level, progress),
+  };
+};
 
 export async function listCompetencies(studentId: string): Promise<Competency[]> {
   const { data, error } = await supabase

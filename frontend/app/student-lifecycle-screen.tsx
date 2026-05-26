@@ -5,7 +5,14 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown, Pencil, Trash2, Trophy } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb } from '../src/mockDb';
-import { useStudent, patchStudent, passStudent, removeStudent, useLessonsForStudent } from '../src/useSupabaseData';
+import {
+  useStudent,
+  patchStudent,
+  passStudent,
+  removeStudent,
+  useLessonsForStudent,
+  useCompetencies,
+} from '../src/useSupabaseData';
 import { Card, ProgressBar, StatusBadge, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { SimpleBarChart } from '../src/SimpleBarChart';
@@ -35,7 +42,14 @@ export default function StudentLifecycleScreen() {
   const student = sbStudent || (mockDb.getStudent(id) || mockDb.listStudents()[0]);
   const { lessons: sbLessons } = useLessonsForStudent(student?.id);
   const lessons = useMemo(() => (sbLessons && sbLessons.length > 0 ? sbLessons : (student ? mockDb.listLessonsForStudent(student.id) : [])), [sbLessons, student?.id]);
-  const competencies = useMemo(() => (student ? mockDb.getCompetencies(student.id) : []), [student?.id]);
+  // DVSA Competency Tracker — live from Supabase (dvsa_syllabus_tracking)
+  const { competencies: sbCompetencies, loading: compLoading } = useCompetencies(student?.id);
+  const competencies = useMemo(
+    () => (sbCompetencies && sbCompetencies.length > 0
+      ? sbCompetencies
+      : (student ? mockDb.getCompetencies(student.id) : [])),
+    [sbCompetencies, student?.id]
+  );
 
   const [tab, setTab] = useState<Tab>('overview');
 
@@ -296,6 +310,9 @@ export default function StudentLifecycleScreen() {
 
         {tab === 'competency' && (
           <View style={{ gap: 10 }} testID="tab-competency-content">
+            {compLoading && competencies.length === 0 && (
+              <Card><ActivityIndicator size="small" color={theme.colors.primary} /></Card>
+            )}
             {competencies.map((c) => (
               <TouchableOpacity
                 key={c.key}

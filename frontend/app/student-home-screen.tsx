@@ -6,6 +6,7 @@ import { Check, X, FileCheck, MessageCircle, ChevronRight, Award, Trophy, BookOp
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { mockDb, readiness, mockDb_ext } from '../src/mockDb';
+import { useCompetencies } from '../src/useSupabaseData';
 import { Card, ProgressBar, Badge } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
 import { BottomSheet } from '../src/BottomSheet';
@@ -22,7 +23,11 @@ export default function StudentHomeScreen() {
   const studentRecord = user?.email ? mockDb.getStudentByEmail(user.email) : undefined;
   const student = studentRecord || mockDb.getStudent('s2')!;
 
-  const competencies = mockDb.getCompetencies(student.id);
+  const competenciesMock = mockDb.getCompetencies(student.id);
+  // Try Supabase live competencies — only takes effect when student.id is a
+  // real Supabase UUID (currently the case after Migration 004 lands).
+  const { competencies: sbCompetencies } = useCompetencies(student.id);
+  const competencies = sbCompetencies && sbCompetencies.length > 0 ? sbCompetencies : competenciesMock;
   const lessons = mockDb.listLessonsForStudent(student.id);
   const recentLesson = lessons.find((l) => l.status === 'Completed') || lessons[0];
   const badges = useMemo(() => mockDb_ext.getBadges(student.id), [student.id, reloadKey]);

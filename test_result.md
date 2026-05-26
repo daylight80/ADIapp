@@ -167,6 +167,18 @@ frontend:
         agent: "main"
         comment: "Added three action buttons on the Overview tab beneath the profile card: Amend (outlined blue, pencil icon) opens a bottom sheet for editing name/email/phone/address/postcode/hourly_rate/test_date; Passed (filled green, trophy icon) sets status='Passed', progress=100% and stamps test_passed_at; Delete (outlined red, trash icon) removes the student and their lessons after confirmation, then routes back. Confirmation uses Alert on native + window.confirm on web. Extended StudentStatus to include 'Passed' (mockDb.ts) and added markStudentPassed/updateStudent/deleteStudent helpers. StatusBadge updated for the new state. Verified end-to-end via Playwright: Amend sheet renders all fields with current values; Passed action switches the status badge to 'Passed' and bumps Driving readiness to 100%; CRM filter now includes a 'Passed' chip."
 
+  - task: "DVSA Competency Tracker — Supabase migration (Wave 3 Slice 3)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/student-lifecycle-screen.tsx, /app/frontend/app/competency-detail-screen.tsx, /app/frontend/app/student-home-screen.tsx, /app/frontend/src/supabaseDb.ts"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Migrated DVSA Competency Tracker reads from mockDb to Supabase `public.dvsa_syllabus_tracking`. (1) Extended Competency type in supabaseDb.ts with back-compat aliases (key/name/icon/skills) so existing screens render without shape rewrite; added icon column to all 28 DVSA_SYLLABUS categories and a deriveSkills() helper that synthesises Theory/Practical/Independent sub-skills from row level+progress. (2) student-lifecycle-screen.tsx Competency tab now uses useCompetencies(student.id) hook with mockDb fallback for legacy IDs. (3) competency-detail-screen.tsx fully rewritten to use useCompetencies + updateCompetency; added a new 'Update level/progress' bottom-sheet (BottomSheet) accessible via a pencil icon in the header, with 5 level chips (L1-L5 with Introduced/Practising/Confident/Mastered labels) and 5 progress chips (0/25/50/75/100%). Edit is only shown when the competency is sourced from Supabase. Also added a Level summary card + 'Last assessed' timestamp + uses competency.notes if present. (4) student-home-screen.tsx tries Supabase first, falls back to mockDb (will fully bind once Migration 004 adds auth_user_id to students). Web bundle compiles clean (Web Bundled 5643ms · 3240 modules · no errors). Test seedCompetenciesIfEmpty auto-seeds 28 rows on first read for new Supabase students. Test credentials: alex@adipro.uk / password123."
+
 metadata:
   created_by: "main_agent"
   version: "1.1"

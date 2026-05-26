@@ -192,6 +192,28 @@ frontend:
     status_history:
       - working: "NA"
         agent: "main"
+        comment: "Migrated three remaining Wave 3 slices and added Migration 004. Idempotent SQL adds auth_user_id column with student-self RLS, backfill, and link_student_to_auth helper. Wallet/student-home/theory-test screens now resolve student via Supabase Auth uid → email → mockDb fallback. Reflective logs/badges/block bookings persist live."
+
+  - task: "Wave 3 Slice 7 — Lesson Tools write-backs (faults, grades, notes, amount, status) → Supabase updateLesson"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/LessonToolsSheet.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Migrated LessonToolsSheet write-backs from mockDb.updateLesson to Supabase patchLesson. (1) completePrecheck() now persists pre_check_completed_at to public.lessons via patchLesson, with mockDb fallback for legacy lessons not in Supabase. (2) cancelLesson() persists status='Cancelled' via patchLesson with mockDb fallback. (3) **NEW: Complete-lesson UI** — added a green 'Complete lesson' button (Trophy icon) that opens a slide-up modal with: (a) three steppers for Driving / Serious / Dangerous faults with +/- buttons and colour-coded value chip (amber/orange/red), (b) five 1-5 grade chips with active state, (c) numeric £ amount paid input with PoundSterling icon, (d) multiline notes textarea, (e) 'Save & mark complete' primary button with ActivityIndicator during save. Form hydrates from the existing lesson row each time the sheet opens, supporting both first-time completion and edits ('Edit lesson outcome' button label appears for Completed lessons). saveCompletion() validates grade is picked + amount is a non-negative number, then calls patchLesson with driving_faults, serious_faults, dangerous_faults, grade, amount_paid, notes, and status='Completed'. mockDb fallback in catch block. Bundle compiles clean (3,152 modules, no errors). Test credentials: alex@adipro.uk / password123."
+    implemented: true
+    working: "NA"
+    file: "/app/supabase/migrations/004_student_auth_link.sql, /app/frontend/src/supabaseDb.ts, /app/frontend/src/useSupabaseData.ts, /app/frontend/app/wallet-screen.tsx, /app/frontend/app/student-home-screen.tsx, /app/frontend/app/theory-test-screen.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
         comment: "Migrated three remaining Wave 3 slices and added Migration 004. (A) Migration 004_student_auth_link.sql — adds nullable auth_user_id column to public.students with unique partial index, idx_students_auth_user_id, student-self SELECT/INSERT RLS policies on students/lessons/dvsa_syllabus_tracking/reflective_logs/block_bookings/badges_earned, best-effort email-to-uid backfill, and a SECURITY DEFINER helper function link_student_to_auth(email, uid) for backend invite acceptance. **USER MUST APPLY THIS MIGRATION** in the Supabase SQL editor before student-side flows go fully live. (B) supabaseDb.ts — added getStudentByAuthId() that returns undefined gracefully if the auth_user_id column is missing (pre-migration). (C) useSupabaseData.ts — added useStudentByAuthId() hook mirroring useStudentByEmail. (D) wallet-screen.tsx — Block Bookings (Slice 5) — fully migrated; uses useBlockBookings + purchaseBlock, derives wallet balance (hours_remaining, total_paid) client-side from the bookings array, resolves studentId via passed param → useStudentByAuthId → useStudentByEmail → mockDb fallback. Shows ActivityIndicator during purchase. (E) student-home-screen.tsx — Reflective Logs (Slice 4) + Badges (Slice 6) — fully migrated; resolves student via useStudentByAuthId → useStudentByEmail → mockDb; reads reflections via useReflectiveLogs and joins what_well/what_difficult/next_focus into a single rendering line; reads badges via useBadges and maps badge_key/badge_name into legacy {key,name} shape; saveReflection() persists via createReflectiveLog when student is Supabase-linked, otherwise mockDb_ext. (F) theory-test-screen.tsx — Badge award now goes via Supabase awardBadge({student_id, badge_key:'theory_passed', badge_name:'Theory Champion'}) when student is Supabase-linked, with duplicate constraint error swallowed (idempotent re-award). Falls back to mockDb_ext.awardBadge for legacy. Web bundle compiles cleanly (3,220 modules, no errors)."
 
 metadata:

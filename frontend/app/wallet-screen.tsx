@@ -1,11 +1,18 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, PoundSterling, Clock, Plus, Receipt } from 'lucide-react-native';
 import { theme } from '../src/theme';
-import { mockDb, mockDb_ext } from '../src/mockDb';
+import { mockDb } from '../src/mockDb';
 import { useAuth } from '../src/AuthContext';
+import {
+  useBlockBookings,
+  purchaseBlock,
+  useStudentByEmail,
+  useStudentByAuthId,
+  useLessonsForStudent,
+} from '../src/useSupabaseData';
 import { Card, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 
@@ -19,20 +26,68 @@ export default function WalletScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const params = useLocalSearchParams();
-  const studentId = (params.studentId as string) || (user?.email ? mockDb.getStudentByEmail(user.email)?.id : 's2') || 's2';
-  const student = mockDb.getStudent(studentId)!;
+
+  // -----------------------------------------------------------------------
+  // Resolve the student row.
+  //   • If a Supabase student UUID is passed (instructor → Wallet flow), use it.
+  //   • Otherwise, try Supabase Auth uid lookup (post Migration 004).
+  //   • Otherwise, fall back to email lookup against Supabase students.
+  //   • Otherwise, fall back to the mockDb seed (legacy demo flow).
+  // -----------------------------------------------------------------------
+  const passedId = (params.studentId as string) || '';
+  const isPassedSupabaseUuid = /^[0-9a-f-]{36}$/i.test(passedId);
+  const { student: sbStudentByAuth } = useStudentByAuthId(!passedId ? user?.id : undefined);
+  const { student: sbStudentByEmail } = useStudentByEmail(
+    !passedId && !sbStudentByAuth ? user?.email : undefined,
+  );
+  const supabaseStudent = isPassedSupabaseUuid ? undefined : (sbStudentByAuth || sbStudentByEmail);
+
+  const studentId = isPassedSupabaseUuid
+    ? passedId
+    : (supabaseStudent?.id
+        || (user?.email ? mockDb.getStudentByEmail(user.email)?.id : undefined)
+        || passedId
+        || 's2');
+
+  const mockStudent = mockDb.getStudent(studentId);
+  const student = supabaseStudent
+    ? { id: supabaseStudent.id, name: supabaseStudent.name, hourly_rate: supabaseStudent.hourly_rate ?? 38 }
+    : mockStudent
+      ? { id: mockStudent.id, name: mockStudent.name, hourly_rate: mockStudent.hourly_rate }
+      : { id: studentId, name: user?.name || 'Learner', hourly_rate: 38 };
+
+  // -----------------------------------------------------------------------
+  // Live data from Supabase.
+  // -----------------------------------------------------------------------
+  const { bookings, loading: bookingsLoading } = useBlockBookings(studentId);
+  const { lessons: sbLessons } = useLessonsForStudent(studentId);
+  const lessons = useMemo(() => {
+    if (sbLessons && sbLessons.length > 0) return sbLessons.filter((l) => l.amount_paid);
+    // mockDb fallback (legacy demo)
+    return mockDb.listLessonsForStudent(studentId).filter((l) => l.amount_paid);
+  }, [sbLessons, studentId]);
+
+  // Wallet balance is derived client-side from the bookings array.
+  const wallet = useMemo(() => {
+    const hours_remaining = bookings.reduce((s, b) => s + (b.hours_paid - b.hours_used), 0);
+    const total_paid = bookings.reduce((s, b) => s + b.amount, 0);
+    return { hours_remaining, total_paid };
+  }, [bookings]);
 
   const [buyOpen, setBuyOpen] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
-  const wallet = mockDb_ext.getWalletBalance(studentId);
-  const bookings = mockDb_ext.listBlockBookings(studentId);
-  const lessons = mockDb.listLessonsForStudent(studentId).filter((l) => l.amount_paid);
+  const [busy, setBusy] = useState(false);
 
-  const buy = (hours: number, amount: number) => {
-    mockDb_ext.addBlockBooking(studentId, hours, amount);
-    setBuyOpen(false);
-    setReloadKey((k) => k + 1);
-    Alert.alert('Block booked', `${hours} hours added for £${amount}. A VAT receipt is available below.`);
+  const buy = async (hours: number, amount: number) => {
+    setBusy(true);
+    try {
+      await purchaseBlock({ student_id: studentId, hours_paid: hours, amount });
+      setBuyOpen(false);
+      Alert.alert('Block booked', `${hours} hours added for £${amount}. A VAT receipt is available below.`);
+    } catch (e: any) {
+      Alert.alert('Purchase failed', e?.message || 'Could not add the block booking.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -67,16 +122,18 @@ export default function WalletScreen() {
         </TouchableOpacity>
 
         <Text style={styles.section}>Block bookings</Text>
-        {bookings.length === 0 ? (
+        {bookingsLoading ? (
+          <Card><ActivityIndicator size="small" color={theme.colors.primary} /></Card>
+        ) : bookings.length === 0 ? (
           <Card><Text style={styles.empty}>No block bookings yet.</Text></Card>
         ) : (
           bookings.map((b) => (
             <Card key={b.id} testID={`booking-${b.id}`}>
               <View style={styles.row}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.bookHours}>{b.hours}h block</Text>
+                  <Text style={styles.bookHours}>{b.hours_paid}h block</Text>
                   <Text style={styles.bookMeta}>
-                    Purchased {new Date(b.purchased_at).toLocaleDateString('en-GB')} · {b.hours - b.hours_used}h left
+                    Purchased {new Date(b.purchased_at).toLocaleDateString('en-GB')} · {(b.hours_paid - b.hours_used).toFixed(1)}h left
                   </Text>
                 </View>
                 <Badge label={`£${b.amount}`} bg={theme.colors.primaryLight} color={theme.colors.primary} />
@@ -112,17 +169,23 @@ export default function WalletScreen() {
         {BLOCK_OPTIONS.map((opt) => (
           <TouchableOpacity
             key={opt.hours}
-            style={styles.blockCard}
-            onPress={() => buy(opt.hours, opt.price)}
+            style={[styles.blockCard, busy && { opacity: 0.5 }]}
+            onPress={() => !busy && buy(opt.hours, opt.price)}
+            disabled={busy}
             testID={`block-${opt.hours}h`}
           >
             <View style={{ flex: 1 }}>
               <Text style={styles.blockHours}>{opt.hours} hours</Text>
-              <Text style={styles.blockSaving}>£{(opt.price / opt.hours).toFixed(2)}/hr · save £{(opt.hours * 38 - opt.price).toFixed(0)}</Text>
+              <Text style={styles.blockSaving}>£{(opt.price / opt.hours).toFixed(2)}/hr · save £{(opt.hours * student.hourly_rate - opt.price).toFixed(0)}</Text>
             </View>
             <Text style={styles.blockPrice}>£{opt.price}</Text>
           </TouchableOpacity>
         ))}
+        {busy && (
+          <View style={{ alignItems: 'center', marginTop: 12 }}>
+            <ActivityIndicator color={theme.colors.primary} />
+          </View>
+        )}
       </BottomSheet>
     </SafeAreaView>
   );

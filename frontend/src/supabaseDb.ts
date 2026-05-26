@@ -793,3 +793,20 @@ export async function getStudentByEmail(email: string): Promise<Student | undefi
   if (error) throw error;
   return data ? fromRow(data) : undefined;
 }
+
+// Resolve the current learner via Supabase Auth uid (Migration 004 adds the
+// auth_user_id column). Falls back gracefully if the column doesn't exist yet.
+export async function getStudentByAuthId(authUserId: string): Promise<Student | undefined> {
+  const { data, error } = await supabase
+    .from('students')
+    .select('*')
+    .eq('auth_user_id', authUserId)
+    .maybeSingle();
+  if (error) {
+    // Most likely "column auth_user_id does not exist" before Migration 004 ran.
+    // Treat as "not linked yet" rather than failing hard.
+    if (/column.*auth_user_id/i.test(error.message || '')) return undefined;
+    throw error;
+  }
+  return data ? fromRow(data) : undefined;
+}

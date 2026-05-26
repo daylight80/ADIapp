@@ -340,3 +340,22 @@ export function useStudentByEmail(email: string | undefined) {
 
   return { student, loading };
 }
+
+// Resolve a student row from a Supabase Auth uid (post Migration 004).
+// Used by the student-side app to find "my row" without trusting email casing.
+export function useStudentByAuthId(authUserId: string | undefined) {
+  const version = useVersion();
+  const [student, setStudent] = useState<db.Student | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!authUserId) { setStudent(undefined); setLoading(false); return; }
+    setLoading(true);
+    db.getStudentByAuthId(authUserId)
+      .then(setStudent)
+      .catch(() => setStudent(undefined))
+      .finally(() => setLoading(false));
+  }, [authUserId, version]);
+
+  return { student, loading };
+}

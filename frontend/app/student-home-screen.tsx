@@ -1,12 +1,20 @@
 import React, { useCallback, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Check, X, FileCheck, MessageCircle, ChevronRight, Award, Trophy, BookOpen, Pencil, Wallet } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { mockDb, readiness, mockDb_ext } from '../src/mockDb';
-import { useCompetencies } from '../src/useSupabaseData';
+import {
+  useCompetencies,
+  useBadges,
+  useReflectiveLogs,
+  createReflectiveLog,
+  useStudentByAuthId,
+  useStudentByEmail,
+  useLessonsForStudent,
+} from '../src/useSupabaseData';
 import { Card, ProgressBar, Badge } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
 import { BottomSheet } from '../src/BottomSheet';
@@ -18,20 +26,75 @@ export default function StudentHomeScreen() {
   const [reflectOpen, setReflectOpen] = useState(false);
   const [reflectText, setReflectText] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
+  const [saving, setSaving] = useState(false);
 
-  // Find student record by email (demo) or default to s2
-  const studentRecord = user?.email ? mockDb.getStudentByEmail(user.email) : undefined;
-  const student = studentRecord || mockDb.getStudent('s2')!;
+  // ---------------------------------------------------------------------
+  // Resolve "who am I?"
+  //   1. Try Supabase by auth uid (Migration 004 onwards).
+  //   2. Fall back to Supabase by email.
+  //   3. Fall back to mockDb seed (legacy demo flow).
+  // ---------------------------------------------------------------------
+  const { student: sbStudentByAuth } = useStudentByAuthId(user?.id);
+  const { student: sbStudentByEmail } = useStudentByEmail(
+    !sbStudentByAuth ? user?.email : undefined,
+  );
+  const supabaseStudent = sbStudentByAuth || sbStudentByEmail;
+  const mockStudentByEmail = user?.email ? mockDb.getStudentByEmail(user.email) : undefined;
+  const mockStudent = mockStudentByEmail || mockDb.getStudent('s2')!;
 
+  // Unified student card used by the UI. Prefer Supabase fields when present.
+  const student = supabaseStudent
+    ? {
+        id: supabaseStudent.id,
+        name: supabaseStudent.name,
+        status: supabaseStudent.status,
+        progress: supabaseStudent.progress ?? 0,
+        test_date: supabaseStudent.test_date,
+      }
+    : {
+        id: mockStudent.id,
+        name: mockStudent.name,
+        status: mockStudent.status,
+        progress: mockStudent.progress,
+        test_date: mockStudent.test_date,
+      };
+
+  // -------- Competencies (Supabase first, mockDb fallback) -------------
   const competenciesMock = mockDb.getCompetencies(student.id);
-  // Try Supabase live competencies — only takes effect when student.id is a
-  // real Supabase UUID (currently the case after Migration 004 lands).
   const { competencies: sbCompetencies } = useCompetencies(student.id);
   const competencies = sbCompetencies && sbCompetencies.length > 0 ? sbCompetencies : competenciesMock;
-  const lessons = mockDb.listLessonsForStudent(student.id);
+
+  // -------- Lessons (Supabase first, mockDb fallback) ------------------
+  const { lessons: sbLessons } = useLessonsForStudent(student.id);
+  const lessons = sbLessons && sbLessons.length > 0
+    ? sbLessons
+    : mockDb.listLessonsForStudent(student.id);
   const recentLesson = lessons.find((l) => l.status === 'Completed') || lessons[0];
-  const badges = useMemo(() => mockDb_ext.getBadges(student.id), [student.id, reloadKey]);
-  const reflections = useMemo(() => mockDb_ext.listReflections(student.id), [student.id, reloadKey]);
+
+  // -------- Badges (Supabase first) ------------------------------------
+  const { badges: sbBadges } = useBadges(student.id);
+  const badges = useMemo(
+    () => (sbBadges && sbBadges.length > 0
+      ? sbBadges.map((b) => ({ key: b.badge_key, name: b.badge_name, description: b.description, earned_at: b.earned_at }))
+      : mockDb_ext.getBadges(student.id)),
+    [sbBadges, student.id, reloadKey],
+  );
+
+  // -------- Reflective logs (Supabase first) ---------------------------
+  const { logs: sbReflections } = useReflectiveLogs(student.id);
+  const reflections = useMemo(() => {
+    if (sbReflections && sbReflections.length > 0) {
+      return sbReflections.map((r) => ({
+        id: r.id,
+        student_id: r.student_id,
+        lesson_id: r.lesson_id || '',
+        // Combine the three fields into a single rendering line.
+        text: [r.what_well, r.what_difficult, r.next_focus].filter(Boolean).join(' · ') || '',
+        created_at: r.created_at,
+      }));
+    }
+    return mockDb_ext.listReflections(student.id);
+  }, [sbReflections, student.id, reloadKey]);
 
   const met = readiness.criteria.filter((c) => c.met).length;
   const total = readiness.criteria.length;
@@ -45,16 +108,31 @@ export default function StudentHomeScreen() {
     }, 600);
   }, []);
 
-  const saveReflection = () => {
-    if (!recentLesson) return;
+  const saveReflection = async () => {
     if (reflectText.trim().length < 5) {
       Alert.alert('Please write a few words about your last lesson.');
       return;
     }
-    mockDb_ext.addReflection(recentLesson.id, student.id, reflectText.trim());
-    setReflectText('');
-    setReflectOpen(false);
-    setReloadKey((k) => k + 1);
+    setSaving(true);
+    try {
+      // If this student is Supabase-linked, persist live; otherwise mockDb.
+      if (supabaseStudent) {
+        await createReflectiveLog({
+          student_id: supabaseStudent.id,
+          lesson_id: recentLesson?.id,
+          what_well: reflectText.trim(),
+        });
+      } else if (recentLesson) {
+        mockDb_ext.addReflection(recentLesson.id, student.id, reflectText.trim());
+      }
+      setReflectText('');
+      setReflectOpen(false);
+      setReloadKey((k) => k + 1);
+    } catch (e: any) {
+      Alert.alert('Save failed', e?.message || 'Could not save your reflection.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -227,8 +305,15 @@ export default function StudentHomeScreen() {
           textAlignVertical="top"
           testID="input-reflection"
         />
-        <TouchableOpacity style={styles.saveBtn} onPress={saveReflection} testID="btn-save-reflection">
-          <Text style={styles.saveBtnText}>Save reflection</Text>
+        <TouchableOpacity
+          style={[styles.saveBtn, saving && { opacity: 0.6 }]}
+          onPress={saveReflection}
+          disabled={saving}
+          testID="btn-save-reflection"
+        >
+          {saving
+            ? <ActivityIndicator color="#fff" />
+            : <Text style={styles.saveBtnText}>Save reflection</Text>}
         </TouchableOpacity>
       </BottomSheet>
     </SafeAreaView>

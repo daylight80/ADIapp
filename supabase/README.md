@@ -4,11 +4,13 @@ This folder holds the canonical Postgres schema for the **ADI Pro** UK driving-s
 
 ## Apply the schema
 
-Apply in order. Both files are idempotent — re-running them is safe.
+Apply in order. All files are idempotent — re-running them is safe.
 
 ```
 supabase/migrations/001_initial_schema.sql      # the 6 spec'd tables + RLS
 supabase/migrations/002_extended_columns.sql    # CRM columns + auxiliary tables
+supabase/migrations/003_subscription_tiers.sql  # Stripe 4-tier subscriptions
+supabase/migrations/004_student_auth_link.sql   # link students to Supabase Auth
 ```
 
 ### Option A — Supabase Dashboard (fastest)

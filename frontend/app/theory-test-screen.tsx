@@ -6,12 +6,21 @@ import { ArrowLeft, Check, X, RotateCcw } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { THEORY_BANK, mockDb_ext, mockDb } from '../src/mockDb';
 import { useAuth } from '../src/AuthContext';
+import { useStudentByAuthId, useStudentByEmail } from '../src/useSupabaseData';
+import { awardBadge } from '../src/supabaseDb';
 import { Card, ProgressBar, Badge } from '../src/ui';
 
 export default function TheoryTestScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const student = user?.email ? mockDb.getStudentByEmail(user.email) : mockDb.getStudent('s2');
+  // Resolve the learner row: Supabase via auth uid → email → mockDb fallback.
+  const { student: sbStudentByAuth } = useStudentByAuthId(user?.id);
+  const { student: sbStudentByEmail } = useStudentByEmail(
+    !sbStudentByAuth ? user?.email : undefined,
+  );
+  const supabaseStudent = sbStudentByAuth || sbStudentByEmail;
+  const mockStudent = user?.email ? mockDb.getStudentByEmail(user.email) : mockDb.getStudent('s2');
+  const student = supabaseStudent || mockStudent;
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [submitted, setSubmitted] = useState(false);
 
@@ -22,10 +31,27 @@ export default function TheoryTestScreen() {
   const passMark = 8; // 80%
   const passed = correct >= passMark;
 
-  const onSubmit = () => {
+  const onSubmit = async () => {
     setSubmitted(true);
     if (correct >= passMark && student) {
-      mockDb_ext.awardBadge(student.id, 'theory_passed');
+      if (supabaseStudent) {
+        // Persist live (idempotent — unique (student_id, badge_key) constraint).
+        try {
+          await awardBadge({
+            student_id: supabaseStudent.id,
+            badge_key: 'theory_passed',
+            badge_name: 'Theory Champion',
+            description: 'Passed an in-app theory test',
+          });
+        } catch (e: any) {
+          // Likely the unique-per-student constraint — already awarded. Safe to ignore.
+          if (!/duplicate|unique/i.test(e?.message || '')) {
+            console.warn('[theory-test] awardBadge failed', e);
+          }
+        }
+      } else {
+        mockDb_ext.awardBadge(student.id, 'theory_passed');
+      }
     }
   };
 

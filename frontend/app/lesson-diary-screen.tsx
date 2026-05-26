@@ -14,6 +14,7 @@ import { theme } from '../src/theme';
 import { mockDb, Lesson } from '../src/mockDb';
 import { useLessonsForWeek, useStudents, createLesson } from '../src/useSupabaseData';
 import { Card, Badge } from '../src/ui';
+import { DateField, TimeField } from '../src/DateTimeFields';
 import { BottomSheet } from '../src/BottomSheet';
 import { BottomNav } from '../src/BottomNav';
 import { useAuth } from '../src/AuthContext';
@@ -350,34 +351,17 @@ export default function LessonDiaryScreen() {
           ))}
         </ScrollView>
 
-        <Text style={styles.label}>Date (YYYY-MM-DD)</Text>
-        <TextInput
-          style={styles.input}
-          value={date}
-          onChangeText={setDate}
-          placeholder={new Date().toISOString().slice(0, 10)}
-          placeholderTextColor={theme.colors.textMuted}
-          testID="input-lesson-date"
-        />
+        <Text style={styles.label}>Date</Text>
+        <DateField value={date} onChange={setDate} testID="input-lesson-date" />
 
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <View style={{ flex: 1 }}>
             <Text style={styles.label}>Start</Text>
-            <TextInput
-              style={styles.input}
-              value={startTime}
-              onChangeText={setStartTime}
-              testID="input-lesson-start"
-            />
+            <TimeField value={startTime} onChange={setStartTime} testID="input-lesson-start" />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.label}>End</Text>
-            <TextInput
-              style={styles.input}
-              value={endTime}
-              onChangeText={setEndTime}
-              testID="input-lesson-end"
-            />
+            <TimeField value={endTime} onChange={setEndTime} testID="input-lesson-end" />
           </View>
         </View>
 

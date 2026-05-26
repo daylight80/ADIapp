@@ -11,6 +11,7 @@ supabase/migrations/001_initial_schema.sql      # the 6 spec'd tables + RLS
 supabase/migrations/002_extended_columns.sql    # CRM columns + auxiliary tables
 supabase/migrations/003_subscription_tiers.sql  # Stripe 4-tier subscriptions
 supabase/migrations/004_student_auth_link.sql   # link students to Supabase Auth
+supabase/migrations/005_vehicles_default.sql    # vehicles is_default + RPC
 ```
 
 ### Option A — Supabase Dashboard (fastest)

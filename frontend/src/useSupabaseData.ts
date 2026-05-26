@@ -359,3 +359,52 @@ export function useStudentByAuthId(authUserId: string | undefined) {
 
   return { student, loading };
 }
+
+// ---------------------------------------------------------------------------
+// Hooks — Vehicles
+// ---------------------------------------------------------------------------
+
+export function useVehicles() {
+  const version = useVersion();
+  const [vehicles, setVehicles] = useState<db.Vehicle[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const rows = await db.listVehicles();
+      setVehicles(rows);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load vehicles');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh, version]);
+  return { vehicles, loading, error, refresh };
+}
+
+export async function createVehicle(input: db.VehicleInput) {
+  const v = await db.createVehicle(input);
+  bump();
+  return v;
+}
+
+export async function updateVehicle(id: string, patch: Partial<db.VehicleInput>) {
+  const v = await db.updateVehicle(id, patch);
+  bump();
+  return v;
+}
+
+export async function deleteVehicle(id: string) {
+  await db.deleteVehicle(id);
+  bump();
+}
+
+export async function setDefaultVehicle(id: string) {
+  await db.setDefaultVehicle(id);
+  bump();
+}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown, ShieldCheck, Wallet, Copy, IdCard } from 'lucide-react-native';
+import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown, ShieldCheck, Wallet, Copy, IdCard, Car } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { mockDb, instructorProfile } from '../src/mockDb';
@@ -129,6 +129,17 @@ export default function ProfileScreen() {
             {instructorProfile.tc_signed_at ? 'Pupil Agreement (signed ✓)' : 'Pupil Agreement — sign now'}
           </Text>
         </TouchableOpacity>
+
+        {role === 'instructor' && (
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => router.push('/vehicles-screen')}
+            testID="link-vehicles"
+          >
+            <Car size={18} color={theme.colors.primary} />
+            <Text style={styles.linkRowText}>Manage vehicles</Text>
+          </TouchableOpacity>
+        )}
 
         {role === 'student' && student && (
           <TouchableOpacity

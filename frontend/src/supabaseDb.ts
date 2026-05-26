@@ -228,6 +228,7 @@ export type Vehicle = {
   registration_plate: string;
   transmission: 'Manual' | 'Automatic' | 'Electric';
   is_right_hand_drive: boolean;
+  is_default: boolean;
 };
 
 const vehicleFromRow = (r: any): Vehicle => ({
@@ -237,12 +238,88 @@ const vehicleFromRow = (r: any): Vehicle => ({
   registration_plate: r.registration_plate,
   transmission: r.transmission,
   is_right_hand_drive: r.is_right_hand_drive,
+  is_default: Boolean(r.is_default),
 });
 
 export async function listVehicles(): Promise<Vehicle[]> {
-  const { data, error } = await supabase.from('vehicles').select('*').order('make_and_model');
+  const { data, error } = await supabase
+    .from('vehicles')
+    .select('*')
+    .order('is_default', { ascending: false })
+    .order('make_and_model');
   if (error) throw error;
   return (data || []).map(vehicleFromRow);
+}
+
+// ---------------------------------------------------------------------------
+// Vehicle CRUD — used by /vehicles-screen.tsx
+// ---------------------------------------------------------------------------
+export type VehicleInput = {
+  make_and_model: string;
+  registration_plate: string;
+  transmission: 'Manual' | 'Automatic' | 'Electric';
+  is_default?: boolean;
+};
+
+export async function createVehicle(input: VehicleInput): Promise<Vehicle> {
+  const { schoolId } = await ownContext();
+  const { data, error } = await supabase
+    .from('vehicles')
+    .insert({
+      school_id: schoolId,
+      make_and_model: input.make_and_model.trim(),
+      registration_plate: input.registration_plate.toUpperCase().trim(),
+      transmission: input.transmission,
+      is_right_hand_drive: true, // UK only
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  _defaultVehicleCache = null;
+  const veh = vehicleFromRow(data);
+  if (input.is_default) {
+    await setDefaultVehicle(veh.id);
+    return { ...veh, is_default: true };
+  }
+  return veh;
+}
+
+export async function updateVehicle(id: string, patch: Partial<VehicleInput>): Promise<Vehicle> {
+  const dbPatch: Record<string, any> = {};
+  if (patch.make_and_model !== undefined)     dbPatch.make_and_model     = patch.make_and_model.trim();
+  if (patch.registration_plate !== undefined) dbPatch.registration_plate = patch.registration_plate.toUpperCase().trim();
+  if (patch.transmission !== undefined)       dbPatch.transmission       = patch.transmission;
+  const { data, error } = await supabase.from('vehicles').update(dbPatch).eq('id', id).select('*').single();
+  if (error) throw error;
+  _defaultVehicleCache = null;
+  if (patch.is_default === true) {
+    await setDefaultVehicle(id);
+    return { ...vehicleFromRow(data), is_default: true };
+  }
+  return vehicleFromRow(data);
+}
+
+export async function deleteVehicle(id: string): Promise<boolean> {
+  const { error } = await supabase.from('vehicles').delete().eq('id', id);
+  if (error) throw error;
+  _defaultVehicleCache = null;
+  return true;
+}
+
+// Calls the set_default_vehicle RPC (Migration 005). Falls back to a
+// client-side two-step update if the RPC isn't deployed yet.
+export async function setDefaultVehicle(id: string): Promise<void> {
+  const { error } = await supabase.rpc('set_default_vehicle', { p_vehicle_id: id });
+  if (!error) {
+    _defaultVehicleCache = null;
+    return;
+  }
+  // Fallback for pre-Migration-005 environments.
+  if (/function .* does not exist/i.test(error.message || '') || /column.*is_default/i.test(error.message || '')) {
+    return;
+  }
+  // Other failure modes — propagate.
+  throw error;
 }
 
 // Returns the instructor's first vehicle, auto-creating a sensible UK default
@@ -252,6 +329,19 @@ let _defaultVehicleCache: Vehicle | null = null;
 export async function ensureDefaultVehicle(): Promise<Vehicle> {
   if (_defaultVehicleCache) return _defaultVehicleCache;
   const { schoolId } = await ownContext();
+
+  // Prefer the row flagged as default (post Migration 005).
+  const { data: pickDefault } = await supabase
+    .from('vehicles')
+    .select('*')
+    .eq('school_id', schoolId)
+    .eq('is_default', true)
+    .limit(1)
+    .maybeSingle();
+  if (pickDefault) {
+    _defaultVehicleCache = vehicleFromRow(pickDefault);
+    return _defaultVehicleCache;
+  }
 
   const { data: existing } = await supabase
     .from('vehicles')

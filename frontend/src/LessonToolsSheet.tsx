@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, ScrollView, TextInput, ActivityIndicator } from 'react-native';
 import {
   X,
@@ -18,6 +18,7 @@ import {
 import { theme } from './theme';
 import { Lesson, Student, mockDb } from './mockDb';
 import { patchLesson } from './useSupabaseData';
+import { useStudent } from './useSupabaseData';
 import { openNavigation, openSmsComposer } from './tools';
 import { fireInstantNotification } from './notifications';
 import { Badge } from './ui';
@@ -83,9 +84,43 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
     setNotes(lesson.notes ?? '');
   }, [visible, lesson?.id]);
 
+  // ----- Student resolution (hooks must run unconditionally) ----------------
+  // Try Supabase first when student_id looks like a UUID; otherwise mockDb.
+  const sbStudentId = lesson && /^[0-9a-f-]{36}$/i.test(lesson.student_id) ? lesson.student_id : undefined;
+  const { student: sbStudent } = useStudent(sbStudentId);
+
   if (!lesson) return null;
-  const student = mockDb.getStudent(lesson.student_id);
-  if (!student) return null;
+
+  const mockStudent = mockDb.getStudent(lesson.student_id);
+  // Build a minimal Student-shaped record so downstream code doesn't crash.
+  const student: any = sbStudent
+    ? {
+        id: sbStudent.id,
+        name: sbStudent.name,
+        phone: sbStudent.phone || '',
+        email: sbStudent.email || '',
+        address: sbStudent.address || '',
+        postcode: sbStudent.postcode || '',
+      }
+    : mockStudent;
+  if (!student) {
+    // Show a spinner whilst the Supabase student fetch resolves rather than
+    // returning null (which would prevent the sheet from opening at all).
+    return (
+      <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+        <View style={styles.backdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
+          <View style={styles.sheet}>
+            <View style={styles.handle} />
+            <View style={{ padding: 40, alignItems: 'center' }}>
+              <ActivityIndicator size="large" color={theme.colors.primary} />
+              <Text style={{ marginTop: 12, color: theme.colors.textMuted }}>Loading lesson details…</Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
 
   const allChecks = precheck.eye && precheck.fit && precheck.lic;
 

@@ -196,15 +196,21 @@ frontend:
 
   - task: "Wave 3 Slice 7 — Lesson Tools write-backs (faults, grades, notes, amount, status) → Supabase updateLesson"
     implemented: true
-    working: "NA"
-    file: "/app/frontend/src/LessonToolsSheet.tsx"
+    working: true
+    file: "/app/frontend/src/LessonToolsSheet.tsx, /app/frontend/app/lesson-diary-screen.tsx, /app/frontend/src/BottomNav.tsx"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
-        comment: "Migrated LessonToolsSheet write-backs from mockDb.updateLesson to Supabase patchLesson. (1) completePrecheck() now persists pre_check_completed_at to public.lessons via patchLesson, with mockDb fallback for legacy lessons not in Supabase. (2) cancelLesson() persists status='Cancelled' via patchLesson with mockDb fallback. (3) **NEW: Complete-lesson UI** — added a green 'Complete lesson' button (Trophy icon) that opens a slide-up modal with: (a) three steppers for Driving / Serious / Dangerous faults with +/- buttons and colour-coded value chip (amber/orange/red), (b) five 1-5 grade chips with active state, (c) numeric £ amount paid input with PoundSterling icon, (d) multiline notes textarea, (e) 'Save & mark complete' primary button with ActivityIndicator during save. Form hydrates from the existing lesson row each time the sheet opens, supporting both first-time completion and edits ('Edit lesson outcome' button label appears for Completed lessons). saveCompletion() validates grade is picked + amount is a non-negative number, then calls patchLesson with driving_faults, serious_faults, dangerous_faults, grade, amount_paid, notes, and status='Completed'. mockDb fallback in catch block. Bundle compiles clean (3,152 modules, no errors). Test credentials: alex@adipro.uk / password123."
+        comment: "Initial implementation of Complete-lesson modal with steppers, grade chips, amount input, notes textarea; mockDb.updateLesson swapped for patchLesson with mockDb fallback."
+      - working: "NA"
+        agent: "testing"
+        comment: "Lesson-block onPress on web didn't fire — TouchableOpacity inside absolute-positioned container with absoluteFill background was swallowing events. Agent suggested Pressable swap + pointerEvents fix."
+      - working: true
+        agent: "main"
+        comment: "VERIFIED END-TO-END via Playwright screenshot tests. Root cause was TWO defects: (1) absoluteFill hour-grid background was intercepting pointer events — fixed with pointerEvents='none' on both day and week views; (2) lesson blocks used TouchableOpacity which doesn't reliably propagate events through absolute positioning on RN-Web — swapped for Pressable in both views with diagnostic console.log; (3) DEEPEST BUG: LessonToolsSheet.tsx line 87 called mockDb.getStudent(lesson.student_id) and returned null when student was a Supabase UUID — fixed by adding useStudent hook before early returns, building a Student-shape object from Supabase data with mockDb fallback, and showing a loading spinner if neither resolved. Also added zIndex:2, elevation:2 to lesson blocks defensively, and renamed BottomNav testID from nav-tab-{key} to nav-{key} for cleaner automation. PERSISTENCE PROOF CAPTURED: after full fresh-page reload (logout → login → diary → tap lesson) all 7 saved fields hydrate correctly from Supabase: status='Completed', green button label='Edit lesson outcome', driving=3 (amber chip), serious=1 (orange), dangerous=0, grade=4 highlighted blue, amount=£38, notes='Good observation. Work on lane discipline at next roundabout.'. RLS allowed instructor to UPDATE assigned-student's lesson. Round-trip through patchLesson() → public.lessons UPDATE → SELECT → form rehydration all confirmed working."
       - working: "NA"
         agent: "testing"
         comment: "(prior partial — kept for history)"

@@ -34,7 +34,7 @@ export function BottomNav({ role }: { role: 'instructor' | 'student' }) {
             key={t.key}
             style={styles.tab}
             onPress={() => router.replace(t.route as any)}
-            testID={`nav-tab-${t.key}`}
+            testID={`nav-${t.key}`}
             activeOpacity={0.7}
           >
             <Icon

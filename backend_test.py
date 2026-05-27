@@ -303,38 +303,98 @@ try:
 except Exception as e:
     bad("billing-v2 checkout", repr(e))
 
-# 9. /api/maps/travel-time
-section("9. Regression /api/maps/travel-time")
+# 9. /api/maps/travel-time (NEW dual-auth dependency)
+section("9. /api/maps/travel-time dual-auth (Supabase + legacy Mongo)")
+payload = {"origin": "12 Abbey Road, NW8 9AY", "destination": "42 Pickwick Avenue, NW1 2AB"}
+
+# 9.a No Authorization header -> 401
 try:
-    payload = {"origin": "12 Abbey Road, NW8 9AY", "destination": "42 Pickwick Avenue, NW1 2AB"}
-    # First try supabase bearer (will likely 401 since endpoint uses legacy JWT)
+    r = requests.post(f"{API}/maps/travel-time", json=payload, timeout=20)
+    print(f"  no-auth -> HTTP {r.status_code} {r.text[:200]}")
+    if r.status_code == 401:
+        ok("travel-time no-auth -> 401", f"detail={r.json().get('detail')}")
+    else:
+        bad("travel-time no-auth -> 401", f"got {r.status_code} {r.text[:200]}")
+except Exception as e:
+    bad("travel-time no-auth -> 401", repr(e))
+
+# 9.b Bearer garbage-token -> 401
+try:
+    r = requests.post(
+        f"{API}/maps/travel-time",
+        json=payload,
+        headers={"Authorization": "Bearer garbage-token"},
+        timeout=20,
+    )
+    print(f"  garbage-bearer -> HTTP {r.status_code} {r.text[:200]}")
+    if r.status_code == 401:
+        ok("travel-time garbage-bearer -> 401", f"detail={r.json().get('detail')}")
+    else:
+        bad("travel-time garbage-bearer -> 401", f"got {r.status_code} {r.text[:200]}")
+except Exception as e:
+    bad("travel-time garbage-bearer -> 401", repr(e))
+
+# 9.c Supabase bearer (alex) -> 200 (was 401 before the dual-auth fix)
+try:
     r = requests.post(f"{API}/maps/travel-time", json=payload, headers=AUTH, timeout=20)
-    print(f"  with supabase bearer -> HTTP {r.status_code} {r.text[:200]}")
+    print(f"  supabase bearer -> HTTP {r.status_code} body={r.text[:300]}")
     if r.status_code == 200:
-        ok("travel-time (supabase bearer)", f"{r.json()}")
-    elif r.status_code == 401:
-        # Try legacy login
-        rl = requests.post(f"{API}/auth/login", json={"email": EMAIL, "password": PASSWORD}, timeout=15)
-        print(f"  /api/auth/login -> HTTP {rl.status_code} {rl.text[:200]}")
-        if rl.status_code == 200:
-            legacy = rl.json().get("access_token") or rl.json().get("token") or ""
+        body = r.json()
+        required = {"duration_minutes", "duration_in_traffic_minutes", "distance_km", "status", "cached"}
+        shape_ok = required.issubset(body.keys())
+        types_ok = (
+            isinstance(body.get("duration_minutes"), int)
+            and isinstance(body.get("duration_in_traffic_minutes"), int)
+            and isinstance(body.get("distance_km"), (int, float))
+            and isinstance(body.get("status"), str)
+            and isinstance(body.get("cached"), bool)
+        )
+        if shape_ok and types_ok:
+            ok("travel-time supabase bearer -> 200", f"body={body}")
+        else:
+            bad("travel-time supabase bearer shape", f"body={body}")
+    else:
+        bad("travel-time supabase bearer -> 200", f"HTTP {r.status_code} {r.text[:300]}")
+except Exception as e:
+    bad("travel-time supabase bearer -> 200", repr(e))
+
+# 9.d Legacy Mongo JWT (instructor@demo.uk) -> 200 (backwards compat)
+try:
+    rl = requests.post(
+        f"{API}/auth/login",
+        json={"email": "instructor@demo.uk", "password": "password123"},
+        timeout=15,
+    )
+    print(f"  /api/auth/login instructor@demo.uk -> HTTP {rl.status_code} {rl.text[:200]}")
+    if rl.status_code == 200:
+        legacy_token = (
+            rl.json().get("access_token")
+            or rl.json().get("token")
+            or ""
+        )
+        if not legacy_token:
+            bad("travel-time legacy bearer -> 200", f"login returned no token: {rl.json()}")
+        else:
             r2 = requests.post(
                 f"{API}/maps/travel-time",
                 json=payload,
-                headers={"Authorization": f"Bearer {legacy}"},
+                headers={"Authorization": f"Bearer {legacy_token}"},
                 timeout=20,
             )
-            print(f"  with legacy bearer -> HTTP {r2.status_code} {r2.text[:200]}")
+            print(f"  legacy bearer -> HTTP {r2.status_code} body={r2.text[:300]}")
             if r2.status_code == 200:
-                ok("travel-time (legacy bearer)", f"{r2.json()}")
+                body = r2.json()
+                required = {"duration_minutes", "duration_in_traffic_minutes", "distance_km", "status", "cached"}
+                if required.issubset(body.keys()):
+                    ok("travel-time legacy bearer -> 200", f"body={body}")
+                else:
+                    bad("travel-time legacy bearer shape", f"body={body}")
             else:
-                bad("travel-time (legacy bearer)", f"HTTP {r2.status_code}")
-        else:
-            bad("travel-time", "supabase bearer 401 + legacy /api/auth/login not usable for alex (Supabase-only account). Endpoint still requires legacy JWT — note for main agent.")
+                bad("travel-time legacy bearer -> 200", f"HTTP {r2.status_code} {r2.text[:300]}")
     else:
-        bad("travel-time", f"HTTP {r.status_code} {r.text[:300]}")
+        bad("travel-time legacy login", f"HTTP {rl.status_code} {rl.text[:200]} — demo Mongo account may have been removed")
 except Exception as e:
-    bad("travel-time", repr(e))
+    bad("travel-time legacy bearer -> 200", repr(e))
 
 # Summary
 section("SUMMARY")

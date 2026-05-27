@@ -219,6 +219,35 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     return user
 
 
+# Accepts EITHER a legacy Mongo-issued JWT (get_current_user) OR a Supabase
+# Auth bearer token (get_current_supabase_user). Used by endpoints we want to
+# work from both old demo accounts and the new Supabase-only accounts.
+async def get_current_user_any(authorization: Optional[str] = Header(None)) -> dict:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+    # Try legacy Mongo JWT first (fast — pure JWT decode, no network).
+    try:
+        scheme, token = authorization.split()
+        if scheme.lower() == "bearer":
+            try:
+                payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+                user_id = payload.get("sub")
+                if user_id:
+                    user = await db.users.find_one({"id": user_id}, {"_id": 0, "password": 0})
+                    if user:
+                        return {"source": "legacy", **user}
+            except JWTError:
+                pass
+    except ValueError:
+        pass
+    # Fall back to Supabase Auth token verification (network round-trip).
+    try:
+        sb_user = await get_current_supabase_user(authorization)
+        return {"source": "supabase", **sb_user}
+    except HTTPException:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
 def to_public_user(u: dict) -> UserPublic:
     return UserPublic(
         id=u["id"],
@@ -494,7 +523,7 @@ def _mock_travel(origin: str, destination: str) -> dict:
 
 
 @api_router.post("/maps/travel-time", response_model=TravelTimeResponse)
-async def travel_time(req: TravelTimeRequest, current_user: dict = Depends(get_current_user)):
+async def travel_time(req: TravelTimeRequest, current_user: dict = Depends(get_current_user_any)):
     cache_key = f"{req.origin.lower().strip()}|{req.destination.lower().strip()}"
     now_ts = datetime.now(timezone.utc).timestamp()
 

@@ -13,7 +13,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Mail, Lock, User as UserIcon, IdCard, MailCheck, Briefcase, GraduationCap } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
@@ -31,6 +31,7 @@ type InvitePreview = {
 
 export default function SignUpLoginScreen() {
   const params = useLocalSearchParams();
+  const router = useRouter();
   const inviteToken = (params.invite as string) || '';
 
   const [tab, setTab] = useState<Tab>(inviteToken ? 'signup' : 'signin');
@@ -273,6 +274,16 @@ export default function SignUpLoginScreen() {
               )}
             </TouchableOpacity>
 
+            {tab === 'signin' && !isInvite && (
+              <TouchableOpacity
+                style={styles.forgotLink}
+                onPress={() => router.push('/forgot-password-screen')}
+                testID="link-forgot-password"
+              >
+                <Text style={styles.forgotLinkText}>Forgotten your password?</Text>
+              </TouchableOpacity>
+            )}
+
             {!isInvite && tab === 'signup' && (
               <Text style={styles.studentNote}>
                 Students cannot self-register. Ask your instructor for an invite link.
@@ -329,6 +340,8 @@ const styles = StyleSheet.create({
   demoBtnStudent: { backgroundColor: theme.colors.primary },
   demoBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   studentNote: { textAlign: 'center', color: theme.colors.textMuted, fontSize: 12, marginTop: 12, fontStyle: 'italic' },
+  forgotLink: { alignSelf: 'center', paddingVertical: 12, paddingHorizontal: 16, marginTop: 4 },
+  forgotLinkText: { color: theme.colors.primary, fontSize: 14, fontWeight: '600' },
   legal: { marginTop: 20 },
   legalText: { ...theme.font.caption, textAlign: 'center' },
   legalLink: { color: theme.colors.primary, fontWeight: '600' },

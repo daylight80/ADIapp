@@ -8,6 +8,15 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { theme } from '../src/theme';
 
 const AUTH_ROUTE = 'sign-up-login-screen';
+// Routes that don't require an authenticated session. The forgot/reset
+// password screens must be reachable when the user is signed out, and the
+// reset screen also runs in a brief recovery-session state where we still
+// want to keep them on this page rather than bouncing to home.
+const PUBLIC_ROUTES = new Set<string>([
+  AUTH_ROUTE,
+  'forgot-password-screen',
+  'reset-password-screen',
+]);
 
 function AuthGate() {
   const { user, loading } = useAuth();
@@ -17,10 +26,12 @@ function AuthGate() {
   useEffect(() => {
     if (loading) return;
     const current = segments[segments.length - 1] || '';
-    const isAuthScreen = current === AUTH_ROUTE;
-    if (!user && !isAuthScreen) {
+    const isPublic = PUBLIC_ROUTES.has(current);
+    if (!user && !isPublic) {
       router.replace('/sign-up-login-screen');
-    } else if (user && (isAuthScreen || current === '' || current === 'index')) {
+    } else if (user && (current === AUTH_ROUTE || current === '' || current === 'index')) {
+      // Only auto-redirect signed-in users away from the SIGN-IN route, not
+      // forgot/reset — they may legitimately be there to change their password.
       if (user.role === 'instructor') router.replace('/home-screen');
       else router.replace('/student-home-screen');
     }

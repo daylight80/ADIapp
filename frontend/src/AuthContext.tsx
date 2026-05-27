@@ -28,6 +28,8 @@ type AuthContextType = {
   signUp: (email: string, password: string, name: string, adi_number: string) => Promise<SignUpResult>;
   signOut: () => Promise<void>;
   acceptInvite: (invite_token: string, password: string, name?: string) => Promise<SignUpResult>;
+  forgotPassword: (email: string) => Promise<SignUpResult>;
+  updatePassword: (newPassword: string) => Promise<SignUpResult>;
   refreshUser: () => Promise<void>;
 };
 
@@ -271,6 +273,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
   }, []);
 
+  // Sends Supabase Auth's "Reset Password" email. The redirectTo URL is where
+  // the recovery link lands; we route that to /reset-password-screen which
+  // captures the access_token from the URL hash and lets the user pick a new
+  // password.
+  const forgotPassword: AuthContextType['forgotPassword'] = useCallback(async (email) => {
+    try {
+      // On native, redirect via the app's URL scheme; on web, use the current
+      // origin so the link always opens this exact deployment.
+      const redirectTo =
+        typeof window !== 'undefined' && window.location?.origin
+          ? `${window.location.origin}/reset-password-screen`
+          : 'adipro://reset-password-screen';
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+      if (error) return { ok: false, error: error.message };
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: e?.message || 'Could not send reset email' };
+    }
+  }, []);
+
+  // Updates the signed-in user's password. Must be called from a session
+  // established by the recovery link (Supabase auto-creates this session when
+  // the user arrives on the reset page with the access_token in the URL hash).
+  const updatePassword: AuthContextType['updatePassword'] = useCallback(async (newPassword) => {
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) return { ok: false, error: error.message };
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: e?.message || 'Password update failed' };
+    }
+  }, []);
+
   const refreshUser = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
     if (!data.session) return;
@@ -279,7 +314,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut, refreshUser, acceptInvite }}>
+    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut, refreshUser, acceptInvite, forgotPassword, updatePassword }}>
       {children}
     </AuthContext.Provider>
   );

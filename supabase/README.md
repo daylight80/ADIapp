@@ -13,6 +13,7 @@ supabase/migrations/003_subscription_tiers.sql  # Stripe 4-tier subscriptions
 supabase/migrations/004_student_auth_link.sql   # link students to Supabase Auth
 supabase/migrations/005_vehicles_default.sql    # vehicles is_default + RPC
 supabase/migrations/006_instructor_preferences.sql  # preferred_nav_app
+supabase/migrations/007_waiting_list_push_tokens.sql  # Smart Gap waiting list
 ```
 
 ### Option A — Supabase Dashboard (fastest)

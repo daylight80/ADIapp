@@ -1,11 +1,13 @@
-import React, { useCallback, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, TextInput, Alert, ActivityIndicator } from 'react-native';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, TextInput, Alert, ActivityIndicator, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Check, X, FileCheck, MessageCircle, ChevronRight, Award, Trophy, BookOpen, Pencil, Wallet } from 'lucide-react-native';
+import { Check, X, FileCheck, MessageCircle, ChevronRight, Award, Trophy, BookOpen, Pencil, Wallet, Bell } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { mockDb, readiness, mockDb_ext } from '../src/mockDb';
+import { registerExpoPushToken } from '../src/notifications';
+import { getWaitingListStatus, setWaitingListStatus } from '../src/supabaseDb';
 import {
   useCompetencies,
   useBadges,
@@ -107,6 +109,48 @@ export default function StudentHomeScreen() {
       setRefreshing(false);
     }, 600);
   }, []);
+
+  // -----------------------------------------------------------------------
+  // Push notification registration + Smart-Gap waiting-list opt-in
+  // -----------------------------------------------------------------------
+  const [waiting, setWaiting] = useState(false);
+  const [savingWaiting, setSavingWaiting] = useState(false);
+
+  useEffect(() => {
+    // Register the device's Expo push token against the signed-in auth user
+    // so the backend can fan out Smart Gap broadcasts. No-op on web.
+    registerExpoPushToken().catch(() => {});
+  }, [user?.id]);
+
+  useEffect(() => {
+    // Read waiting-list opt-in status whenever we know the Supabase student id.
+    if (!supabaseStudent?.id) { setWaiting(false); return; }
+    let cancelled = false;
+    getWaitingListStatus(supabaseStudent.id)
+      .then((v) => { if (!cancelled) setWaiting(v); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [supabaseStudent?.id, reloadKey]);
+
+  const toggleWaiting = async (next: boolean) => {
+    if (!supabaseStudent) {
+      Alert.alert(
+        'Not linked yet',
+        'Once your instructor links your account to Supabase, you can opt in here.',
+      );
+      return;
+    }
+    setSavingWaiting(true);
+    setWaiting(next); // optimistic
+    try {
+      await setWaitingListStatus(supabaseStudent.id, supabaseStudent.school_id, next);
+    } catch (e: any) {
+      setWaiting(!next);
+      Alert.alert('Could not save', e?.message || 'Please apply Migration 007 first.');
+    } finally {
+      setSavingWaiting(false);
+    }
+  };
 
   const saveReflection = async () => {
     if (reflectText.trim().length < 5) {
@@ -254,6 +298,28 @@ export default function StudentHomeScreen() {
             </View>
           </Card>
         )}
+
+        {/* Smart Gap — opt in to waiting list for short-notice slot pings */}
+        <Card style={{ gap: 10 }} testID="waiting-list-card">
+          <View style={styles.row}>
+            <Bell size={20} color={theme.colors.accent} />
+            <Text style={styles.sectionTitle}>Slot alerts</Text>
+            <View style={{ flex: 1 }} />
+            <Switch
+              value={waiting}
+              onValueChange={toggleWaiting}
+              disabled={savingWaiting}
+              trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
+              thumbColor="#fff"
+              testID="switch-waiting-list"
+            />
+          </View>
+          <Text style={styles.emptyText}>
+            {waiting
+              ? "You're on the list. We'll ping you the moment a cancellation frees up a slot."
+              : 'Turn this on to get a push notification when a lesson cancellation creates a short-notice opening.'}
+          </Text>
+        </Card>
 
         {/* Theory + Wallet shortcuts */}
         <View style={styles.shortcutRow}>

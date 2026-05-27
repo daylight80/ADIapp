@@ -194,6 +194,18 @@ frontend:
         agent: "main"
         comment: "Migrated three remaining Wave 3 slices and added Migration 004. Idempotent SQL adds auth_user_id column with student-self RLS, backfill, and link_student_to_auth helper. Wallet/student-home/theory-test screens now resolve student via Supabase Auth uid → email → mockDb fallback. Reflective logs/badges/block bookings persist live."
 
+  - task: "Smart Gap waiting-list + Expo Push fan-out"
+    implemented: true
+    working: "NA"
+    file: "/app/supabase/migrations/007_waiting_list_push_tokens.sql, /app/backend/server.py, /app/frontend/src/notifications.ts, /app/frontend/src/supabaseDb.ts, /app/frontend/src/LessonToolsSheet.tsx, /app/frontend/app/student-home-screen.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Closed the remaining gap from the One-Tap / I'm-Here / Smart-Gap audit. (1) Migration 007 (idempotent) — two new tables: public.waiting_list (id, school_id, student_id, active, notes, created_at, updated_at) with school+student unique index and RLS allowing instructor-owner + student-self; public.push_tokens (auth_user_id, expo_token, platform, device_label) with unique (auth_user_id, expo_token) and self-only RLS. (2) Backend POST /api/broadcasts/gap — Pydantic GapBroadcastRequest/Response models; verifies the lesson belongs to the caller's school via auth uid + driving_schools lookup; fetches active waiting_list joined to students with auth_user_id; pulls push tokens from push_tokens; batches a single POST to https://exp.host/--/api/v2/push/send with title/body/data payload; returns {sent, skipped, detail} counts. Curl-verified 401 without bearer (auth gate works); endpoint registered. (3) frontend/src/notifications.ts — new registerExpoPushToken() function: ensures permission, calls Notifications.getExpoPushTokenAsync (with projectId from Constants), upserts to public.push_tokens via Supabase JS with onConflict='auth_user_id,expo_token' for idempotency; no-op on web; caches last token to avoid re-uploads. (4) supabaseDb.ts — getWaitingListStatus() and setWaitingListStatus() with pre-Migration-007 graceful fallback (returns false / friendly error). (5) LessonToolsSheet GapBroadcastModal rewritten — replaces local-only fireInstantNotification with a fetch() POST to /api/broadcasts/gap using the current user's access token; ActivityIndicator during send; shows {sent} count + detail string; error mapping for pre-Migration-007. (6) student-home-screen.tsx — new 'Slot alerts' card (testID 'waiting-list-card') with Bell icon + Switch (testID 'switch-waiting-list') that calls setWaitingListStatus on toggle; calls registerExpoPushToken() on mount via useEffect bound to user.id; useEffect reads opt-in status whenever supabaseStudent.id changes. Bundle compiles clean (200 OK), backend reloaded clean. Tested via curl: 401 with no auth (correct), full happy-path needs Migration 007 applied + an opted-in learner with a registered push token. Test credentials: alex@adipro.uk / password123."
+
   - task: "One-Tap Navigation — preferred_nav_app + 🧭 quick-action on lesson card"
     implemented: true
     working: "NA"

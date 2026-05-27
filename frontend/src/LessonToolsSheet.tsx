@@ -385,15 +385,60 @@ function CheckRow({ icon, label, checked, onToggle, testID }: any) {
 
 function GapBroadcastModal({ visible, onClose, lesson }: { visible: boolean; onClose: () => void; lesson: Lesson | null }) {
   const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [resultCount, setResultCount] = useState<number | null>(null);
+  const [resultDetail, setResultDetail] = useState<string>('');
+
   if (!lesson) return null;
-  const students = mockDb.listStudents().filter((s) => s.status !== 'New' && s.id !== lesson.student_id);
 
   const broadcast = async () => {
-    await fireInstantNotification(
-      'Slot broadcast sent',
-      `${students.length} active students notified about the ${lesson.start_time} gap.`
-    );
-    setSent(true);
+    setBusy(true);
+    try {
+      // Fetch the active session token for backend auth.
+      const { supabase: sbClient } = require('./supabaseClient') as typeof import('./supabaseClient');
+      const { data: sess } = await sbClient.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) throw new Error('Not signed in');
+
+      // Backend URL is exposed via EXPO_PUBLIC_BACKEND_URL (or the dev proxy
+      // strips /api at the ingress). The /api prefix is always required.
+      const base = (process as any).env?.EXPO_PUBLIC_BACKEND_URL || '';
+      const url = `${base.replace(/\/+$/, '')}/api/broadcasts/gap`;
+
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          lesson_id: lesson.id,
+          title: 'Lesson slot just opened!',
+          body: `A ${lesson.start_time}–${lesson.end_time} slot has just freed up on ${new Date(lesson.date).toLocaleDateString('en-GB')}. Open ADI Pro to grab it before it's gone.`,
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        // Pre-Migration-007 environments will get a 500 here — show a useful message.
+        if ((json.detail || '').toLowerCase().includes('waiting_list')) {
+          throw new Error('Please apply Migration 007 first (waiting_list + push_tokens).');
+        }
+        throw new Error(json.detail || `Broadcast failed (HTTP ${resp.status})`);
+      }
+      const sentCount: number = json.sent ?? 0;
+      setResultCount(sentCount);
+      setResultDetail(json.detail || `Notified ${sentCount} learner(s).`);
+      // Also fire a local toast for the instructor.
+      await fireInstantNotification(
+        'Slot broadcast sent',
+        json.detail || `Notified ${sentCount} learner(s).`,
+      );
+      setSent(true);
+    } catch (e: any) {
+      Alert.alert('Broadcast failed', e?.message || 'Could not send broadcast.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -403,17 +448,27 @@ function GapBroadcastModal({ visible, onClose, lesson }: { visible: boolean; onC
           <Megaphone size={32} color={theme.colors.accent} />
           <Text style={styles.modalTitle}>Broadcast the gap</Text>
           <Text style={styles.modalSub}>
-            Notify {students.length} active students of the freed{' '}
-            {new Date(lesson.date).toLocaleDateString('en-GB')} {lesson.start_time}-{lesson.end_time} slot.
+            Notify everyone on the waiting list about the freed{' '}
+            {new Date(lesson.date).toLocaleDateString('en-GB')} {lesson.start_time}–{lesson.end_time} slot. First to respond gets the slot.
           </Text>
           {!sent ? (
-            <TouchableOpacity style={styles.modalCta} onPress={broadcast} testID="btn-broadcast">
-              <Text style={styles.modalCtaText}>Broadcast to {students.length} students</Text>
+            <TouchableOpacity
+              style={[styles.modalCta, busy && styles.btnDisabled]}
+              onPress={broadcast}
+              disabled={busy}
+              testID="btn-broadcast"
+            >
+              {busy
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.modalCtaText}>Broadcast now</Text>}
             </TouchableOpacity>
           ) : (
             <View style={styles.sentRow}>
               <Check size={18} color={theme.colors.success} />
-              <Text style={styles.sentText}>Broadcast sent. First to respond wins the slot.</Text>
+              <Text style={styles.sentText}>
+                {resultCount !== null ? `Sent to ${resultCount} learner(s). ` : ''}
+                {resultDetail || 'First to respond wins the slot.'}
+              </Text>
             </View>
           )}
           <TouchableOpacity onPress={onClose} testID="gap-close">

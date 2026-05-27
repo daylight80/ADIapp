@@ -164,6 +164,50 @@ export async function updateInstructorPreferredNavApp(app: NavApp): Promise<void
   }
 }
 
+// ---------------------------------------------------------------------------
+// Waiting list — learners opt in to be pinged about freed slots.
+// ---------------------------------------------------------------------------
+export async function getWaitingListStatus(studentId: string): Promise<boolean> {
+  if (!studentId) return false;
+  const { data, error } = await supabase
+    .from('waiting_list')
+    .select('active')
+    .eq('student_id', studentId)
+    .maybeSingle();
+  if (error) {
+    // Pre-Migration 007 — table doesn't exist yet. Treat as 'not opted in'.
+    return false;
+  }
+  return !!data?.active;
+}
+
+export async function setWaitingListStatus(
+  studentId: string,
+  schoolId: string,
+  active: boolean,
+): Promise<void> {
+  if (!studentId || !schoolId) throw new Error('Missing student or school id');
+  const { error } = await supabase
+    .from('waiting_list')
+    .upsert(
+      {
+        student_id: studentId,
+        school_id: schoolId,
+        active,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'school_id,student_id' },
+    );
+  if (error) {
+    if (/relation .*waiting_list.* does not exist/i.test(error.message || '')) {
+      throw new Error('Please apply Migration 007 first (waiting_list table).');
+    }
+    throw error;
+  }
+}
+
+
+
 export type AddStudentInput = {
   name: string;
   email: string;

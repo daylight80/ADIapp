@@ -40,6 +40,59 @@ export async function ensureNotificationPermission(): Promise<boolean> {
   return status === 'granted';
 }
 
+// ---------------------------------------------------------------------------
+// Expo Push token registration — stores the device's push token against the
+// signed-in auth user so the backend can fan out Smart Gap broadcasts.
+// ---------------------------------------------------------------------------
+import { supabase } from './supabaseClient';
+import Constants from 'expo-constants';
+
+let _lastRegisteredToken: string | null = null;
+
+export async function registerExpoPushToken(): Promise<string | null> {
+  // Push tokens are a no-op on web (Expo Push targets native devices).
+  if (Platform.OS === 'web') return null;
+  const ok = await ensureNotificationPermission();
+  if (!ok) return null;
+  try {
+    const projectId =
+      (Constants.expoConfig?.extra as any)?.eas?.projectId ||
+      (Constants.easConfig as any)?.projectId;
+    const tokenResp = await Notifications.getExpoPushTokenAsync(
+      projectId ? { projectId } : undefined,
+    );
+    const token = tokenResp.data;
+    if (!token) return null;
+    if (token === _lastRegisteredToken) return token; // skip re-uploads
+    _lastRegisteredToken = token;
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const uid = sessionData.session?.user?.id;
+    if (!uid) return token;
+
+    // Upsert on (auth_user_id, expo_token) — unique index makes this idempotent.
+    const { error } = await supabase.from('push_tokens').upsert(
+      {
+        auth_user_id: uid,
+        expo_token: token,
+        platform: Platform.OS,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'auth_user_id,expo_token' },
+    );
+    if (error) {
+      // Graceful no-op if push_tokens doesn't exist yet (pre-Migration 007).
+      // eslint-disable-next-line no-console
+      console.warn('[push] could not register token:', error.message);
+    }
+    return token;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[push] registerExpoPushToken failed', e);
+    return null;
+  }
+}
+
 function lessonStartDate(lesson: Lesson): Date {
   const [h, m] = lesson.start_time.split(':').map(Number);
   const d = new Date(lesson.date);

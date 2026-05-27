@@ -1033,6 +1033,129 @@ async def v2_invite_student(req: StudentInviteRequest, sb_user: dict = Depends(g
     return StudentInviteResponse(sent=True, email=str(req.email), detail=f"Invite email sent to {req.email}.")
 
 
+# =============================================================================
+# Smart Gap Broadcast — fan out real Expo Push notifications to learners on
+# the school's waiting_list when a lesson is cancelled.
+# =============================================================================
+class GapBroadcastRequest(BaseModel):
+    lesson_id: str
+    title: Optional[str] = None
+    body: Optional[str] = None
+
+
+class GapBroadcastResponse(BaseModel):
+    sent: int
+    skipped: int
+    detail: str
+
+
+@api_router.post("/broadcasts/gap", response_model=GapBroadcastResponse)
+async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_current_supabase_user)):
+    """Notify every learner on the active waiting_list for this lesson's school
+    that a slot has just opened up. Returns counts of sent vs skipped.
+    """
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        raise HTTPException(status_code=500, detail="Supabase service role key not configured")
+
+    # 1. Look up the lesson to derive school_id + a default message body.
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.get(
+            f"{_sb_rest_base}/lessons",
+            params={
+                "id": f"eq.{req.lesson_id}",
+                "select": "id,school_id,date,start_time,end_time,topic",
+                "limit": "1",
+            },
+            headers=_sb_headers(),
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Lesson lookup failed: {r.text}")
+    rows = r.json()
+    if not rows:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    lesson = rows[0]
+
+    # 2. Verify the caller actually owns this lesson's school.
+    school = await sb_get_school_by_auth_user(sb_user["id"])
+    if not school or school["id"] != lesson["school_id"]:
+        raise HTTPException(status_code=403, detail="Not your lesson")
+
+    # 3. Pull the active waiting_list with each student's auth_user_id.
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        wl = await client_http.get(
+            f"{_sb_rest_base}/waiting_list",
+            params={
+                "school_id": f"eq.{lesson['school_id']}",
+                "active": "eq.true",
+                "select": "student_id,students(id,auth_user_id,full_name)",
+            },
+            headers=_sb_headers(),
+        )
+    if wl.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Waiting list read failed: {wl.text}")
+    rows = wl.json()
+    auth_ids = [row["students"]["auth_user_id"] for row in rows if row.get("students") and row["students"].get("auth_user_id")]
+    if not auth_ids:
+        return GapBroadcastResponse(sent=0, skipped=0, detail="No one is on the waiting list yet.")
+
+    # 4. Fetch push tokens for those users.
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        pt = await client_http.get(
+            f"{_sb_rest_base}/push_tokens",
+            params={
+                "auth_user_id": f"in.({','.join(auth_ids)})",
+                "select": "auth_user_id,expo_token",
+            },
+            headers=_sb_headers(),
+        )
+    if pt.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Push tokens read failed: {pt.text}")
+    tokens = [row["expo_token"] for row in pt.json() if row.get("expo_token")]
+    skipped = len(auth_ids) - len({row["auth_user_id"] for row in pt.json()})
+
+    if not tokens:
+        return GapBroadcastResponse(sent=0, skipped=skipped, detail="Waiting-list members have no push tokens yet.")
+
+    title = req.title or "Lesson slot just opened!"
+    body  = req.body  or (
+        f"A {lesson['start_time']}–{lesson['end_time']} slot has just freed up on "
+        f"{lesson['date']}. Open ADI Pro to grab it before it's gone."
+    )
+
+    # 5. Fan out to Expo Push API in a single batched POST.
+    messages = [{
+        "to": tok,
+        "title": title,
+        "body": body,
+        "sound": "default",
+        "priority": "high",
+        "data": {"type": "gap_broadcast", "lesson_id": req.lesson_id},
+    } for tok in tokens]
+
+    sent = 0
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client_http:
+            resp = await client_http.post(
+                "https://exp.host/--/api/v2/push/send",
+                json=messages,
+                headers={"Accept": "application/json", "Content-Type": "application/json"},
+            )
+        if resp.status_code < 400:
+            data = resp.json().get("data", [])
+            sent = sum(1 for r in data if r.get("status") == "ok")
+        else:
+            logging.warning(f"Expo Push HTTP {resp.status_code}: {resp.text}")
+    except Exception as e:
+        logging.exception("Expo Push fan-out failed")
+        raise HTTPException(status_code=502, detail=f"Expo Push fan-out failed: {e}")
+
+    return GapBroadcastResponse(
+        sent=sent,
+        skipped=skipped + (len(tokens) - sent),
+        detail=f"Notified {sent} of {len(auth_ids)} waiting-list learner(s).",
+    )
+
+
 app.include_router(api_router)
 
 app.add_middleware(

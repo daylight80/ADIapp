@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -268,10 +269,14 @@ export default function LessonDiaryScreen() {
                     const needed = l.travel_minutes ?? prev?.travel_minutes ?? 0;
                     const tooTight = gapMin !== null && gapMin < needed;
                     return (
-                      <TouchableOpacity
+                      <Pressable
                         key={l.id}
                         style={[styles.lessonBlockDay, tooTight && styles.lessonBlockWarn, { top, height }]}
-                        onPress={() => setDetailLesson(l)}
+                        onPress={() => {
+                          // eslint-disable-next-line no-console
+                          console.log('[diary] lesson tapped:', l.id, l.start_time);
+                          setDetailLesson(l);
+                        }}
                         testID={`lesson-block-${l.id}`}
                       >
                         <Text style={styles.lessonBlockTimeBig}>
@@ -290,7 +295,7 @@ export default function LessonDiaryScreen() {
                             <AlertTriangle size={10} color="#fff" />
                           </View>
                         )}
-                      </TouchableOpacity>
+                      </Pressable>
                     );
                   })}
               </View>
@@ -339,10 +344,14 @@ export default function LessonDiaryScreen() {
                         const needed = l.travel_minutes ?? prev?.travel_minutes ?? 0;
                         const tooTight = gapMin !== null && gapMin < needed;
                         return (
-                          <TouchableOpacity
+                          <Pressable
                             key={l.id}
                             style={[styles.lessonBlockWeek, tooTight && styles.lessonBlockWarn, { top, height }]}
-                            onPress={() => setDetailLesson(l)}
+                            onPress={() => {
+                              // eslint-disable-next-line no-console
+                              console.log('[diary/week] lesson tapped:', l.id);
+                              setDetailLesson(l);
+                            }}
                             testID={`lesson-block-${l.id}`}
                           >
                             <Text style={styles.lessonBlockTime}>
@@ -356,7 +365,7 @@ export default function LessonDiaryScreen() {
                                 <AlertTriangle size={10} color="#fff" />
                               </View>
                             )}
-                          </TouchableOpacity>
+                          </Pressable>
                         );
                       })}
                     </View>

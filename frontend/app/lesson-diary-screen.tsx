@@ -253,7 +253,7 @@ export default function LessonDiaryScreen() {
                 ))}
               </View>
               <View style={[styles.dayLessonCol, { height: TOTAL_HEIGHT }]}>
-                <View style={StyleSheet.absoluteFill}>
+                <View style={StyleSheet.absoluteFill} pointerEvents="none">
                   {HOURS.slice(0, -1).map((h) => (
                     <View key={h} style={styles.hourSlot} />
                   ))}
@@ -326,7 +326,7 @@ export default function LessonDiaryScreen() {
                   const dayLessons = lessons.filter((l) => l.date === cellDate && l.status !== 'Cancelled');
                   return (
                     <View key={di} style={[styles.weekDayCol, { height: TOTAL_HEIGHT }]}>
-                      <View style={StyleSheet.absoluteFill}>
+                      <View style={StyleSheet.absoluteFill} pointerEvents="none">
                         {HOURS.slice(0, -1).map((h) => (
                           <View key={h} style={styles.hourSlot} />
                         ))}

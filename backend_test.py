@@ -173,32 +173,58 @@ try:
             print(f"  alex school_id = {school_id} ({s.get('business_name')})")
             break
 
-    if school_id:
+    # Find alex's instructor.id (alex.auth_user_id = e6e9091a-cd7d-4819-87bc-2bf03f436a65 per task)
+    alex_instructor_id = ""
+    if alex_uid:
+        ri = requests.get(
+            f"{SUPABASE_URL}/rest/v1/instructors",
+            params={"auth_user_id": f"eq.{alex_uid}", "select": "id,school_id"},
+            headers={"apikey": SERVICE_ROLE_KEY, "Authorization": f"Bearer {SERVICE_ROLE_KEY}"},
+            timeout=15,
+        )
+        irows = ri.json() if ri.status_code == 200 else []
+        if irows:
+            alex_instructor_id = irows[0]["id"]
+            if not school_id:
+                school_id = irows[0].get("school_id", "")
+            print(f"  alex instructor_id = {alex_instructor_id} school_id={school_id}")
+        else:
+            print(f"  instructors lookup -> HTTP {ri.status_code} {ri.text[:200]}")
+
+    if alex_instructor_id:
         rl = requests.get(
             f"{SUPABASE_URL}/rest/v1/lessons",
-            params={"school_id": f"eq.{school_id}", "select": "id,school_id,date,start_time,end_time", "limit": "1"},
+            params={
+                "instructor_id": f"eq.{alex_instructor_id}",
+                "select": "id,instructor_id,start_time,end_time,topic",
+                "limit": "1",
+            },
             headers={"apikey": SERVICE_ROLE_KEY, "Authorization": f"Bearer {SERVICE_ROLE_KEY}"},
             timeout=15,
         )
         rows = rl.json() if rl.status_code == 200 else []
         if rows:
             real_lesson_id = rows[0]["id"]
-            ok("discover-own-lesson", f"id={real_lesson_id} date={rows[0].get('date')} time={rows[0].get('start_time')}")
+            ok("discover-own-lesson", f"id={real_lesson_id} start={rows[0].get('start_time')} end={rows[0].get('end_time')}")
         else:
-            bad("discover-own-lesson", "no lessons in alex's school")
+            bad("discover-own-lesson", f"no lessons for instructor {alex_instructor_id} HTTP {rl.status_code} {rl.text[:200]}")
 
-    # Foreign lesson
-    if school_id:
+    # Foreign lesson — find a lesson whose instructor is NOT alex's
+    if alex_instructor_id:
         rf = requests.get(
             f"{SUPABASE_URL}/rest/v1/lessons",
-            params={"school_id": f"neq.{school_id}", "select": "id,school_id", "limit": "1"},
+            params={
+                "instructor_id": f"neq.{alex_instructor_id}",
+                "select": "id,instructor_id",
+                "limit": "1",
+            },
             headers={"apikey": SERVICE_ROLE_KEY, "Authorization": f"Bearer {SERVICE_ROLE_KEY}"},
             timeout=15,
         )
         rrows = rf.json() if rf.status_code == 200 else []
         if rrows:
             foreign_lesson_id = rrows[0]["id"]
-            print(f"  foreign_lesson_id = {foreign_lesson_id} (school {rrows[0]['school_id']})")
+            print(f"  foreign_lesson_id = {foreign_lesson_id} (instructor {rrows[0]['instructor_id']})")
         else:
             print("  no foreign lessons available")
 except Exception as e:

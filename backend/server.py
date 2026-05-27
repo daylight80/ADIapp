@@ -1057,13 +1057,13 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         raise HTTPException(status_code=500, detail="Supabase service role key not configured")
 
-    # 1. Look up the lesson to derive school_id + a default message body.
+    # 1. Look up the lesson to derive school_id (via instructors FK) + a default message body.
     async with httpx.AsyncClient(timeout=10.0) as client_http:
         r = await client_http.get(
             f"{_sb_rest_base}/lessons",
             params={
                 "id": f"eq.{req.lesson_id}",
-                "select": "id,school_id,date,start_time,end_time,topic",
+                "select": "id,instructor_id,start_time,end_time,topic,instructors(school_id)",
                 "limit": "1",
             },
             headers=_sb_headers(),
@@ -1074,10 +1074,13 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
     if not rows:
         raise HTTPException(status_code=404, detail="Lesson not found")
     lesson = rows[0]
+    lesson_school_id = (lesson.get("instructors") or {}).get("school_id")
+    if not lesson_school_id:
+        raise HTTPException(status_code=500, detail="Lesson is missing its instructor → school link")
 
     # 2. Verify the caller actually owns this lesson's school.
     school = await sb_get_school_by_auth_user(sb_user["id"])
-    if not school or school["id"] != lesson["school_id"]:
+    if not school or school["id"] != lesson_school_id:
         raise HTTPException(status_code=403, detail="Not your lesson")
 
     # 3. Pull the active waiting_list with each student's auth_user_id.
@@ -1085,7 +1088,7 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
         wl = await client_http.get(
             f"{_sb_rest_base}/waiting_list",
             params={
-                "school_id": f"eq.{lesson['school_id']}",
+                "school_id": f"eq.{lesson_school_id}",
                 "active": "eq.true",
                 "select": "student_id,students(id,auth_user_id,full_name)",
             },
@@ -1116,10 +1119,17 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
     if not tokens:
         return GapBroadcastResponse(sent=0, skipped=skipped, detail="Waiting-list members have no push tokens yet.")
 
+    # start_time / end_time are full ISO timestamptz strings — derive date + HH:MM.
+    start_ts = lesson.get("start_time") or ""
+    end_ts   = lesson.get("end_time") or ""
+    lesson_date = start_ts.split("T")[0] if "T" in start_ts else start_ts
+    start_hhmm  = start_ts.split("T")[1][:5] if "T" in start_ts else start_ts
+    end_hhmm    = end_ts.split("T")[1][:5]   if "T" in end_ts   else end_ts
+
     title = req.title or "Lesson slot just opened!"
     body  = req.body  or (
-        f"A {lesson['start_time']}–{lesson['end_time']} slot has just freed up on "
-        f"{lesson['date']}. Open ADI Pro to grab it before it's gone."
+        f"A {start_hhmm}–{end_hhmm} slot has just freed up on "
+        f"{lesson_date}. Open ADI Pro to grab it before it's gone."
     )
 
     # 5. Fan out to Expo Push API in a single batched POST.

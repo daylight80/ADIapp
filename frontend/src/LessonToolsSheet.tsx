@@ -149,22 +149,35 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   };
 
   const cancelLesson = () => {
+    const proceed = async () => {
+      try {
+        await patchLesson(lesson.id, { status: 'Cancelled' });
+      } catch (e: any) {
+        mockDb.updateLesson(lesson.id, { status: 'Cancelled' });
+      }
+      setBroadcastOpen(true);
+      onChanged?.();
+    };
+    // Alert.alert with destructive buttons doesn't render reliably on RN-Web
+    // (it polyfills to window.alert with a single OK button). Use window.confirm
+    // there; native iOS/Android keep the rich Alert.
+    if (Platform.OS === 'web') {
+      const ok = typeof window !== 'undefined'
+        ? window.confirm('Cancel this lesson? You can broadcast the freed slot to other students.')
+        : true;
+      if (ok) proceed();
+      return;
+    }
     Alert.alert('Cancel this lesson?', 'You can broadcast the freed slot to other students.', [
       { text: 'Keep lesson', style: 'cancel' },
-      {
-        text: 'Cancel & broadcast',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await patchLesson(lesson.id, { status: 'Cancelled' });
-          } catch (e: any) {
-            mockDb.updateLesson(lesson.id, { status: 'Cancelled' });
-          }
-          setBroadcastOpen(true);
-          onChanged?.();
-        },
-      },
+      { text: 'Cancel & broadcast', style: 'destructive', onPress: proceed },
     ]);
+  };
+
+  // Direct broadcast (without re-cancelling) — visible when the lesson is
+  // already cancelled, so instructors can re-fan-out to the waiting list.
+  const broadcastOnly = () => {
+    setBroadcastOpen(true);
   };
 
   // Mark Complete: persists faults / grade / amount / notes + status to Supabase.

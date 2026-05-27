@@ -194,6 +194,18 @@ frontend:
         agent: "main"
         comment: "Migrated three remaining Wave 3 slices and added Migration 004. Idempotent SQL adds auth_user_id column with student-self RLS, backfill, and link_student_to_auth helper. Wallet/student-home/theory-test screens now resolve student via Supabase Auth uid → email → mockDb fallback. Reflective logs/badges/block bookings persist live."
 
+  - task: "One-Tap Navigation — preferred_nav_app + 🧭 quick-action on lesson card"
+    implemented: true
+    working: "NA"
+    file: "/app/supabase/migrations/006_instructor_preferences.sql, /app/frontend/src/supabaseDb.ts, /app/frontend/src/useSupabaseData.ts, /app/frontend/app/profile-screen.tsx, /app/frontend/app/lesson-diary-screen.tsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Built the true one-tap navigation feature. (1) Migration 006 (idempotent) adds preferred_nav_app text column to public.instructors with check constraint allowing only google/waze/apple, default 'google'. (2) supabaseDb.ts exports NavApp type, InstructorProfile type, getInstructorProfile() and updateInstructorPreferredNavApp() — both have graceful fallback if the column doesn't exist yet (probes a slimmer select). (3) useSupabaseData.ts adds useInstructorProfile() hook + updatePreferredNavApp() wrapper. (4) profile-screen.tsx renders a new 'Default navigation app' card (instructor-only) with three chip buttons (Google Maps / Waze / Apple Maps) and friendly body copy 'The diary's one-tap 🧭 button on each lesson will launch your preferred app.' Optimistic update with revert on save failure. (5) lesson-diary-screen.tsx adds a 26×26 circular black-translucent button with a Navigation icon in the top-right corner of every day-view and week-view lesson block. Tapping it stops event propagation (so the LessonToolsSheet does NOT open) and directly calls openNavigation(preferredNav, address). Address resolves from lesson.pickup_address with student address+postcode fallback. VERIFIED: bundle compiles clean (200 OK); Profile screen renders the picker with all 3 chips and Google Maps highlighted as default; lesson diary shows the 🧭 button on the lesson card; tapping the 🧭 button does NOT open LessonToolsSheet (propagation stopped, btn-open-complete count=0 after tap, confirmed in Playwright run). Migration 006 needs to be applied by user — until then, picker selections won't persist (graceful 400-fallback in place)."
+
   - task: "Wave 3 Slice 7 — Lesson Tools write-backs (faults, grades, notes, amount, status) → Supabase updateLesson"
     implemented: true
     working: true

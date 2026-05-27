@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown, ShieldCheck, Wallet, Copy, IdCard, Car } from 'lucide-react-native';
+import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown, ShieldCheck, Wallet, Copy, IdCard, Car, Navigation as NavIcon } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { mockDb, instructorProfile } from '../src/mockDb';
@@ -10,6 +10,8 @@ import { BottomNav } from '../src/BottomNav';
 import { useRouter } from 'expo-router';
 import { isPro } from '../src/proPlan';
 import { copyToClipboard } from '../src/tools';
+import { useInstructorProfile, updatePreferredNavApp } from '../src/useSupabaseData';
+import type { NavApp } from '../src/supabaseDb';
 import { Alert, TextInput } from 'react-native';
 
 export default function ProfileScreen() {
@@ -19,6 +21,27 @@ export default function ProfileScreen() {
   const student = user?.email ? mockDb.getStudentByEmail(user.email) : undefined;
   const pro = isPro(user?.subscription_status);
   const [adi, setAdi] = useState(instructorProfile.adi_number);
+
+  // Preferred navigation app for the diary's one-tap 🧭 button.
+  const { profile: sbInstructor } = useInstructorProfile();
+  const [navApp, setNavApp] = useState<NavApp>('google');
+  React.useEffect(() => {
+    if (sbInstructor?.preferred_nav_app) setNavApp(sbInstructor.preferred_nav_app);
+  }, [sbInstructor?.preferred_nav_app]);
+  const [savingNav, setSavingNav] = useState(false);
+  const onPickNavApp = async (app: NavApp) => {
+    const prev = navApp;
+    setNavApp(app); // optimistic
+    setSavingNav(true);
+    try {
+      await updatePreferredNavApp(app);
+    } catch (e: any) {
+      setNavApp(prev);
+      Alert.alert('Could not save', e?.message || 'Please apply Migration 006 first.');
+    } finally {
+      setSavingNav(false);
+    }
+  };
 
   const saveAdi = () => {
     instructorProfile.adi_number = adi.trim();
@@ -131,6 +154,37 @@ export default function ProfileScreen() {
         </TouchableOpacity>
 
         {role === 'instructor' && (
+          <Card style={{ gap: 12, marginTop: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <NavIcon size={18} color={theme.colors.primary} />
+              <Text style={{ fontSize: 15, fontWeight: '700', color: theme.colors.text }}>Default navigation app</Text>
+            </View>
+            <Text style={{ fontSize: 12, color: theme.colors.textMuted }}>
+              The diary's one-tap 🧭 button on each lesson will launch your preferred app.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {([
+                { key: 'google', label: 'Google Maps' },
+                { key: 'waze', label: 'Waze' },
+                { key: 'apple', label: 'Apple Maps' },
+              ] as { key: NavApp; label: string }[]).map((opt) => (
+                <TouchableOpacity
+                  key={opt.key}
+                  style={[styles.navChip, navApp === opt.key && styles.navChipActive, savingNav && { opacity: 0.7 }]}
+                  onPress={() => onPickNavApp(opt.key)}
+                  disabled={savingNav}
+                  testID={`navapp-${opt.key}`}
+                >
+                  <Text style={[styles.navChipText, navApp === opt.key && styles.navChipTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </Card>
+        )}
+
+        {role === 'instructor' && (
           <TouchableOpacity
             style={styles.linkRow}
             onPress={() => router.push('/vehicles-screen')}
@@ -227,4 +281,18 @@ const styles = StyleSheet.create({
   adiValue: { flex: 1, fontSize: 18, fontWeight: '700', color: theme.colors.primary, letterSpacing: 2 },
   linkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.colors.surface, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border },
   linkRowText: { fontSize: 15, fontWeight: '600', color: theme.colors.text, flex: 1 },
+  navChip: {
+    flex: 1,
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  navChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  navChipText: { fontSize: 12, fontWeight: '700', color: theme.colors.text, textAlign: 'center' },
+  navChipTextActive: { color: '#fff' },
 });

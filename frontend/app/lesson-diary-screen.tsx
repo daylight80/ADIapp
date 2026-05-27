@@ -13,7 +13,7 @@ import { useRouter } from 'expo-router';
 import { ChevronLeft, ChevronRight, Plus, ArrowLeft, AlertTriangle, Car, Calendar, CalendarDays } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb, Lesson } from '../src/mockDb';
-import { useLessonsForWeek, useStudents, createLesson } from '../src/useSupabaseData';
+import { useLessonsForWeek, useStudents, createLesson, useInstructorProfile } from '../src/useSupabaseData';
 import { Card, Badge } from '../src/ui';
 import { DateField, TimeField } from '../src/DateTimeFields';
 import { BottomSheet } from '../src/BottomSheet';
@@ -23,6 +23,8 @@ import { isPro } from '../src/proPlan';
 import { scheduleLessonReminders } from '../src/notifications';
 import { LessonToolsSheet } from '../src/LessonToolsSheet';
 import { getTravelTime, addressForStudent, lessonAddress, minutesBetween, formatEta } from '../src/maps';
+import { openNavigation } from '../src/tools';
+import { Navigation as NavIcon } from 'lucide-react-native';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const TOP_HOUR = 5;
@@ -61,6 +63,10 @@ export default function LessonDiaryScreen() {
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
   const [addOpen, setAddOpen] = useState(false);
   const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
+
+  // Instructor's preferred navigation app — drives the one-tap 🧭 button.
+  const { profile: instructorProfile } = useInstructorProfile();
+  const preferredNav = (instructorProfile?.preferred_nav_app || 'google') as 'google' | 'waze' | 'apple';
 
   // Form state
   const [studentId, setStudentId] = useState('');
@@ -295,6 +301,23 @@ export default function LessonDiaryScreen() {
                             <AlertTriangle size={10} color="#fff" />
                           </View>
                         )}
+                        {/* True one-tap 🧭 navigation — bypasses LessonToolsSheet */}
+                        <Pressable
+                          style={styles.navQuickBtn}
+                          onPress={(e: any) => {
+                            // Prevent the parent Pressable's onPress from also firing.
+                            if (e?.stopPropagation) e.stopPropagation();
+                            const addr = l.pickup_address || (s ? `${s.address || ''}, ${s.postcode || ''}` : '');
+                            // eslint-disable-next-line no-console
+                            console.log('[diary] 1-tap navigate via', preferredNav, '→', addr);
+                            openNavigation(preferredNav, addr);
+                          }}
+                          hitSlop={6}
+                          testID={`nav-quick-${l.id}`}
+                          accessibilityLabel={`Navigate to ${s?.name || 'student'}`}
+                        >
+                          <NavIcon size={14} color="#fff" />
+                        </Pressable>
                       </Pressable>
                     );
                   })}
@@ -365,6 +388,19 @@ export default function LessonDiaryScreen() {
                                 <AlertTriangle size={10} color="#fff" />
                               </View>
                             )}
+                            {/* One-tap 🧭 navigation */}
+                            <Pressable
+                              style={styles.navQuickBtnWeek}
+                              onPress={(e: any) => {
+                                if (e?.stopPropagation) e.stopPropagation();
+                                const addr = l.pickup_address || (s ? `${s.address || ''}, ${s.postcode || ''}` : '');
+                                openNavigation(preferredNav, addr);
+                              }}
+                              hitSlop={6}
+                              testID={`nav-quick-${l.id}`}
+                            >
+                              <NavIcon size={11} color="#fff" />
+                            </Pressable>
                           </Pressable>
                         );
                       })}
@@ -524,6 +560,32 @@ const styles = StyleSheet.create({
     // Keep lesson blocks above the hour grid lines so taps always land on them.
     zIndex: 2,
     elevation: 2,
+  },
+  navQuickBtn: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 3,
+    elevation: 3,
+  },
+  navQuickBtnWeek: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 3,
+    elevation: 3,
   },
   lessonBlockTimeBig: { color: '#fff', fontSize: 13, fontWeight: '700' },
   lessonBlockNameFull: { color: '#fff', fontSize: 15, fontWeight: '700', marginTop: 2 },

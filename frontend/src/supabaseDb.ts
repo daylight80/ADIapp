@@ -99,6 +99,71 @@ async function ownContext() {
   return { schoolId: instructor.school_id as string, instructorId: instructor.id as string };
 }
 
+// ---------------------------------------------------------------------------
+// Instructor profile / preferences
+// ---------------------------------------------------------------------------
+export type NavApp = 'google' | 'waze' | 'apple';
+
+export type InstructorProfile = {
+  id: string;
+  school_id: string;
+  auth_user_id: string | null;
+  full_name: string;
+  adi_number: string | null;
+  preferred_nav_app: NavApp;
+};
+
+// Returns the currently signed-in instructor's profile row. Gracefully
+// degrades if Migration 006 hasn't been applied yet (preferred_nav_app
+// defaults to 'google').
+export async function getInstructorProfile(): Promise<InstructorProfile | null> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const uid = sessionData.session?.user.id;
+  if (!uid) return null;
+  // Try with preferred_nav_app first; fall back to a slimmer select if the
+  // column doesn't exist yet (pre-Migration-006).
+  let { data, error } = await supabase
+    .from('instructors')
+    .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app')
+    .eq('auth_user_id', uid)
+    .maybeSingle();
+  if (error && /preferred_nav_app/i.test(error.message || '')) {
+    const fallback = await supabase
+      .from('instructors')
+      .select('id, school_id, auth_user_id, full_name, adi_number')
+      .eq('auth_user_id', uid)
+      .maybeSingle();
+    if (fallback.error) throw fallback.error;
+    data = fallback.data as any;
+    error = null;
+  }
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    id: data.id,
+    school_id: data.school_id,
+    auth_user_id: data.auth_user_id,
+    full_name: data.full_name,
+    adi_number: data.adi_number,
+    preferred_nav_app: ((data as any).preferred_nav_app as NavApp) || 'google',
+  };
+}
+
+export async function updateInstructorPreferredNavApp(app: NavApp): Promise<void> {
+  const { instructorId } = await ownContext();
+  const { error } = await supabase
+    .from('instructors')
+    .update({ preferred_nav_app: app })
+    .eq('id', instructorId);
+  if (error) {
+    // Graceful degradation if column doesn't exist yet.
+    if (/preferred_nav_app/i.test(error.message || '')) {
+      throw new Error('Please apply Migration 006 first (preferred_nav_app column).');
+    }
+    throw error;
+  }
+}
+
 export type AddStudentInput = {
   name: string;
   email: string;

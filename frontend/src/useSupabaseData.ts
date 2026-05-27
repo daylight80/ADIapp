@@ -408,3 +408,28 @@ export async function setDefaultVehicle(id: string) {
   await db.setDefaultVehicle(id);
   bump();
 }
+
+// ---------------------------------------------------------------------------
+// Hooks — Instructor profile (preferred_nav_app etc.)
+// ---------------------------------------------------------------------------
+
+export function useInstructorProfile() {
+  const version = useVersion();
+  const [profile, setProfile] = useState<db.InstructorProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    db.getInstructorProfile()
+      .then(setProfile)
+      .catch(() => setProfile(null))
+      .finally(() => setLoading(false));
+  }, [version]);
+
+  return { profile, loading };
+}
+
+export async function updatePreferredNavApp(app: db.NavApp) {
+  await db.updateInstructorPreferredNavApp(app);
+  bump();
+}

@@ -1319,6 +1319,17 @@ async def receipts_scan(req: ReceiptScanRequest, sb_user: dict = Depends(get_cur
     amount_total = _to_float(amount_total)
     vat_amount   = _to_float(vat_amount)
 
+    return ReceiptScanResponse(
+        vendor=vendor if isinstance(vendor, str) else None,
+        occurred_at=occurred_at if isinstance(occurred_at, str) else None,
+        amount_total=amount_total,
+        vat_amount=vat_amount,
+        category=category or None,
+        raw_text=raw_text,
+        status="ok",
+    )
+
+
 app.include_router(api_router)
 
 app.add_middleware(

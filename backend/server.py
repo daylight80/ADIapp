@@ -1079,7 +1079,7 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
         raise HTTPException(status_code=500, detail="Lesson is missing its instructor → school link")
 
     # 2. Verify the caller actually owns this lesson's school.
-    school = await sb_get_school_by_auth_user(sb_user["id"])
+    school = sb_user.get("school") or await sb_get_school_by_auth_user(sb_user["auth_user_id"])
     if not school or school["id"] != lesson_school_id:
         raise HTTPException(status_code=403, detail="Not your lesson")
 

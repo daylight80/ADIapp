@@ -512,6 +512,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     overflow: 'hidden',
+    // Keep lesson blocks above the hour grid lines so taps always land on them.
+    zIndex: 2,
+    elevation: 2,
   },
   lessonBlockTimeBig: { color: '#fff', fontSize: 13, fontWeight: '700' },
   lessonBlockNameFull: { color: '#fff', fontSize: 15, fontWeight: '700', marginTop: 2 },

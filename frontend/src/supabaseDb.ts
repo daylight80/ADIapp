@@ -929,6 +929,62 @@ export async function awardBadge(input: { student_id: string; badge_key: string;
   return data as Badge;
 }
 
+// Idempotent — silently returns the existing row if the student already holds
+// this badge (relies on the unique constraint badges_one_per_student).
+// Returns null on a soft failure so the caller can keep going.
+export async function awardBadgeIfMissing(input: {
+  student_id: string;
+  badge_key: string;
+  badge_name: string;
+  description?: string;
+}): Promise<Badge | null> {
+  try {
+    // Fast path: do we already hold it?
+    const { data: existing } = await supabase
+      .from('badges_earned')
+      .select('*')
+      .eq('student_id', input.student_id)
+      .eq('badge_key', input.badge_key)
+      .maybeSingle();
+    if (existing) return existing as Badge;
+
+    const { data, error } = await supabase
+      .from('badges_earned')
+      .insert(input)
+      .select('*')
+      .maybeSingle();
+    if (error) {
+      // Duplicate-key race is fine — somebody else awarded it first.
+      if (/duplicate key|unique/i.test(error.message || '')) return null;
+      // eslint-disable-next-line no-console
+      console.warn('[awardBadgeIfMissing] failed:', error.message);
+      return null;
+    }
+    return data as Badge;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[awardBadgeIfMissing] error:', e);
+    return null;
+  }
+}
+
+// Determines whether a competency change should mint a "Mastered <category>"
+// badge. Triggered from useSupabaseData.updateCompetency.
+export async function maybeAwardCompetencyBadge(
+  studentId: string,
+  competency: Competency,
+): Promise<Badge | null> {
+  if (!studentId || !competency) return null;
+  if (competency.level < 4) return null;
+  const badge_key = `competency_${competency.key}_l4`;
+  const badge_name = `Confident: ${competency.name}`;
+  const description =
+    competency.level >= 5
+      ? `Reached Level ${competency.level}/5 on ${competency.name}.`
+      : `Reached Level 4/5 on ${competency.name}.`;
+  return awardBadgeIfMissing({ student_id: studentId, badge_key, badge_name, description });
+}
+
 // =============================================================================
 // BLOCK BOOKINGS (Wallet)
 // =============================================================================

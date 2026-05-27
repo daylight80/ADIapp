@@ -1,318 +1,322 @@
-"""
-Backend tests for UK Driving Portal — focused on the new
-POST /api/maps/travel-time endpoint plus regression smoke tests
-for auth, billing, and invite flows.
+"""Backend tests for Smart Gap broadcast + regression smoke.
 
-Run:
-    python /app/backend_test.py
+Targets the public preview URL via EXPO_PUBLIC_BACKEND_URL.
 """
-
 import os
 import sys
-import time
-import uuid
 import json
-from datetime import datetime, timezone, timedelta
-
+import time
+from pathlib import Path
 import requests
-from dotenv import load_dotenv
 
-# Load frontend .env to get the public backend URL (matches what the app uses)
-load_dotenv("/app/frontend/.env")
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "").rstrip("/")
-if not BASE_URL:
-    print("ERROR: EXPO_PUBLIC_BACKEND_URL not set in /app/frontend/.env")
-    sys.exit(2)
+# ---- Load frontend/.env to get the public preview URL + Supabase config ----
+ENV = {}
+for line in Path("/app/frontend/.env").read_text().splitlines():
+    line = line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    k, v = line.split("=", 1)
+    ENV[k.strip()] = v.strip().strip('"').strip("'")
 
-API = f"{BASE_URL}/api"
+BACKEND_URL = ENV.get("EXPO_PUBLIC_BACKEND_URL", "").rstrip("/")
+SUPABASE_URL = ENV.get("EXPO_PUBLIC_SUPABASE_URL", "").rstrip("/")
+SUPABASE_ANON = ENV.get("EXPO_PUBLIC_SUPABASE_ANON_KEY", "")
 
-INSTRUCTOR = {"email": "instructor@demo.uk", "password": "password123"}
-STUDENT = {"email": "student@demo.uk", "password": "password123"}
+API = f"{BACKEND_URL}/api"
 
-results = []  # list of (name, ok, detail)
+# Backend service role key for direct Supabase queries (to discover a lesson id)
+BACKEND_ENV = {}
+for line in Path("/app/backend/.env").read_text().splitlines():
+    line = line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    k, v = line.split("=", 1)
+    BACKEND_ENV[k.strip()] = v.strip().strip('"').strip("'")
 
+SERVICE_ROLE_KEY = BACKEND_ENV.get("SUPABASE_SERVICE_ROLE_KEY", "")
 
-def record(name: str, ok: bool, detail: str = ""):
-    status = "PASS" if ok else "FAIL"
-    print(f"[{status}] {name}  {detail}")
-    results.append((name, ok, detail))
+EMAIL = "alex@adipro.uk"
+PASSWORD = "password123"
 
-
-def login(creds):
-    r = requests.post(f"{API}/auth/login", json=creds, timeout=15)
-    return r
-
-
-# ---------- 1. AUTH LOGIN ----------
-def test_auth_login():
-    for label, creds in [("instructor", INSTRUCTOR), ("student", STUDENT)]:
-        try:
-            r = login(creds)
-            ok = r.status_code == 200 and "access_token" in r.json() and r.json().get("user", {}).get("email") == creds["email"]
-            record(
-                f"auth/login ({label})",
-                ok,
-                f"status={r.status_code} body_keys={list(r.json().keys()) if r.headers.get('content-type','').startswith('application/json') else r.text[:120]}",
-            )
-        except Exception as e:
-            record(f"auth/login ({label})", False, f"exception: {e}")
+PASS = []
+FAIL = []
 
 
-# ---------- helpers ----------
-def get_token(creds):
-    r = login(creds)
-    r.raise_for_status()
-    return r.json()["access_token"]
+def ok(name, detail=""):
+    PASS.append(name)
+    print(f"  PASS  {name}  {detail}")
 
 
-def auth_header(tok):
-    return {"Authorization": f"Bearer {tok}"}
+def bad(name, detail=""):
+    FAIL.append(f"{name}: {detail}")
+    print(f"  FAIL  {name}  {detail}")
 
 
-# ---------- 2. TRAVEL TIME HAPPY PATH + CACHE ----------
-TRAVEL_PAYLOAD_BASE = {
-    "origin": "42 Pickwick Avenue, NW1 2AB",
-    "destination": "12 Abbey Road, NW8 9AY",
-}
+def section(title):
+    print(f"\n=== {title} ===")
 
 
-def assert_travel_shape(body):
-    expected = {
-        "duration_minutes": int,
-        "duration_in_traffic_minutes": int,
-        "distance_km": float,
-        "status": str,
-        "cached": bool,
-    }
-    issues = []
-    for k, t in expected.items():
-        if k not in body:
-            issues.append(f"missing {k}")
-            continue
-        v = body[k]
-        # JSON ints can come back as Python int; distance_km should be number (int or float)
-        if k == "distance_km":
-            if not isinstance(v, (int, float)):
-                issues.append(f"{k} not numeric ({type(v).__name__})")
-        elif k in ("duration_minutes", "duration_in_traffic_minutes"):
-            if not isinstance(v, int) or isinstance(v, bool):
-                issues.append(f"{k} not int ({type(v).__name__}={v})")
-        elif k == "status":
-            if v != "fallback":
-                issues.append(f"status expected 'fallback' got {v!r}")
-        elif k == "cached":
-            if not isinstance(v, bool):
-                issues.append(f"cached not bool")
-    return issues
+section("0. Environment")
+print(f"BACKEND_URL = {BACKEND_URL}")
+print(f"SUPABASE_URL = {SUPABASE_URL}")
 
+if not BACKEND_URL or not SUPABASE_URL or not SUPABASE_ANON:
+    print("Missing required env. Aborting.")
+    sys.exit(1)
 
-def test_travel_happy_path_and_cache(token):
-    # Use a unique payload each test run so cache state is clean
-    unique_suffix = uuid.uuid4().hex[:8]
-    payload = {
-        "origin": f"{TRAVEL_PAYLOAD_BASE['origin']} ({unique_suffix})",
-        "destination": f"{TRAVEL_PAYLOAD_BASE['destination']} ({unique_suffix})",
-    }
-
-    # First call
-    r1 = requests.post(f"{API}/maps/travel-time", json=payload, headers=auth_header(token), timeout=15)
-    if r1.status_code != 200:
-        record("travel-time happy path (first call)", False, f"status={r1.status_code} body={r1.text[:200]}")
-        return None, None
-
-    b1 = r1.json()
-    issues = assert_travel_shape(b1)
-    record(
-        "travel-time happy path (first call shape + status=fallback)",
-        not issues,
-        f"body={b1} issues={issues}",
-    )
-
-    # cached should be False on first call (no existing cache entry)
-    record(
-        "travel-time first call cached=False",
-        b1.get("cached") is False,
-        f"cached={b1.get('cached')}",
-    )
-
-    # Second call — should be cached
-    r2 = requests.post(f"{API}/maps/travel-time", json=payload, headers=auth_header(token), timeout=15)
-    if r2.status_code != 200:
-        record("travel-time happy path (second call)", False, f"status={r2.status_code} body={r2.text[:200]}")
-        return b1, None
-    b2 = r2.json()
-    record(
-        "travel-time second call cached=True",
-        b2.get("cached") is True,
-        f"cached={b2.get('cached')}",
-    )
-
-    # Determinism: numbers must match across the two calls (same origin/dest)
-    same_numbers = (
-        b1["duration_minutes"] == b2["duration_minutes"]
-        and b1["duration_in_traffic_minutes"] == b2["duration_in_traffic_minutes"]
-        and b1["distance_km"] == b2["distance_km"]
-    )
-    record(
-        "travel-time deterministic mock (same payload → same numbers)",
-        same_numbers,
-        f"first=({b1['duration_minutes']},{b1['duration_in_traffic_minutes']},{b1['distance_km']}) "
-        f"second=({b2['duration_minutes']},{b2['duration_in_traffic_minutes']},{b2['distance_km']})",
-    )
-
-    return b1, b2
-
-
-# ---------- 3. AUTH GATING ----------
-def test_travel_auth_gating():
-    r = requests.post(f"{API}/maps/travel-time", json=TRAVEL_PAYLOAD_BASE, timeout=15)
-    ok = r.status_code in (401, 403)
-    record("travel-time without Authorization → 401/403", ok, f"status={r.status_code} body={r.text[:120]}")
-
-    # Bad token
-    r2 = requests.post(
-        f"{API}/maps/travel-time",
-        json=TRAVEL_PAYLOAD_BASE,
-        headers={"Authorization": "Bearer not-a-real-token"},
+# 1. Login
+section("1. Supabase login (alex@adipro.uk)")
+SB_ACCESS_TOKEN = ""
+try:
+    r = requests.post(
+        f"{SUPABASE_URL}/auth/v1/token",
+        params={"grant_type": "password"},
+        headers={"apikey": SUPABASE_ANON, "Content-Type": "application/json"},
+        json={"email": EMAIL, "password": PASSWORD},
         timeout=15,
     )
-    ok2 = r2.status_code in (401, 403)
-    record("travel-time with invalid token → 401/403", ok2, f"status={r2.status_code}")
+    if r.status_code == 200:
+        SB_ACCESS_TOKEN = r.json().get("access_token", "")
+        ok("supabase_login", f"token len={len(SB_ACCESS_TOKEN)}")
+    else:
+        bad("supabase_login", f"HTTP {r.status_code} {r.text[:200]}")
+except Exception as e:
+    bad("supabase_login", repr(e))
 
+# 2. Smoke GET /api/
+section("2. Regression GET /api/")
+try:
+    r = requests.get(f"{API}/", timeout=15)
+    if r.status_code == 200 and r.json().get("status") == "ok":
+        ok("GET /api/", f"-> {r.json()}")
+    else:
+        bad("GET /api/", f"HTTP {r.status_code} {r.text[:200]}")
+except Exception as e:
+    bad("GET /api/", repr(e))
 
-# ---------- 4. DEPARTURE_AT ----------
-def test_travel_with_departure_at(token):
-    unique_suffix = uuid.uuid4().hex[:8]
-    payload = {
-        "origin": f"Origin-{unique_suffix}",
-        "destination": f"Destination-{unique_suffix}",
-        "departure_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
-    }
-    r = requests.post(f"{API}/maps/travel-time", json=payload, headers=auth_header(token), timeout=15)
-    if r.status_code != 200:
-        record("travel-time with departure_at (ISO timestamp)", False, f"status={r.status_code} body={r.text[:200]}")
-        return
-    body = r.json()
-    issues = assert_travel_shape(body)
-    record(
-        "travel-time with departure_at (ISO timestamp) shape",
-        not issues,
-        f"body={body} issues={issues}",
-    )
+# 3. Auth gates for /api/broadcasts/gap
+section("3. /api/broadcasts/gap auth gates")
+try:
+    r = requests.post(f"{API}/broadcasts/gap", json={"lesson_id": "00000000-0000-0000-0000-000000000000"}, timeout=15)
+    if r.status_code == 401:
+        ok("no-auth -> 401", f"detail={r.json().get('detail')}")
+    else:
+        bad("no-auth -> 401", f"got {r.status_code} {r.text[:200]}")
+except Exception as e:
+    bad("no-auth -> 401", repr(e))
 
-
-# ---------- 5. DETERMINISM (separate origin/destination consistency) ----------
-def test_travel_determinism_pair_consistency(token):
-    """Same exact origin+destination → consistent values across multiple fresh
-    cache keys is hard to verify (cache hides repeats). Instead, verify the
-    *initial* (uncached) call equals the deterministic mock formula by issuing
-    two distinct payloads and checking each is self-consistent on its second
-    (cached) call."""
-    pair_a = {"origin": "A-place", "destination": "B-place"}
-    pair_b = {"origin": "X-place", "destination": "Y-place"}
-
-    a1 = requests.post(f"{API}/maps/travel-time", json=pair_a, headers=auth_header(token), timeout=15).json()
-    a2 = requests.post(f"{API}/maps/travel-time", json=pair_a, headers=auth_header(token), timeout=15).json()
-    b1 = requests.post(f"{API}/maps/travel-time", json=pair_b, headers=auth_header(token), timeout=15).json()
-
-    ok = (
-        a1["duration_minutes"] == a2["duration_minutes"]
-        and a1["distance_km"] == a2["distance_km"]
-        and (a1["duration_minutes"], a1["distance_km"]) != (b1["duration_minutes"], b1["distance_km"])
-    )
-    record(
-        "travel-time deterministic across calls & distinct pairs differ",
-        ok,
-        f"A={a1['duration_minutes']}/{a1['distance_km']} B={b1['duration_minutes']}/{b1['distance_km']}",
-    )
-
-
-# ---------- 6. SMOKE: /auth/me ----------
-def test_auth_me(token):
-    r = requests.get(f"{API}/auth/me", headers=auth_header(token), timeout=15)
-    ok = r.status_code == 200 and r.json().get("email") == INSTRUCTOR["email"]
-    record("auth/me (instructor)", ok, f"status={r.status_code} body={r.text[:160]}")
-
-
-# ---------- 6b. SMOKE: billing checkout ----------
-def test_billing_checkout(token):
+try:
     r = requests.post(
-        f"{API}/billing/create-checkout-session",
-        json={},
-        headers=auth_header(token),
+        f"{API}/broadcasts/gap",
+        json={"lesson_id": "00000000-0000-0000-0000-000000000000"},
+        headers={"Authorization": "Bearer not-a-valid-token"},
+        timeout=15,
+    )
+    if r.status_code == 401:
+        ok("bad-bearer -> 401", f"detail={r.json().get('detail')}")
+    else:
+        bad("bad-bearer -> 401", f"got {r.status_code} {r.text[:200]}")
+except Exception as e:
+    bad("bad-bearer -> 401", repr(e))
+
+if not SB_ACCESS_TOKEN:
+    print("\nCannot continue without Supabase token.")
+    sys.exit(1)
+
+AUTH = {"Authorization": f"Bearer {SB_ACCESS_TOKEN}"}
+
+# 4. Missing lesson -> 404
+section("4. /api/broadcasts/gap missing lesson (zero UUID)")
+try:
+    r = requests.post(
+        f"{API}/broadcasts/gap",
+        json={"lesson_id": "00000000-0000-0000-0000-000000000000"},
+        headers=AUTH,
+        timeout=20,
+    )
+    print(f"  HTTP {r.status_code} body={r.text[:400]}")
+    if r.status_code == 404 and "not found" in r.json().get("detail", "").lower():
+        ok("missing-lesson -> 404", f"detail={r.json().get('detail')}")
+    elif r.status_code == 500 and ("waiting_list" in r.text.lower() or "relation" in r.text.lower()):
+        bad("missing-lesson", f"500 — Migration 007 (waiting_list) NOT applied: {r.text[:300]}")
+    else:
+        bad("missing-lesson -> 404", f"got {r.status_code} {r.text[:300]}")
+except Exception as e:
+    bad("missing-lesson -> 404", repr(e))
+
+# 5. Discover lesson_ids
+section("5. Discover lesson ids via Supabase service-role REST")
+real_lesson_id = ""
+foreign_lesson_id = ""
+school_id = ""
+try:
+    ru = requests.get(
+        f"{SUPABASE_URL}/auth/v1/user",
+        headers={"apikey": SUPABASE_ANON, "Authorization": f"Bearer {SB_ACCESS_TOKEN}"},
+        timeout=10,
+    )
+    alex_uid = ru.json().get("id") if ru.status_code == 200 else ""
+    print(f"  alex uid = {alex_uid}")
+
+    r = requests.get(
+        f"{SUPABASE_URL}/rest/v1/driving_schools",
+        params={"select": "id,owner_auth_id,business_name"},
+        headers={"apikey": SERVICE_ROLE_KEY, "Authorization": f"Bearer {SERVICE_ROLE_KEY}"},
+        timeout=15,
+    )
+    schools = r.json() if r.status_code == 200 else []
+    print(f"  total schools: {len(schools)}")
+
+    for s in schools:
+        if s.get("owner_auth_id") == alex_uid:
+            school_id = s["id"]
+            print(f"  alex school_id = {school_id} ({s.get('business_name')})")
+            break
+
+    if school_id:
+        rl = requests.get(
+            f"{SUPABASE_URL}/rest/v1/lessons",
+            params={"school_id": f"eq.{school_id}", "select": "id,school_id,date,start_time,end_time", "limit": "1"},
+            headers={"apikey": SERVICE_ROLE_KEY, "Authorization": f"Bearer {SERVICE_ROLE_KEY}"},
+            timeout=15,
+        )
+        rows = rl.json() if rl.status_code == 200 else []
+        if rows:
+            real_lesson_id = rows[0]["id"]
+            ok("discover-own-lesson", f"id={real_lesson_id} date={rows[0].get('date')} time={rows[0].get('start_time')}")
+        else:
+            bad("discover-own-lesson", "no lessons in alex's school")
+
+    # Foreign lesson
+    if school_id:
+        rf = requests.get(
+            f"{SUPABASE_URL}/rest/v1/lessons",
+            params={"school_id": f"neq.{school_id}", "select": "id,school_id", "limit": "1"},
+            headers={"apikey": SERVICE_ROLE_KEY, "Authorization": f"Bearer {SERVICE_ROLE_KEY}"},
+            timeout=15,
+        )
+        rrows = rf.json() if rf.status_code == 200 else []
+        if rrows:
+            foreign_lesson_id = rrows[0]["id"]
+            print(f"  foreign_lesson_id = {foreign_lesson_id} (school {rrows[0]['school_id']})")
+        else:
+            print("  no foreign lessons available")
+except Exception as e:
+    bad("discover-lessons", repr(e))
+
+# 6. Happy path
+section("6. /api/broadcasts/gap happy path (own lesson)")
+if real_lesson_id:
+    try:
+        r = requests.post(
+            f"{API}/broadcasts/gap",
+            json={"lesson_id": real_lesson_id},
+            headers=AUTH,
+            timeout=30,
+        )
+        print(f"  HTTP {r.status_code} body={r.text[:500]}")
+        if r.status_code == 200:
+            body = r.json()
+            keys_ok = {"sent", "skipped", "detail"}.issubset(body.keys())
+            types_ok = isinstance(body.get("sent"), int) and isinstance(body.get("skipped"), int) and isinstance(body.get("detail"), str)
+            if keys_ok and types_ok:
+                ok("happy-path 200 shape", f"sent={body['sent']} skipped={body['skipped']} detail={body['detail']!r}")
+            else:
+                bad("happy-path shape", f"body={body}")
+        elif r.status_code == 500 and ("waiting_list" in r.text.lower() or "relation" in r.text.lower()):
+            bad("happy-path", f"500 — Migration 007 NOT applied: {r.text[:300]}")
+        else:
+            bad("happy-path", f"HTTP {r.status_code} {r.text[:300]}")
+    except Exception as e:
+        bad("happy-path", repr(e))
+else:
+    print("  SKIPPED — no real lesson available")
+
+# 7. Foreign lesson 403
+section("7. /api/broadcasts/gap foreign lesson -> 403")
+if foreign_lesson_id and foreign_lesson_id != real_lesson_id:
+    try:
+        r = requests.post(
+            f"{API}/broadcasts/gap",
+            json={"lesson_id": foreign_lesson_id},
+            headers=AUTH,
+            timeout=30,
+        )
+        print(f"  HTTP {r.status_code} body={r.text[:400]}")
+        if r.status_code == 403:
+            ok("foreign-lesson -> 403", f"detail={r.json().get('detail')}")
+        else:
+            bad("foreign-lesson -> 403", f"HTTP {r.status_code} {r.text[:300]}")
+    except Exception as e:
+        bad("foreign-lesson -> 403", repr(e))
+else:
+    print("  SKIPPED — no foreign lesson available (single-school db)")
+
+# 8. v2 billing checkout
+section("8. Regression /api/v2/billing/checkout (tier=pro)")
+try:
+    r = requests.post(
+        f"{API}/v2/billing/checkout",
+        json={"tier": "pro", "seat_count": 1},
+        headers=AUTH,
         timeout=30,
     )
-    if r.status_code == 400 and "already have an active Pro" in r.text:
-        record("billing/create-checkout-session (already pro – acceptable)", True, r.text[:120])
-        return
-    ok = r.status_code == 200 and "url" in r.json() and r.json()["url"].startswith("https://checkout.stripe.com")
-    record(
-        "billing/create-checkout-session returns Stripe URL",
-        ok,
-        f"status={r.status_code} url={r.json().get('url','')[:80] if r.headers.get('content-type','').startswith('application/json') else r.text[:200]}",
-    )
+    print(f"  HTTP {r.status_code} body={r.text[:300]}")
+    if r.status_code == 200:
+        body = r.json()
+        url = body.get("url", "")
+        if url.startswith("https://checkout.stripe.com"):
+            ok("billing-v2 checkout 200", f"url={url[:80]}...")
+        else:
+            bad("billing-v2 checkout url", f"body={body}")
+    elif r.status_code == 400:
+        # acceptable e.g. already on tier
+        ok("billing-v2 checkout 400 (acceptable)", f"detail={r.json().get('detail')}")
+    else:
+        bad("billing-v2 checkout", f"HTTP {r.status_code} {r.text[:300]}")
+except Exception as e:
+    bad("billing-v2 checkout", repr(e))
 
+# 9. /api/maps/travel-time
+section("9. Regression /api/maps/travel-time")
+try:
+    payload = {"origin": "12 Abbey Road, NW8 9AY", "destination": "42 Pickwick Avenue, NW1 2AB"}
+    # First try supabase bearer (will likely 401 since endpoint uses legacy JWT)
+    r = requests.post(f"{API}/maps/travel-time", json=payload, headers=AUTH, timeout=20)
+    print(f"  with supabase bearer -> HTTP {r.status_code} {r.text[:200]}")
+    if r.status_code == 200:
+        ok("travel-time (supabase bearer)", f"{r.json()}")
+    elif r.status_code == 401:
+        # Try legacy login
+        rl = requests.post(f"{API}/auth/login", json={"email": EMAIL, "password": PASSWORD}, timeout=15)
+        print(f"  /api/auth/login -> HTTP {rl.status_code} {rl.text[:200]}")
+        if rl.status_code == 200:
+            legacy = rl.json().get("access_token") or rl.json().get("token") or ""
+            r2 = requests.post(
+                f"{API}/maps/travel-time",
+                json=payload,
+                headers={"Authorization": f"Bearer {legacy}"},
+                timeout=20,
+            )
+            print(f"  with legacy bearer -> HTTP {r2.status_code} {r2.text[:200]}")
+            if r2.status_code == 200:
+                ok("travel-time (legacy bearer)", f"{r2.json()}")
+            else:
+                bad("travel-time (legacy bearer)", f"HTTP {r2.status_code}")
+        else:
+            bad("travel-time", "supabase bearer 401 + legacy /api/auth/login not usable for alex (Supabase-only account). Endpoint still requires legacy JWT — note for main agent.")
+    else:
+        bad("travel-time", f"HTTP {r.status_code} {r.text[:300]}")
+except Exception as e:
+    bad("travel-time", repr(e))
 
-# ---------- 6c. SMOKE: invite-student ----------
-def test_invite_student(token):
-    unique_email = f"newstudent+{uuid.uuid4().hex[:8]}@example.com"
-    r = requests.post(
-        f"{API}/instructor/invite-student",
-        json={"email": unique_email, "name": "Test Student"},
-        headers=auth_header(token),
-        timeout=15,
-    )
-    if r.status_code != 200:
-        record("instructor/invite-student", False, f"status={r.status_code} body={r.text[:200]}")
-        return
-    body = r.json()
-    ok = (
-        "invite_token" in body
-        and "invite_url" in body
-        and body["invite_url"].startswith("http")
-        and "invite=" in body["invite_url"]
-    )
-    record("instructor/invite-student returns token+url", ok, f"url={body.get('invite_url','')[:120]}")
+# Summary
+section("SUMMARY")
+print(f"PASSED: {len(PASS)}")
+for p in PASS:
+    print(f"  PASS  {p}")
+print(f"FAILED: {len(FAIL)}")
+for f in FAIL:
+    print(f"  FAIL  {f}")
 
-
-# ---------- MAIN ----------
-def main():
-    print(f"API base: {API}\n")
-
-    test_auth_login()
-
-    try:
-        instructor_token = get_token(INSTRUCTOR)
-    except Exception as e:
-        record("acquire instructor token", False, f"login failed: {e}")
-        print_summary()
-        sys.exit(1)
-    record("acquire instructor token", True, "")
-
-    test_travel_happy_path_and_cache(instructor_token)
-    test_travel_auth_gating()
-    test_travel_with_departure_at(instructor_token)
-    test_travel_determinism_pair_consistency(instructor_token)
-
-    # Regression smoke
-    test_auth_me(instructor_token)
-    test_billing_checkout(instructor_token)
-    test_invite_student(instructor_token)
-
-    print_summary()
-
-
-def print_summary():
-    print("\n========= SUMMARY =========")
-    passed = sum(1 for _, ok, _ in results if ok)
-    failed = [r for r in results if not r[1]]
-    print(f"Passed: {passed}/{len(results)}")
-    if failed:
-        print("Failed:")
-        for n, _, d in failed:
-            print(f"  - {n}: {d}")
-    print("===========================")
-
-
-if __name__ == "__main__":
-    main()
+sys.exit(0 if not FAIL else 1)

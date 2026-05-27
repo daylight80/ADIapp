@@ -253,6 +253,13 @@ export async function updateCompetency(
   patch: { level?: number; progress?: number; notes?: string },
 ) {
   const row = await db.upsertCompetency(studentId, category_key, patch);
+  // Auto-award a "Confident: <category>" badge once a learner reaches Level 4+.
+  // Idempotent — silently no-ops if the badge already exists.
+  try {
+    await db.maybeAwardCompetencyBadge(studentId, row);
+  } catch {
+    // never block the competency save on badge minting
+  }
   bump();
   return row;
 }

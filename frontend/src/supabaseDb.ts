@@ -1065,3 +1065,165 @@ export async function getStudentByAuthId(authUserId: string): Promise<Student | 
   }
   return data ? fromRow(data) : undefined;
 }
+
+
+// =============================================================================
+// EXPENSE RECEIPTS (Digital Receipt Scanner)
+// =============================================================================
+export type ReceiptCategory =
+  | 'fuel' | 'maintenance' | 'car_wash' | 'parking' | 'tolls'
+  | 'mot'  | 'insurance'   | 'lesson_supplies' | 'other';
+
+export const RECEIPT_CATEGORIES: { key: ReceiptCategory; label: string; emoji: string }[] = [
+  { key: 'fuel',            label: 'Fuel',            emoji: '\u26FD' },
+  { key: 'maintenance',     label: 'Maintenance',     emoji: '\uD83D\uDD27' },
+  { key: 'car_wash',        label: 'Car wash',        emoji: '\uD83E\uDDFC' },
+  { key: 'parking',         label: 'Parking',         emoji: '\uD83C\uDD7F\uFE0F' },
+  { key: 'tolls',           label: 'Tolls',           emoji: '\uD83D\uDEE3\uFE0F' },
+  { key: 'mot',             label: 'MOT',             emoji: '\uD83D\uDCDD' },
+  { key: 'insurance',       label: 'Insurance',       emoji: '\uD83D\uDEE1\uFE0F' },
+  { key: 'lesson_supplies', label: 'Lesson supplies', emoji: '\uD83D\uDCDA' },
+  { key: 'other',           label: 'Other',           emoji: '\uD83D\uDCC4' },
+];
+
+export type ExpenseReceipt = {
+  id: string;
+  school_id: string;
+  instructor_id: string;
+  vehicle_id: string | null;
+  category: ReceiptCategory;
+  vendor: string | null;
+  occurred_at: string;        // YYYY-MM-DD
+  amount_total: number;
+  vat_amount: number | null;
+  currency: string;
+  storage_path: string | null;
+  ocr_raw_text: string | null;
+  notes: string | null;
+  created_at: string;
+  signed_url?: string | null; // computed at fetch time
+};
+
+const receiptFromRow = (r: any): ExpenseReceipt => ({
+  id: r.id,
+  school_id: r.school_id,
+  instructor_id: r.instructor_id,
+  vehicle_id: r.vehicle_id ?? null,
+  category: r.category as ReceiptCategory,
+  vendor: r.vendor ?? null,
+  occurred_at: r.occurred_at,
+  amount_total: Number(r.amount_total ?? 0),
+  vat_amount: r.vat_amount != null ? Number(r.vat_amount) : null,
+  currency: r.currency ?? 'GBP',
+  storage_path: r.storage_path ?? null,
+  ocr_raw_text: r.ocr_raw_text ?? null,
+  notes: r.notes ?? null,
+  created_at: r.created_at,
+});
+
+export async function listReceipts(): Promise<ExpenseReceipt[]> {
+  const { data, error } = await supabase
+    .from('expense_receipts')
+    .select('*')
+    .order('occurred_at', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error) {
+    if (/relation .*expense_receipts.* does not exist/i.test(error.message || '')) {
+      throw new Error('Please apply Migration 008 first (expense_receipts table).');
+    }
+    throw error;
+  }
+  return (data || []).map(receiptFromRow);
+}
+
+export type CreateReceiptInput = {
+  category: ReceiptCategory;
+  vendor?: string | null;
+  occurred_at: string;          // YYYY-MM-DD
+  amount_total: number;
+  vat_amount?: number | null;
+  vehicle_id?: string | null;
+  storage_path?: string | null; // path inside `receipts` bucket
+  ocr_raw_text?: string | null;
+  notes?: string | null;
+};
+
+export async function createReceipt(input: CreateReceiptInput): Promise<ExpenseReceipt> {
+  const { schoolId, instructorId } = await ownContext();
+  const payload = {
+    school_id: schoolId,
+    instructor_id: instructorId,
+    vehicle_id: input.vehicle_id ?? null,
+    category: input.category,
+    vendor: input.vendor?.trim() || null,
+    occurred_at: input.occurred_at,
+    amount_total: input.amount_total,
+    vat_amount: input.vat_amount ?? null,
+    currency: 'GBP',
+    storage_path: input.storage_path ?? null,
+    ocr_raw_text: input.ocr_raw_text ?? null,
+    notes: input.notes?.trim() || null,
+  };
+  const { data, error } = await supabase
+    .from('expense_receipts')
+    .insert(payload)
+    .select('*')
+    .single();
+  if (error) {
+    if (/relation .*expense_receipts.* does not exist/i.test(error.message || '')) {
+      throw new Error('Please apply Migration 008 first (expense_receipts table).');
+    }
+    throw error;
+  }
+  return receiptFromRow(data);
+}
+
+export async function deleteReceipt(id: string, storagePath?: string | null): Promise<void> {
+  const { error } = await supabase.from('expense_receipts').delete().eq('id', id);
+  if (error) throw error;
+  if (storagePath) {
+    // Best-effort image cleanup; ignore failures (RLS / already-gone).
+    try { await supabase.storage.from('receipts').remove([storagePath]); } catch {}
+  }
+}
+
+// Upload a receipt image (base64) into the `receipts` bucket under the
+// instructor's school folder. Returns the storage path.
+export async function uploadReceiptImage(
+  base64: string,
+  mimeType: string = 'image/jpeg',
+): Promise<string> {
+  const { schoolId } = await ownContext();
+  const ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
+  const id  = (globalThis.crypto && (globalThis.crypto as any).randomUUID)
+    ? (globalThis.crypto as any).randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const path = `${schoolId}/${id}.${ext}`;
+
+  // Decode base64 -> Uint8Array in a way that works on web + native.
+  const cleaned = base64.replace(/^data:[^;]+;base64,/, '');
+  const bin = (() => {
+    if (typeof atob === 'function') {
+      const raw = atob(cleaned);
+      const arr = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+      return arr;
+    }
+    return new Uint8Array(Buffer.from(cleaned, 'base64'));
+  })();
+
+  const { error } = await supabase
+    .storage
+    .from('receipts')
+    .upload(path, bin, { contentType: mimeType, upsert: false });
+  if (error) throw error;
+  return path;
+}
+
+// Generate a short-lived signed URL for displaying a stored receipt image.
+export async function getReceiptSignedUrl(path: string, expiresSec = 600): Promise<string | null> {
+  if (!path) return null;
+  const { data, error } = await supabase.storage.from('receipts').createSignedUrl(path, expiresSec);
+  if (error) return null;
+  return data?.signedUrl ?? null;
+}

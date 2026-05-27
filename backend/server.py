@@ -25,6 +25,7 @@ STRIPE_API_KEY = os.environ.get("STRIPE_API_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 APP_DOMAIN = os.environ.get("APP_DOMAIN", "http://localhost:3000")
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+EMERGENT_LLM_KEY    = os.environ.get("EMERGENT_LLM_KEY", "")
 
 # Stripe Price IDs per subscription tier (set in backend/.env)
 STRIPE_PRICE_GROWTH         = os.environ.get("STRIPE_PRICE_GROWTH", "")
@@ -1195,6 +1196,129 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
     )
 
 
+# =============================================================================
+# Digital Receipt Scanner — Gemini 2.5 Flash vision OCR
+# =============================================================================
+import base64 as _b64
+import json as _json
+import re as _re
+
+class ReceiptScanRequest(BaseModel):
+    image_base64: str          # raw base64 (no data: prefix), JPEG/PNG/WEBP
+    mime_type: Optional[str] = "image/jpeg"
+
+
+class ReceiptScanResponse(BaseModel):
+    vendor: Optional[str] = None
+    occurred_at: Optional[str] = None  # YYYY-MM-DD
+    amount_total: Optional[float] = None
+    vat_amount: Optional[float] = None
+    category: Optional[str] = None     # one of the allowed categories
+    raw_text: Optional[str] = None
+    status: str                        # 'ok' | 'fallback'
+
+
+_RECEIPT_CATEGORIES = [
+    "fuel", "maintenance", "car_wash", "parking", "tolls",
+    "mot", "insurance", "lesson_supplies", "other",
+]
+
+
+@api_router.post("/receipts/scan", response_model=ReceiptScanResponse)
+async def receipts_scan(req: ReceiptScanRequest, sb_user: dict = Depends(get_current_supabase_user)):
+    """OCR a receipt image using Gemini 2.5 Flash and return structured fields.
+    Falls back gracefully if the model returns unparseable JSON.
+    """
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY not configured on backend.")
+    if not req.image_base64:
+        raise HTTPException(status_code=400, detail="image_base64 is required")
+    # Strip any data: URI prefix if the client included one.
+    img_b64 = req.image_base64
+    if img_b64.startswith("data:"):
+        try:
+            img_b64 = img_b64.split(",", 1)[1]
+        except Exception:
+            pass
+
+    # Basic sanity: must decode as bytes (don't actually decode the full payload).
+    try:
+        _b64.b64decode(img_b64[:128] + "==", validate=False)
+    except Exception:
+        raise HTTPException(status_code=400, detail="image_base64 is not valid base64")
+
+    # Lazy import to avoid cold-start cost on unrelated routes.
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"emergentintegrations not installed: {e}")
+
+    system_msg = (
+        "You are an expert OCR engine for UK driving-instructor receipts. "
+        "Given a single receipt image, extract: vendor (merchant name), "
+        "occurred_at (ISO date YYYY-MM-DD), amount_total (GBP, number only), "
+        "vat_amount (GBP, number only — null if not shown), and category "
+        "(one of: fuel, maintenance, car_wash, parking, tolls, mot, insurance, "
+        "lesson_supplies, other). Use 'fuel' for any petrol/diesel/EV-charging "
+        "purchase. Use 'maintenance' for service/repair/MOT-prep work. Use "
+        "'car_wash' for hand-wash or automated car wash. Use 'other' only if "
+        "nothing else fits.\n\n"
+        "Respond ONLY with a JSON object — no markdown, no commentary — "
+        "containing exactly these keys: vendor, occurred_at, amount_total, "
+        "vat_amount, category. If a field cannot be read, return null for it."
+    )
+
+    chat = LlmChat(
+        api_key=EMERGENT_LLM_KEY,
+        session_id=f"receipt-scan-{sb_user['auth_user_id']}-{uuid.uuid4().hex[:8]}",
+        system_message=system_msg,
+    ).with_model("gemini", "gemini-2.5-flash")
+
+    user_msg = UserMessage(
+        text="Extract the receipt fields as JSON.",
+        file_contents=[ImageContent(image_base64=img_b64)],
+    )
+
+    try:
+        raw = await chat.send_message(user_msg)
+    except Exception as e:
+        logging.exception("[receipts/scan] Gemini call failed")
+        raise HTTPException(status_code=502, detail=f"OCR backend failure: {e}")
+
+    raw_text = str(raw).strip()
+
+    # Strip ```json fences if the model added them despite instructions.
+    fenced = _re.search(r"```(?:json)?\s*(\{[\s\S]+?\})\s*```", raw_text, _re.I)
+    json_payload = fenced.group(1) if fenced else raw_text
+    # Find the first JSON object substring if there's stray prose.
+    if not json_payload.lstrip().startswith("{"):
+        m = _re.search(r"\{[\s\S]+\}", json_payload)
+        if m:
+            json_payload = m.group(0)
+
+    try:
+        parsed = _json.loads(json_payload)
+    except Exception:
+        return ReceiptScanResponse(raw_text=raw_text, status="fallback")
+
+    vendor       = parsed.get("vendor")
+    occurred_at  = parsed.get("occurred_at")
+    amount_total = parsed.get("amount_total")
+    vat_amount   = parsed.get("vat_amount")
+    category     = (parsed.get("category") or "").strip().lower()
+    if category and category not in _RECEIPT_CATEGORIES:
+        category = "other"
+    # Coerce numerics
+    def _to_float(v):
+        if v is None or v == "":
+            return None
+        try:
+            return float(str(v).replace("£", "").replace(",", "").strip())
+        except Exception:
+            return None
+    amount_total = _to_float(amount_total)
+    vat_amount   = _to_float(vat_amount)
+
 app.include_router(api_router)
 
 app.add_middleware(
@@ -1204,3 +1328,4 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+

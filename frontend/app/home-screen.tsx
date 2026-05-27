@@ -21,6 +21,7 @@ import {
   Plus,
   Crown,
   ChevronRight,
+  Receipt,
 } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
@@ -122,6 +123,14 @@ export default function InstructorHomeScreen() {
           >
             <CalendarDays size={20} color="#fff" />
             <Text style={styles.qaText}>Diary</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.qaBtn, styles.qaReceipts]}
+            onPress={() => router.push('/receipts-screen' as any)}
+            testID="qa-receipts"
+          >
+            <Receipt size={20} color="#fff" />
+            <Text style={styles.qaText}>Receipts</Text>
           </TouchableOpacity>
         </View>
 
@@ -247,6 +256,7 @@ const styles = StyleSheet.create({
   },
   qaStudents: { backgroundColor: theme.colors.accent },
   qaDiary: { backgroundColor: theme.colors.primary },
+  qaReceipts: { backgroundColor: '#0EA5E9' },
   qaText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   mtdCard: { gap: 12 },
   cardTitle: { ...theme.font.h3 },

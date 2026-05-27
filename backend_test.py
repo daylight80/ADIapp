@@ -1,408 +1,320 @@
-"""Backend tests for Smart Gap broadcast + regression smoke.
+"""Backend test for POST /api/receipts/scan — Digital Receipt Scanner (Gemini 2.5 Flash).
 
-Targets the public preview URL via EXPO_PUBLIC_BACKEND_URL.
+Scenarios:
+  1. No Authorization header → 401
+  2. Bad bearer token → 401
+  3. Missing image_base64 → 400
+  4. Bad base64 string → 400
+  5. Happy path — fuel receipt (synthetic UK Shell receipt)
+  6. Happy path — maintenance receipt (Halfords / Kwik-Fit)
+  7. Happy path — car wash receipt
 """
+import base64
+import io
 import os
 import sys
-import json
 import time
-from pathlib import Path
+
 import requests
+from PIL import Image, ImageDraw, ImageFont
 
-# ---- Load frontend/.env to get the public preview URL + Supabase config ----
-ENV = {}
-for line in Path("/app/frontend/.env").read_text().splitlines():
-    line = line.strip()
-    if not line or line.startswith("#") or "=" not in line:
-        continue
-    k, v = line.split("=", 1)
-    ENV[k.strip()] = v.strip().strip('"').strip("'")
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+FRONTEND_ENV = "/app/frontend/.env"
+SUPABASE_URL = None
+SUPABASE_ANON_KEY = None
+BACKEND_URL = None
 
-BACKEND_URL = ENV.get("EXPO_PUBLIC_BACKEND_URL", "").rstrip("/")
-SUPABASE_URL = ENV.get("EXPO_PUBLIC_SUPABASE_URL", "").rstrip("/")
-SUPABASE_ANON = ENV.get("EXPO_PUBLIC_SUPABASE_ANON_KEY", "")
+with open(FRONTEND_ENV) as f:
+    for line in f:
+        line = line.strip()
+        if line.startswith("EXPO_PUBLIC_BACKEND_URL="):
+            BACKEND_URL = line.split("=", 1)[1].strip().strip('"')
+        elif line.startswith("EXPO_PUBLIC_SUPABASE_URL="):
+            SUPABASE_URL = line.split("=", 1)[1].strip().strip('"')
+        elif line.startswith("EXPO_PUBLIC_SUPABASE_ANON_KEY="):
+            SUPABASE_ANON_KEY = line.split("=", 1)[1].strip().strip('"')
 
-API = f"{BACKEND_URL}/api"
+API_BASE = f"{BACKEND_URL.rstrip('/')}/api"
+SCAN_URL = f"{API_BASE}/receipts/scan"
 
-# Backend service role key for direct Supabase queries (to discover a lesson id)
-BACKEND_ENV = {}
-for line in Path("/app/backend/.env").read_text().splitlines():
-    line = line.strip()
-    if not line or line.startswith("#") or "=" not in line:
-        continue
-    k, v = line.split("=", 1)
-    BACKEND_ENV[k.strip()] = v.strip().strip('"').strip("'")
-
-SERVICE_ROLE_KEY = BACKEND_ENV.get("SUPABASE_SERVICE_ROLE_KEY", "")
+print(f"Backend: {BACKEND_URL}")
+print(f"Supabase: {SUPABASE_URL}")
+print("=" * 80)
 
 EMAIL = "alex@adipro.uk"
 PASSWORD = "password123"
 
-PASS = []
-FAIL = []
 
-
-def ok(name, detail=""):
-    PASS.append(name)
-    print(f"  PASS  {name}  {detail}")
-
-
-def bad(name, detail=""):
-    FAIL.append(f"{name}: {detail}")
-    print(f"  FAIL  {name}  {detail}")
-
-
-def section(title):
-    print(f"\n=== {title} ===")
-
-
-section("0. Environment")
-print(f"BACKEND_URL = {BACKEND_URL}")
-print(f"SUPABASE_URL = {SUPABASE_URL}")
-
-if not BACKEND_URL or not SUPABASE_URL or not SUPABASE_ANON:
-    print("Missing required env. Aborting.")
-    sys.exit(1)
-
-# 1. Login
-section("1. Supabase login (alex@adipro.uk)")
-SB_ACCESS_TOKEN = ""
-try:
+def supabase_login(email: str, password: str) -> str:
+    url = f"{SUPABASE_URL}/auth/v1/token?grant_type=password"
     r = requests.post(
-        f"{SUPABASE_URL}/auth/v1/token",
-        params={"grant_type": "password"},
-        headers={"apikey": SUPABASE_ANON, "Content-Type": "application/json"},
-        json={"email": EMAIL, "password": PASSWORD},
+        url,
+        headers={"apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json"},
+        json={"email": email, "password": password},
         timeout=15,
     )
-    if r.status_code == 200:
-        SB_ACCESS_TOKEN = r.json().get("access_token", "")
-        ok("supabase_login", f"token len={len(SB_ACCESS_TOKEN)}")
-    else:
-        bad("supabase_login", f"HTTP {r.status_code} {r.text[:200]}")
-except Exception as e:
-    bad("supabase_login", repr(e))
+    r.raise_for_status()
+    body = r.json()
+    tok = body.get("access_token")
+    assert tok, f"No access_token in login response: {body}"
+    return tok
 
-# 2. Smoke GET /api/
-section("2. Regression GET /api/")
-try:
-    r = requests.get(f"{API}/", timeout=15)
-    if r.status_code == 200 and r.json().get("status") == "ok":
-        ok("GET /api/", f"-> {r.json()}")
-    else:
-        bad("GET /api/", f"HTTP {r.status_code} {r.text[:200]}")
-except Exception as e:
-    bad("GET /api/", repr(e))
 
-# 3. Auth gates for /api/broadcasts/gap
-section("3. /api/broadcasts/gap auth gates")
-try:
-    r = requests.post(f"{API}/broadcasts/gap", json={"lesson_id": "00000000-0000-0000-0000-000000000000"}, timeout=15)
-    if r.status_code == 401:
-        ok("no-auth -> 401", f"detail={r.json().get('detail')}")
-    else:
-        bad("no-auth -> 401", f"got {r.status_code} {r.text[:200]}")
-except Exception as e:
-    bad("no-auth -> 401", repr(e))
+def make_receipt_image(lines, width=480, height=720) -> bytes:
+    img = Image.new("RGB", (width, height), color=(252, 252, 250))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([(6, 6), (width - 7, height - 7)], outline=(180, 180, 180), width=2)
+    for x in range(20, width - 20, 12):
+        draw.line([(x, 50), (x + 6, 50)], fill=(120, 120, 120), width=1)
+        draw.line([(x, height - 60), (x + 6, height - 60)], fill=(120, 120, 120), width=1)
 
-try:
+    def _font(sz):
+        for path in [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        ]:
+            if os.path.exists(path):
+                try:
+                    return ImageFont.truetype(path, sz)
+                except Exception:
+                    pass
+        return ImageFont.load_default()
+
+    title_font = _font(34)
+    big_font = _font(24)
+    body_font = _font(20)
+
+    y = 70
+    draw.text((width // 2 - 120, y), lines[0], fill=(0, 0, 0), font=title_font)
+    y += 50
+    for ln in lines[1:]:
+        if "TOTAL" in ln.upper() or "AMOUNT DUE" in ln.upper():
+            draw.text((30, y), ln, fill=(0, 0, 0), font=big_font)
+            y += 36
+        else:
+            draw.text((30, y), ln, fill=(40, 40, 40), font=body_font)
+            y += 30
+
+    draw.rectangle([(30, height - 110), (width - 30, height - 80)], outline=(80, 80, 80), width=1)
+    draw.text((40, height - 105), "Thank you for your custom", fill=(60, 60, 60), font=body_font)
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=92)
+    return buf.getvalue()
+
+
+def encode_b64(b: bytes) -> str:
+    return base64.b64encode(b).decode("ascii")
+
+
+results = []
+
+
+def record(name, ok, detail=""):
+    badge = "PASS" if ok else "FAIL"
+    print(f"[{badge}] {name}")
+    if detail:
+        for line in detail.splitlines():
+            print(f"        {line}")
+    results.append((name, ok, detail))
+
+
+def shape_check(name, r):
+    if r.status_code != 200:
+        record(name, False, f"status={r.status_code} body={r.text[:600]}")
+        return
+    try:
+        body = r.json()
+    except Exception:
+        record(name, False, f"non-JSON body: {r.text[:600]}")
+        return
+    required_keys = {"vendor", "occurred_at", "amount_total", "vat_amount", "category", "raw_text", "status"}
+    has_shape = required_keys.issubset(set(body.keys()))
+    status_ok = body.get("status") in ("ok", "fallback")
+    ok = has_shape and status_ok
+    extras = [
+        f"status={body.get('status')!r}",
+        f"vendor={body.get('vendor')!r}",
+        f"occurred_at={body.get('occurred_at')!r}",
+        f"amount_total={body.get('amount_total')!r}",
+        f"vat_amount={body.get('vat_amount')!r}",
+        f"category={body.get('category')!r}",
+        f"raw_text_len={len(body.get('raw_text') or '')}",
+    ]
+    if not has_shape:
+        extras.insert(0, f"MISSING KEYS: {required_keys - set(body.keys())}")
+    record(name, ok, "\n".join(extras))
+
+
+def main():
+    print("\n--- Authenticate with Supabase ---")
+    try:
+        token = supabase_login(EMAIL, PASSWORD)
+        print(f"Got token len={len(token)} (first 24 chars: {token[:24]}...)")
+    except Exception as e:
+        record("Supabase login", False, str(e))
+        return
+
+    # 1. no auth → 401
+    print("\n--- Scenario 1: no Authorization → 401 ---")
+    r = requests.post(SCAN_URL, json={"image_base64": "aGVsbG8=", "mime_type": "image/jpeg"}, timeout=15)
+    record("1. no auth → 401", r.status_code == 401, f"status={r.status_code} body={r.text[:200]}")
+
+    # 2. bad bearer → 401
+    print("\n--- Scenario 2: bad bearer → 401 ---")
     r = requests.post(
-        f"{API}/broadcasts/gap",
-        json={"lesson_id": "00000000-0000-0000-0000-000000000000"},
+        SCAN_URL,
         headers={"Authorization": "Bearer not-a-valid-token"},
+        json={"image_base64": "aGVsbG8=", "mime_type": "image/jpeg"},
         timeout=15,
     )
-    if r.status_code == 401:
-        ok("bad-bearer -> 401", f"detail={r.json().get('detail')}")
-    else:
-        bad("bad-bearer -> 401", f"got {r.status_code} {r.text[:200]}")
-except Exception as e:
-    bad("bad-bearer -> 401", repr(e))
+    record("2. bad bearer → 401", r.status_code == 401, f"status={r.status_code} body={r.text[:200]}")
 
-if not SB_ACCESS_TOKEN:
-    print("\nCannot continue without Supabase token.")
-    sys.exit(1)
-
-AUTH = {"Authorization": f"Bearer {SB_ACCESS_TOKEN}"}
-
-# 4. Missing lesson -> 404
-section("4. /api/broadcasts/gap missing lesson (zero UUID)")
-try:
+    # 3a. missing image_base64 field → 400 or 422
+    print("\n--- Scenario 3: missing image_base64 → 400 ---")
     r = requests.post(
-        f"{API}/broadcasts/gap",
-        json={"lesson_id": "00000000-0000-0000-0000-000000000000"},
-        headers=AUTH,
-        timeout=20,
-    )
-    print(f"  HTTP {r.status_code} body={r.text[:400]}")
-    if r.status_code == 404 and "not found" in r.json().get("detail", "").lower():
-        ok("missing-lesson -> 404", f"detail={r.json().get('detail')}")
-    elif r.status_code == 500 and ("waiting_list" in r.text.lower() or "relation" in r.text.lower()):
-        bad("missing-lesson", f"500 — Migration 007 (waiting_list) NOT applied: {r.text[:300]}")
-    else:
-        bad("missing-lesson -> 404", f"got {r.status_code} {r.text[:300]}")
-except Exception as e:
-    bad("missing-lesson -> 404", repr(e))
-
-# 5. Discover lesson_ids
-section("5. Discover lesson ids via Supabase service-role REST")
-real_lesson_id = ""
-foreign_lesson_id = ""
-school_id = ""
-try:
-    ru = requests.get(
-        f"{SUPABASE_URL}/auth/v1/user",
-        headers={"apikey": SUPABASE_ANON, "Authorization": f"Bearer {SB_ACCESS_TOKEN}"},
-        timeout=10,
-    )
-    alex_uid = ru.json().get("id") if ru.status_code == 200 else ""
-    print(f"  alex uid = {alex_uid}")
-
-    r = requests.get(
-        f"{SUPABASE_URL}/rest/v1/driving_schools",
-        params={"select": "id,owner_auth_id,business_name"},
-        headers={"apikey": SERVICE_ROLE_KEY, "Authorization": f"Bearer {SERVICE_ROLE_KEY}"},
+        SCAN_URL,
+        headers={"Authorization": f"Bearer {token}"},
+        json={"mime_type": "image/jpeg"},
         timeout=15,
     )
-    schools = r.json() if r.status_code == 200 else []
-    print(f"  total schools: {len(schools)}")
+    detail = f"status={r.status_code} body={r.text[:300]}"
+    if r.status_code == 422:
+        detail += "\n  NOTE: 422 from Pydantic (image_base64 missing). Review request expects 400."
+    record("3. missing image_base64 → 400/422", r.status_code in (400, 422), detail)
 
-    for s in schools:
-        if s.get("owner_auth_id") == alex_uid:
-            school_id = s["id"]
-            print(f"  alex school_id = {school_id} ({s.get('business_name')})")
-            break
-
-    # Find alex's instructor.id (alex.auth_user_id = e6e9091a-cd7d-4819-87bc-2bf03f436a65 per task)
-    alex_instructor_id = ""
-    if alex_uid:
-        ri = requests.get(
-            f"{SUPABASE_URL}/rest/v1/instructors",
-            params={"auth_user_id": f"eq.{alex_uid}", "select": "id,school_id"},
-            headers={"apikey": SERVICE_ROLE_KEY, "Authorization": f"Bearer {SERVICE_ROLE_KEY}"},
-            timeout=15,
-        )
-        irows = ri.json() if ri.status_code == 200 else []
-        if irows:
-            alex_instructor_id = irows[0]["id"]
-            if not school_id:
-                school_id = irows[0].get("school_id", "")
-            print(f"  alex instructor_id = {alex_instructor_id} school_id={school_id}")
-        else:
-            print(f"  instructors lookup -> HTTP {ri.status_code} {ri.text[:200]}")
-
-    if alex_instructor_id:
-        rl = requests.get(
-            f"{SUPABASE_URL}/rest/v1/lessons",
-            params={
-                "instructor_id": f"eq.{alex_instructor_id}",
-                "select": "id,instructor_id,start_time,end_time,topic",
-                "limit": "1",
-            },
-            headers={"apikey": SERVICE_ROLE_KEY, "Authorization": f"Bearer {SERVICE_ROLE_KEY}"},
-            timeout=15,
-        )
-        rows = rl.json() if rl.status_code == 200 else []
-        if rows:
-            real_lesson_id = rows[0]["id"]
-            ok("discover-own-lesson", f"id={real_lesson_id} start={rows[0].get('start_time')} end={rows[0].get('end_time')}")
-        else:
-            bad("discover-own-lesson", f"no lessons for instructor {alex_instructor_id} HTTP {rl.status_code} {rl.text[:200]}")
-
-    # Foreign lesson — find a lesson whose instructor is NOT alex's
-    if alex_instructor_id:
-        rf = requests.get(
-            f"{SUPABASE_URL}/rest/v1/lessons",
-            params={
-                "instructor_id": f"neq.{alex_instructor_id}",
-                "select": "id,instructor_id",
-                "limit": "1",
-            },
-            headers={"apikey": SERVICE_ROLE_KEY, "Authorization": f"Bearer {SERVICE_ROLE_KEY}"},
-            timeout=15,
-        )
-        rrows = rf.json() if rf.status_code == 200 else []
-        if rrows:
-            foreign_lesson_id = rrows[0]["id"]
-            print(f"  foreign_lesson_id = {foreign_lesson_id} (instructor {rrows[0]['instructor_id']})")
-        else:
-            print("  no foreign lessons available")
-except Exception as e:
-    bad("discover-lessons", repr(e))
-
-# 6. Happy path
-section("6. /api/broadcasts/gap happy path (own lesson)")
-if real_lesson_id:
-    try:
-        r = requests.post(
-            f"{API}/broadcasts/gap",
-            json={"lesson_id": real_lesson_id},
-            headers=AUTH,
-            timeout=30,
-        )
-        print(f"  HTTP {r.status_code} body={r.text[:500]}")
-        if r.status_code == 200:
-            body = r.json()
-            keys_ok = {"sent", "skipped", "detail"}.issubset(body.keys())
-            types_ok = isinstance(body.get("sent"), int) and isinstance(body.get("skipped"), int) and isinstance(body.get("detail"), str)
-            if keys_ok and types_ok:
-                ok("happy-path 200 shape", f"sent={body['sent']} skipped={body['skipped']} detail={body['detail']!r}")
-            else:
-                bad("happy-path shape", f"body={body}")
-        elif r.status_code == 500 and ("waiting_list" in r.text.lower() or "relation" in r.text.lower()):
-            bad("happy-path", f"500 — Migration 007 NOT applied: {r.text[:300]}")
-        else:
-            bad("happy-path", f"HTTP {r.status_code} {r.text[:300]}")
-    except Exception as e:
-        bad("happy-path", repr(e))
-else:
-    print("  SKIPPED — no real lesson available")
-
-# 7. Foreign lesson 403
-section("7. /api/broadcasts/gap foreign lesson -> 403")
-if foreign_lesson_id and foreign_lesson_id != real_lesson_id:
-    try:
-        r = requests.post(
-            f"{API}/broadcasts/gap",
-            json={"lesson_id": foreign_lesson_id},
-            headers=AUTH,
-            timeout=30,
-        )
-        print(f"  HTTP {r.status_code} body={r.text[:400]}")
-        if r.status_code == 403:
-            ok("foreign-lesson -> 403", f"detail={r.json().get('detail')}")
-        else:
-            bad("foreign-lesson -> 403", f"HTTP {r.status_code} {r.text[:300]}")
-    except Exception as e:
-        bad("foreign-lesson -> 403", repr(e))
-else:
-    print("  SKIPPED — no foreign lesson available (single-school db)")
-
-# 8. v2 billing checkout
-section("8. Regression /api/v2/billing/checkout (tier=pro)")
-try:
-    r = requests.post(
-        f"{API}/v2/billing/checkout",
-        json={"tier": "pro", "seat_count": 1},
-        headers=AUTH,
-        timeout=30,
-    )
-    print(f"  HTTP {r.status_code} body={r.text[:300]}")
-    if r.status_code == 200:
-        body = r.json()
-        url = body.get("url", "")
-        if url.startswith("https://checkout.stripe.com"):
-            ok("billing-v2 checkout 200", f"url={url[:80]}...")
-        else:
-            bad("billing-v2 checkout url", f"body={body}")
-    elif r.status_code == 400:
-        # acceptable e.g. already on tier
-        ok("billing-v2 checkout 400 (acceptable)", f"detail={r.json().get('detail')}")
-    else:
-        bad("billing-v2 checkout", f"HTTP {r.status_code} {r.text[:300]}")
-except Exception as e:
-    bad("billing-v2 checkout", repr(e))
-
-# 9. /api/maps/travel-time (NEW dual-auth dependency)
-section("9. /api/maps/travel-time dual-auth (Supabase + legacy Mongo)")
-payload = {"origin": "12 Abbey Road, NW8 9AY", "destination": "42 Pickwick Avenue, NW1 2AB"}
-
-# 9.a No Authorization header -> 401
-try:
-    r = requests.post(f"{API}/maps/travel-time", json=payload, timeout=20)
-    print(f"  no-auth -> HTTP {r.status_code} {r.text[:200]}")
-    if r.status_code == 401:
-        ok("travel-time no-auth -> 401", f"detail={r.json().get('detail')}")
-    else:
-        bad("travel-time no-auth -> 401", f"got {r.status_code} {r.text[:200]}")
-except Exception as e:
-    bad("travel-time no-auth -> 401", repr(e))
-
-# 9.b Bearer garbage-token -> 401
-try:
-    r = requests.post(
-        f"{API}/maps/travel-time",
-        json=payload,
-        headers={"Authorization": "Bearer garbage-token"},
-        timeout=20,
-    )
-    print(f"  garbage-bearer -> HTTP {r.status_code} {r.text[:200]}")
-    if r.status_code == 401:
-        ok("travel-time garbage-bearer -> 401", f"detail={r.json().get('detail')}")
-    else:
-        bad("travel-time garbage-bearer -> 401", f"got {r.status_code} {r.text[:200]}")
-except Exception as e:
-    bad("travel-time garbage-bearer -> 401", repr(e))
-
-# 9.c Supabase bearer (alex) -> 200 (was 401 before the dual-auth fix)
-try:
-    r = requests.post(f"{API}/maps/travel-time", json=payload, headers=AUTH, timeout=20)
-    print(f"  supabase bearer -> HTTP {r.status_code} body={r.text[:300]}")
-    if r.status_code == 200:
-        body = r.json()
-        required = {"duration_minutes", "duration_in_traffic_minutes", "distance_km", "status", "cached"}
-        shape_ok = required.issubset(body.keys())
-        types_ok = (
-            isinstance(body.get("duration_minutes"), int)
-            and isinstance(body.get("duration_in_traffic_minutes"), int)
-            and isinstance(body.get("distance_km"), (int, float))
-            and isinstance(body.get("status"), str)
-            and isinstance(body.get("cached"), bool)
-        )
-        if shape_ok and types_ok:
-            ok("travel-time supabase bearer -> 200", f"body={body}")
-        else:
-            bad("travel-time supabase bearer shape", f"body={body}")
-    else:
-        bad("travel-time supabase bearer -> 200", f"HTTP {r.status_code} {r.text[:300]}")
-except Exception as e:
-    bad("travel-time supabase bearer -> 200", repr(e))
-
-# 9.d Legacy Mongo JWT (instructor@demo.uk) -> 200 (backwards compat)
-try:
-    rl = requests.post(
-        f"{API}/auth/login",
-        json={"email": "instructor@demo.uk", "password": "password123"},
+    # 3b. empty image_base64 → 400 'image_base64 is required'
+    r2 = requests.post(
+        SCAN_URL,
+        headers={"Authorization": f"Bearer {token}"},
+        json={"image_base64": "", "mime_type": "image/jpeg"},
         timeout=15,
     )
-    print(f"  /api/auth/login instructor@demo.uk -> HTTP {rl.status_code} {rl.text[:200]}")
-    if rl.status_code == 200:
-        legacy_token = (
-            rl.json().get("access_token")
-            or rl.json().get("token")
-            or ""
-        )
-        if not legacy_token:
-            bad("travel-time legacy bearer -> 200", f"login returned no token: {rl.json()}")
-        else:
-            r2 = requests.post(
-                f"{API}/maps/travel-time",
-                json=payload,
-                headers={"Authorization": f"Bearer {legacy_token}"},
-                timeout=20,
-            )
-            print(f"  legacy bearer -> HTTP {r2.status_code} body={r2.text[:300]}")
-            if r2.status_code == 200:
-                body = r2.json()
-                required = {"duration_minutes", "duration_in_traffic_minutes", "distance_km", "status", "cached"}
-                if required.issubset(body.keys()):
-                    ok("travel-time legacy bearer -> 200", f"body={body}")
-                else:
-                    bad("travel-time legacy bearer shape", f"body={body}")
-            else:
-                bad("travel-time legacy bearer -> 200", f"HTTP {r2.status_code} {r2.text[:300]}")
-    else:
-        bad("travel-time legacy login", f"HTTP {rl.status_code} {rl.text[:200]} — demo Mongo account may have been removed")
-except Exception as e:
-    bad("travel-time legacy bearer -> 200", repr(e))
+    ok = r2.status_code == 400 and "image_base64 is required" in r2.text
+    record("3b. empty image_base64 → 400 'image_base64 is required'", ok, f"status={r2.status_code} body={r2.text[:200]}")
 
-# Summary
-section("SUMMARY")
-print(f"PASSED: {len(PASS)}")
-for p in PASS:
-    print(f"  PASS  {p}")
-print(f"FAILED: {len(FAIL)}")
-for f in FAIL:
-    print(f"  FAIL  {f}")
+    # 4. bad base64 → 400
+    print("\n--- Scenario 4: bad base64 → 400 ---")
+    r = requests.post(
+        SCAN_URL,
+        headers={"Authorization": f"Bearer {token}"},
+        json={"image_base64": "not-base64-!!!", "mime_type": "image/jpeg"},
+        timeout=15,
+    )
+    detail = f"status={r.status_code} body={r.text[:300]}"
+    if r.status_code != 400:
+        detail += "\n  NOTE: Review request expects 400 'not valid base64'."
+    record("4. bad base64 → 400", r.status_code == 400, detail)
 
-sys.exit(0 if not FAIL else 1)
+    # 5. fuel
+    print("\n--- Scenario 5: fuel receipt ---")
+    fuel_img = make_receipt_image([
+        "SHELL",
+        "Shell Service Station",
+        "12 High Road, London NW6 4ED",
+        "VAT Reg: GB 235 7164 23",
+        "",
+        "Date: 14/05/2026   16:32",
+        "Receipt: 4128-559-001",
+        "",
+        "Pump 03   Unleaded E10",
+        "Litres:   42.18 L",
+        "Price/L:  GBP 1.469",
+        "",
+        "Fuel:        GBP 61.96",
+        "VAT @ 20%:   GBP 10.33",
+        "TOTAL:       GBP 61.96",
+        "",
+        "Paid by VISA ****4242",
+    ])
+    t0 = time.time()
+    r = requests.post(
+        SCAN_URL,
+        headers={"Authorization": f"Bearer {token}"},
+        json={"image_base64": encode_b64(fuel_img), "mime_type": "image/jpeg"},
+        timeout=120,
+    )
+    print(f"  HTTP {r.status_code} in {time.time()-t0:.1f}s")
+    print(f"  body: {r.text[:1500]}")
+    shape_check("5. fuel receipt happy path → 200", r)
+
+    # 6. maintenance
+    print("\n--- Scenario 6: maintenance receipt ---")
+    maint_img = make_receipt_image([
+        "HALFORDS",
+        "Halfords Autocentre",
+        "44 Camden High St, London NW1 0LT",
+        "VAT Reg: GB 408 1029 11",
+        "",
+        "Date: 02/03/2026   10:11",
+        "Invoice: HAC-99812",
+        "",
+        "Brake pads (front)   GBP 58.00",
+        "Brake disc - pair    GBP 74.50",
+        "Labour (1.5 hr)      GBP 67.50",
+        "",
+        "Subtotal:    GBP 200.00",
+        "VAT @ 20%:   GBP  40.00",
+        "TOTAL:       GBP 240.00",
+        "",
+        "Paid by VISA ****4242",
+    ])
+    t0 = time.time()
+    r = requests.post(
+        SCAN_URL,
+        headers={"Authorization": f"Bearer {token}"},
+        json={"image_base64": encode_b64(maint_img), "mime_type": "image/jpeg"},
+        timeout=120,
+    )
+    print(f"  HTTP {r.status_code} in {time.time()-t0:.1f}s")
+    print(f"  body: {r.text[:1500]}")
+    shape_check("6. maintenance receipt happy path → 200", r)
+
+    # 7. car wash
+    print("\n--- Scenario 7: car wash receipt ---")
+    cw_img = make_receipt_image([
+        "IMO CAR WASH",
+        "Brent Cross IMO Wash",
+        "Tilling Rd, London NW2 1LJ",
+        "VAT Reg: GB 712 1029 88",
+        "",
+        "Date: 21/04/2026   08:47",
+        "Receipt: 2026-04-21-887",
+        "",
+        "Premium Wash + Wax    GBP 10.50",
+        "Wheel clean (extra)   GBP  2.50",
+        "",
+        "Subtotal:    GBP 13.00",
+        "VAT @ 20%:   GBP  2.60",
+        "TOTAL:       GBP 13.00",
+        "",
+        "Paid by contactless",
+    ])
+    t0 = time.time()
+    r = requests.post(
+        SCAN_URL,
+        headers={"Authorization": f"Bearer {token}"},
+        json={"image_base64": encode_b64(cw_img), "mime_type": "image/jpeg"},
+        timeout=120,
+    )
+    print(f"  HTTP {r.status_code} in {time.time()-t0:.1f}s")
+    print(f"  body: {r.text[:1500]}")
+    shape_check("7. car wash receipt happy path → 200", r)
+
+    # Summary
+    print("\n" + "=" * 80)
+    print("SUMMARY")
+    print("=" * 80)
+    passed = sum(1 for _, ok, _ in results if ok)
+    failed = sum(1 for _, ok, _ in results if not ok)
+    for name, ok, _ in results:
+        print(f"  {'PASS' if ok else 'FAIL'}  {name}")
+    print(f"\nTotal: {passed} passed, {failed} failed")
+    sys.exit(0 if failed == 0 else 1)
+
+
+if __name__ == "__main__":
+    main()

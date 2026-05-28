@@ -6,7 +6,7 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, Literal
+from typing import Optional, Literal, List
 from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
 from jose import JWTError, jwt
@@ -1194,6 +1194,247 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
         skipped=skipped + (len(tokens) - sent),
         detail=f"Notified {sent} of {len(auth_ids)} waiting-list learner(s).",
     )
+
+
+# =============================================================================
+# Multi-instructor — Owner-only invite + school-wide leaderboard
+# =============================================================================
+class InstructorInviteRequest(BaseModel):
+    email: EmailStr
+    full_name: Optional[str] = None
+    adi_number: Optional[str] = None
+
+
+class InstructorInviteResponse(BaseModel):
+    sent: bool
+    email: str
+    detail: str
+
+
+async def _is_school_owner(sb_user: dict) -> bool:
+    """True if the signed-in auth user is the owner of their driving school."""
+    school = sb_user.get("school")
+    if not school:
+        school = await sb_get_school_by_auth_user(sb_user["auth_user_id"])
+    return bool(school and school.get("owner_auth_id") == sb_user["auth_user_id"])
+
+
+@api_router.post("/v2/instructors/invite", response_model=InstructorInviteResponse)
+async def v2_invite_instructor(
+    req: InstructorInviteRequest,
+    sb_user: dict = Depends(get_current_supabase_user),
+):
+    """Owner-only: invite a new sub-instructor to the school. Sends a Supabase
+    Auth invite email with role=instructor + school_id in metadata so the
+    AuthContext bootstrap creates the instructor row on first sign-in."""
+    if not await _is_school_owner(sb_user):
+        raise HTTPException(status_code=403, detail="Only the school owner can invite instructors")
+
+    school = sb_user["school"]
+    redirect_to = f"{APP_DOMAIN}/?invite_accept=1"
+    payload = {
+        "email": str(req.email),
+        "data": {
+            "role": "instructor",
+            "name": req.full_name or str(req.email).split("@")[0],
+            "adi_number": req.adi_number,
+            "school_id": school["id"],
+            "inviter_name": school.get("business_name") or "Your school owner",
+        },
+        "redirect_to": redirect_to,
+    }
+
+    async with httpx.AsyncClient(timeout=15.0) as client_http:
+        r = await client_http.post(
+            f"{SUPABASE_URL.rstrip('/')}/auth/v1/invite",
+            headers={
+                "apikey": SUPABASE_SERVICE_ROLE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+    if r.status_code >= 400:
+        body = r.text[:240]
+        if "already" in body.lower():
+            return InstructorInviteResponse(
+                sent=False, email=str(req.email),
+                detail="Email already has an active account — they can sign in directly.",
+            )
+        raise HTTPException(status_code=502, detail=f"Supabase invite failed: {body}")
+
+    return InstructorInviteResponse(
+        sent=True, email=str(req.email),
+        detail=f"Instructor invite sent to {req.email}.",
+    )
+
+
+class LeaderboardRow(BaseModel):
+    instructor_id: str
+    full_name: str
+    adi_number: Optional[str] = None
+    is_owner: bool
+    students_active: int
+    lessons_month: int
+    revenue_month: float
+    pass_rate: float        # 0..100, NaN if no data → returned as 0
+
+
+class LeaderboardResponse(BaseModel):
+    school_id: str
+    business_name: Optional[str] = None
+    month_iso: str          # YYYY-MM
+    totals: dict            # {students_active:int, lessons_month:int, revenue_month:float, pass_rate:float}
+    rows: List[LeaderboardRow]
+
+
+@api_router.get("/v2/school/leaderboard", response_model=LeaderboardResponse)
+async def v2_school_leaderboard(sb_user: dict = Depends(get_current_supabase_user)):
+    """Owner-only. School-wide KPIs + per-instructor breakdown for the current month."""
+    if not await _is_school_owner(sb_user):
+        raise HTTPException(status_code=403, detail="Only the school owner can view the leaderboard")
+    school = sb_user["school"]
+    school_id = school["id"]
+
+    today = datetime.now(timezone.utc).date()
+    month_start = today.replace(day=1).isoformat()
+    month_iso = today.strftime("%Y-%m")
+
+    async with httpx.AsyncClient(timeout=15.0) as client_http:
+        # 1. All instructors in this school
+        ir = await client_http.get(
+            f"{_sb_rest_base}/instructors",
+            params={"school_id": f"eq.{school_id}", "select": "id,full_name,adi_number,auth_user_id"},
+            headers=_sb_headers(),
+        )
+        if ir.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Failed to load instructors: {ir.text[:200]}")
+        instructors = ir.json() or []
+
+        # 2. Active students per instructor
+        sr = await client_http.get(
+            f"{_sb_rest_base}/students",
+            params={"school_id": f"eq.{school_id}", "select": "id,instructor_id,status"},
+            headers=_sb_headers(),
+        )
+        students = sr.json() if sr.status_code < 400 else []
+
+        # 3. This-month lessons (use start_time ≥ first of month)
+        lr = await client_http.get(
+            f"{_sb_rest_base}/lessons",
+            params={
+                "select": "id,instructor_id,status,amount_paid,start_time",
+                "start_time": f"gte.{month_start}T00:00:00",
+                "instructor_id": f"in.({','.join(i['id'] for i in instructors) or 'null'})",
+            },
+            headers=_sb_headers(),
+        )
+        lessons = lr.json() if lr.status_code < 400 else []
+
+    owner_auth_id = school["owner_auth_id"]
+    rows: List[LeaderboardRow] = []
+    for ins in instructors:
+        ins_id = ins["id"]
+        students_active = sum(1 for s in students if s.get("instructor_id") == ins_id and (s.get("status") or "").lower() in ("new", "active", "test ready", "test_ready"))
+        my_lessons = [l for l in lessons if l.get("instructor_id") == ins_id and (l.get("status") or "").lower() != "cancelled"]
+        lessons_month = len(my_lessons)
+        revenue_month = float(sum((l.get("amount_paid") or 0) for l in my_lessons))
+        # Pass rate = students passed / (students passed + students who had Test Ready set previously). Best-effort proxy using current snapshot.
+        passed = sum(1 for s in students if s.get("instructor_id") == ins_id and (s.get("status") or "").lower() == "passed")
+        test_ready = sum(1 for s in students if s.get("instructor_id") == ins_id and (s.get("status") or "").lower() in ("test ready", "test_ready"))
+        denom = passed + test_ready
+        pass_rate = round((passed / denom) * 100, 1) if denom > 0 else 0.0
+
+        rows.append(LeaderboardRow(
+            instructor_id=ins_id,
+            full_name=ins.get("full_name") or "(unnamed)",
+            adi_number=ins.get("adi_number"),
+            is_owner=(ins.get("auth_user_id") == owner_auth_id),
+            students_active=students_active,
+            lessons_month=lessons_month,
+            revenue_month=round(revenue_month, 2),
+            pass_rate=pass_rate,
+        ))
+
+    # School totals
+    totals = {
+        "students_active": sum(r.students_active for r in rows),
+        "lessons_month":   sum(r.lessons_month   for r in rows),
+        "revenue_month":   round(sum(r.revenue_month for r in rows), 2),
+        "pass_rate":       round(sum(r.pass_rate for r in rows) / len(rows), 1) if rows else 0.0,
+    }
+
+    # Sort by revenue desc as a sensible default
+    rows.sort(key=lambda r: r.revenue_month, reverse=True)
+
+    return LeaderboardResponse(
+        school_id=school_id,
+        business_name=school.get("business_name"),
+        month_iso=month_iso,
+        totals=totals,
+        rows=rows,
+    )
+
+
+class TodayLessonRow(BaseModel):
+    lesson_id: str
+    instructor_id: str
+    instructor_name: str
+    student_id: Optional[str] = None
+    student_name: Optional[str] = None
+    start_time: str
+    end_time: str
+    status: str
+    topic: Optional[str] = None
+    pickup_address: Optional[str] = None
+
+
+@api_router.get("/v2/school/today", response_model=List[TodayLessonRow])
+async def v2_school_today(sb_user: dict = Depends(get_current_supabase_user)):
+    """Owner-only. Every lesson scheduled across the school for today (UTC)."""
+    if not await _is_school_owner(sb_user):
+        raise HTTPException(status_code=403, detail="Only the school owner can view the live diary")
+    school_id = sb_user["school"]["id"]
+    today = datetime.now(timezone.utc).date()
+    tomorrow = (today + timedelta(days=1)).isoformat()
+    today_iso = today.isoformat()
+
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.get(
+            f"{_sb_rest_base}/lessons",
+            params={
+                "select": (
+                    "id,instructor_id,student_id,start_time,end_time,status,topic,pickup_address,"
+                    "instructors(id,full_name,school_id),students(id,full_name)"
+                ),
+                "start_time": f"gte.{today_iso}T00:00:00",
+                "and": f"(start_time.lt.{tomorrow}T00:00:00)",
+                "order": "start_time.asc",
+            },
+            headers=_sb_headers(),
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=502, detail=f"Failed to load lessons: {r.text[:200]}")
+    raw = r.json() or []
+    out: List[TodayLessonRow] = []
+    for row in raw:
+        ins = row.get("instructors") or {}
+        if ins.get("school_id") and ins["school_id"] != school_id:
+            continue  # belt-and-braces — only this school
+        stu = row.get("students") or {}
+        out.append(TodayLessonRow(
+            lesson_id=row["id"],
+            instructor_id=row.get("instructor_id") or "",
+            instructor_name=ins.get("full_name") or "(unknown)",
+            student_id=row.get("student_id"),
+            student_name=stu.get("full_name"),
+            start_time=row.get("start_time") or "",
+            end_time=row.get("end_time") or "",
+            status=row.get("status") or "Scheduled",
+            topic=row.get("topic"),
+            pickup_address=row.get("pickup_address"),
+        ))
+    return out
 
 
 # =============================================================================

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   RefreshControl,
   useWindowDimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -26,6 +27,7 @@ import {
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { mockDb } from '../src/mockDb';
+import { isCurrentUserSchoolOwner } from '../src/supabaseDb';
 import { Card } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
 import { SimpleBarChart } from '../src/SimpleBarChart';
@@ -35,8 +37,27 @@ export default function InstructorHomeScreen() {
   const router = useRouter();
   const { user, signOut } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
+  const [roleChecked, setRoleChecked] = useState(false);
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
+
+  // Auto-redirect school owners to the dedicated owner dashboard.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const isOwner = await isCurrentUserSchoolOwner();
+        if (active && isOwner) {
+          router.replace('/owner-dashboard-screen' as any);
+          return;
+        }
+      } catch {
+        // fall through to standard instructor home
+      }
+      if (active) setRoleChecked(true);
+    })();
+    return () => { active = false; };
+  }, [router]);
 
   const kpis = mockDb.getKPIs();
   const mtd = mockDb.getMTDStats();
@@ -47,6 +68,14 @@ export default function InstructorHomeScreen() {
     setRefreshing(true);
     setTimeout(() => setRefreshing(false), 800);
   }, []);
+
+  if (!roleChecked) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 80 }} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>

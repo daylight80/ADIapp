@@ -1227,3 +1227,20 @@ export async function getReceiptSignedUrl(path: string, expiresSec = 600): Promi
   if (error) return null;
   return data?.signedUrl ?? null;
 }
+
+
+// =============================================================================
+// Multi-instructor — owner detection
+// =============================================================================
+export async function isCurrentUserSchoolOwner(): Promise<boolean> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const uid = sessionData.session?.user.id;
+  if (!uid) return false;
+  const { data, error } = await supabase
+    .from('driving_schools')
+    .select('id, owner_auth_id')
+    .eq('owner_auth_id', uid)
+    .maybeSingle();
+  if (error) return false;
+  return !!data;
+}

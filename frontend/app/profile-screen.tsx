@@ -206,14 +206,16 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity
-          style={[styles.proCta, pro && styles.proCtaActive]}
-          onPress={() => router.push('/pricing-screen')}
-          testID="btn-pricing"
-        >
-          <Crown size={18} color="#fff" />
-          <Text style={styles.proCtaText}>{pro ? 'Manage Pro plan' : 'Upgrade to Pro'}</Text>
-        </TouchableOpacity>
+        {role !== 'student' && (
+          <TouchableOpacity
+            style={[styles.proCta, pro && styles.proCtaActive]}
+            onPress={() => router.push('/pricing-screen')}
+            testID="btn-pricing"
+          >
+            <Crown size={18} color="#fff" />
+            <Text style={styles.proCtaText}>{pro ? 'Manage Pro plan' : 'Upgrade to Pro'}</Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity style={styles.logoutBtn} onPress={signOut} testID="btn-signout">
           <LogOut size={18} color="#fff" />

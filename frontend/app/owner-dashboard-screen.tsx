@@ -213,6 +213,12 @@ export default function OwnerDashboardScreen() {
             <Receipt size={18} color="#fff" />
             <Text style={styles.qaText}>Receipts</Text>
           </TouchableOpacity>
+          <TouchableOpacity style={[styles.qa, { backgroundColor: '#8B5CF6' }]}
+                            onPress={() => router.push('/manage-assignments-screen' as any)}
+                            testID="qa-assignments">
+            <ArrowUpDown size={18} color="#fff" />
+            <Text style={styles.qaText}>Assignments</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Per-instructor leaderboard */}

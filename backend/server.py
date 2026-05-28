@@ -1376,6 +1376,83 @@ async def v2_school_leaderboard(sb_user: dict = Depends(get_current_supabase_use
     )
 
 
+class ReassignStudentsRequest(BaseModel):
+    assignments: List[dict]   # [{"student_id": uuid, "new_instructor_id": uuid}]
+
+
+class ReassignStudentsResponse(BaseModel):
+    moved: int
+    skipped: int
+    errors: List[str]
+
+
+@api_router.post("/v2/students/reassign", response_model=ReassignStudentsResponse)
+async def v2_reassign_students(
+    req: ReassignStudentsRequest,
+    sb_user: dict = Depends(get_current_supabase_user),
+):
+    """Owner-only. Atomically reassigns one or more students from their current
+    instructor to a new instructor in the same school. Verifies both the student
+    and the target instructor belong to the owner's school."""
+    if not await _is_school_owner(sb_user):
+        raise HTTPException(status_code=403, detail="Only the school owner can reassign students")
+    school_id = sb_user["school"]["id"]
+
+    moved = 0
+    skipped = 0
+    errors: List[str] = []
+
+    async with httpx.AsyncClient(timeout=15.0) as client_http:
+        # Pre-fetch valid instructor ids for this school
+        ir = await client_http.get(
+            f"{_sb_rest_base}/instructors",
+            params={"school_id": f"eq.{school_id}", "select": "id"},
+            headers=_sb_headers(),
+        )
+        valid_instructors = {row["id"] for row in (ir.json() or [])}
+
+        for entry in req.assignments:
+            sid = (entry.get("student_id") or "").strip()
+            iid = (entry.get("new_instructor_id") or "").strip()
+            if not sid or not iid:
+                skipped += 1
+                errors.append("Missing student_id or new_instructor_id")
+                continue
+            if iid not in valid_instructors:
+                skipped += 1
+                errors.append(f"Instructor {iid[:8]}… is not part of your school")
+                continue
+            # Verify student belongs to this school
+            sr = await client_http.get(
+                f"{_sb_rest_base}/students",
+                params={"id": f"eq.{sid}", "school_id": f"eq.{school_id}", "select": "id,instructor_id", "limit": "1"},
+                headers=_sb_headers(),
+            )
+            rows = sr.json() if sr.status_code < 400 else []
+            if not rows:
+                skipped += 1
+                errors.append(f"Student {sid[:8]}… not in your school")
+                continue
+            if rows[0].get("instructor_id") == iid:
+                skipped += 1
+                continue   # already assigned, no-op
+
+            # Patch
+            up = await client_http.patch(
+                f"{_sb_rest_base}/students",
+                params={"id": f"eq.{sid}"},
+                headers={**_sb_headers(), "Content-Type": "application/json", "Prefer": "return=minimal"},
+                json={"instructor_id": iid},
+            )
+            if up.status_code >= 400:
+                skipped += 1
+                errors.append(f"Update failed for {sid[:8]}…: {up.text[:120]}")
+            else:
+                moved += 1
+
+    return ReassignStudentsResponse(moved=moved, skipped=skipped, errors=errors[:10])
+
+
 class TodayLessonRow(BaseModel):
     lesson_id: str
     instructor_id: str

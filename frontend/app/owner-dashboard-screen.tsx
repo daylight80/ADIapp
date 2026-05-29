@@ -31,6 +31,10 @@ type Leaderboard = {
   school_id: string;
   business_name: string | null;
   month_iso: string;
+  tier: string;
+  seat_count: number;
+  seat_limit: number | null;     // null = unlimited
+  can_add_instructor: boolean;
   totals: { students_active: number; lessons_month: number; revenue_month: number; pass_rate: number };
   rows: LeaderboardRow[];
 };
@@ -167,11 +171,21 @@ export default function OwnerDashboardScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Crown size={18} color={theme.colors.accent} />
               <Text style={styles.headerEyebrow}>School Owner</Text>
+              {leaderboard?.tier && (
+                <View style={[styles.tierPill, leaderboard.tier === 'franchise' ? styles.tierPillFranchise : styles.tierPillStarter]}>
+                  <Text style={styles.tierPillText}>{leaderboard.tier.toUpperCase()}</Text>
+                </View>
+              )}
             </View>
             <Text style={styles.headerTitle} numberOfLines={1}>
               {leaderboard?.business_name || 'Your driving school'}
             </Text>
-            <Text style={styles.headerSub}>{monthLabel}</Text>
+            <Text style={styles.headerSub}>
+              {monthLabel}
+              {leaderboard ? (
+                ` · ${leaderboard.seat_count}/${leaderboard.seat_limit ?? '∞'} instructor seat${(leaderboard.seat_limit ?? 0) === 1 ? '' : 's'}`
+              ) : ''}
+            </Text>
           </View>
           <TouchableOpacity onPress={signOut} style={styles.iconBtn} testID="btn-signout">
             <LogOut size={20} color={theme.colors.textMuted} />
@@ -198,10 +212,14 @@ export default function OwnerDashboardScreen() {
 
         {/* Owner quick actions */}
         <View style={styles.qaRow}>
-          <TouchableOpacity style={[styles.qa, { backgroundColor: theme.colors.primary }]}
-                            onPress={() => setInviteOpen(true)} testID="qa-invite-instructor">
+          <TouchableOpacity
+            style={[styles.qa, { backgroundColor: leaderboard?.can_add_instructor ? theme.colors.primary : theme.colors.textMuted }]}
+            onPress={() => setInviteOpen(true)} testID="qa-invite-instructor"
+          >
             <Mail size={18} color="#fff" />
-            <Text style={styles.qaText}>Invite instructor</Text>
+            <Text style={styles.qaText}>
+              {leaderboard?.can_add_instructor ? 'Invite instructor' : 'Seat limit reached'}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.qa, { backgroundColor: theme.colors.accent }]}
                             onPress={() => router.push('/student-crm-screen')} testID="qa-students">
@@ -310,53 +328,75 @@ export default function OwnerDashboardScreen() {
       <BottomSheet
         visible={inviteOpen}
         onClose={() => setInviteOpen(false)}
-        title="Invite an instructor"
+        title={leaderboard?.can_add_instructor ? 'Invite an instructor' : 'Upgrade to add instructors'}
         testID="sheet-invite-instructor"
       >
-        <Text style={styles.sheetIntro}>
-          We'll email a Supabase Auth invite. They'll set their own password and join your school automatically.
-        </Text>
-        <Text style={styles.label}>Email address</Text>
-        <TextInput
-          style={styles.input}
-          value={inviteForm.email}
-          onChangeText={(t) => setInviteForm({ ...inviteForm, email: t })}
-          placeholder="instructor@example.co.uk"
-          placeholderTextColor={theme.colors.textMuted}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          testID="input-invite-email"
-        />
+        {!leaderboard?.can_add_instructor ? (
+          <View style={{ gap: 12 }}>
+            <Text style={styles.sheetIntro}>
+              Your current <Text style={{ fontWeight: '700' }}>{leaderboard?.tier?.toUpperCase()}</Text> plan
+              includes 1 instructor seat. Upgrade to the <Text style={{ fontWeight: '700' }}>Franchise</Text> tier
+              for unlimited instructors and per-seat billing.
+            </Text>
+            <TouchableOpacity
+              style={[styles.sendBtn, { backgroundColor: theme.colors.accent }]}
+              onPress={() => { setInviteOpen(false); router.push('/pricing-screen'); }}
+              testID="btn-upgrade-franchise"
+            >
+              <Text style={styles.sendBtnText}>View Franchise plan</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setInviteOpen(false)} style={{ alignSelf: 'center', marginTop: 8 }}>
+              <Text style={{ color: theme.colors.textMuted, fontSize: 13 }}>Not now</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            <Text style={styles.sheetIntro}>
+              We'll email a Supabase Auth invite. They'll set their own password and join your school automatically.
+            </Text>
+            <Text style={styles.label}>Email address</Text>
+            <TextInput
+              style={styles.input}
+              value={inviteForm.email}
+              onChangeText={(t) => setInviteForm({ ...inviteForm, email: t })}
+              placeholder="instructor@example.co.uk"
+              placeholderTextColor={theme.colors.textMuted}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              testID="input-invite-email"
+            />
 
-        <Text style={styles.label}>Full name (optional)</Text>
-        <TextInput
-          style={styles.input}
-          value={inviteForm.full_name}
-          onChangeText={(t) => setInviteForm({ ...inviteForm, full_name: t })}
-          placeholder="Jordan Lee"
-          placeholderTextColor={theme.colors.textMuted}
-          testID="input-invite-name"
-        />
+            <Text style={styles.label}>Full name (optional)</Text>
+            <TextInput
+              style={styles.input}
+              value={inviteForm.full_name}
+              onChangeText={(t) => setInviteForm({ ...inviteForm, full_name: t })}
+              placeholder="Jordan Lee"
+              placeholderTextColor={theme.colors.textMuted}
+              testID="input-invite-name"
+            />
 
-        <Text style={styles.label}>ADI number (optional)</Text>
-        <TextInput
-          style={styles.input}
-          value={inviteForm.adi_number}
-          onChangeText={(t) => setInviteForm({ ...inviteForm, adi_number: t })}
-          placeholder="123456"
-          placeholderTextColor={theme.colors.textMuted}
-          keyboardType="number-pad"
-          testID="input-invite-adi"
-        />
+            <Text style={styles.label}>ADI number (optional)</Text>
+            <TextInput
+              style={styles.input}
+              value={inviteForm.adi_number}
+              onChangeText={(t) => setInviteForm({ ...inviteForm, adi_number: t })}
+              placeholder="123456"
+              placeholderTextColor={theme.colors.textMuted}
+              keyboardType="number-pad"
+              testID="input-invite-adi"
+            />
 
-        <TouchableOpacity
-          style={[styles.sendBtn, inviting && { opacity: 0.6 }]}
-          onPress={inviteInstructor}
-          disabled={inviting}
-          testID="btn-send-invite"
-        >
-          {inviting ? <ActivityIndicator color="#fff" /> : <Text style={styles.sendBtnText}>Send invite</Text>}
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.sendBtn, inviting && { opacity: 0.6 }]}
+              onPress={inviteInstructor}
+              disabled={inviting}
+              testID="btn-send-invite"
+            >
+              {inviting ? <ActivityIndicator color="#fff" /> : <Text style={styles.sendBtnText}>Send invite</Text>}
+            </TouchableOpacity>
+          </>
+        )}
       </BottomSheet>
     </SafeAreaView>
   );
@@ -412,6 +452,10 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 6, paddingBottom: 12, gap: 12 },
   iconBtn: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
   headerEyebrow: { fontSize: 11, fontWeight: '800', color: theme.colors.accent, letterSpacing: 0.6, textTransform: 'uppercase' },
+  tierPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
+  tierPillStarter: { backgroundColor: theme.colors.textMuted },
+  tierPillFranchise: { backgroundColor: theme.colors.success },
+  tierPillText: { fontSize: 10, fontWeight: '800', color: '#fff', letterSpacing: 0.4 },
   headerTitle: { ...theme.font.h2, marginTop: 2 },
   headerSub: { fontSize: 13, color: theme.colors.textMuted, marginTop: 2 },
 

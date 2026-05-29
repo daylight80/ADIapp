@@ -1231,6 +1231,29 @@ async def v2_invite_instructor(
         raise HTTPException(status_code=403, detail="Only the school owner can invite instructors")
 
     school = sb_user["school"]
+
+    # Pre-flight: refuse early (before sending an invite email) if the school's
+    # current tier doesn't permit another instructor seat. The DB trigger would
+    # block the eventual INSERT anyway, but failing here yields a much nicer
+    # message and avoids polluting the auth invite log.
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        cr = await client_http.post(
+            f"{_sb_rest_base}/rpc/can_add_instructor",
+            headers={**_sb_headers(), "Content-Type": "application/json"},
+            json={"school": school["id"]},
+        )
+    if cr.status_code < 400:
+        allowed = bool(cr.json())
+        if not allowed:
+            current_tier = (school.get("tier") or "starter").lower()
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    f"Your '{current_tier}' tier only allows 1 instructor seat. "
+                    "Upgrade to the Franchise tier to add more instructors."
+                ),
+            )
+
     redirect_to = f"{APP_DOMAIN}/?invite_accept=1"
     payload = {
         "email": str(req.email),
@@ -1284,6 +1307,10 @@ class LeaderboardResponse(BaseModel):
     school_id: str
     business_name: Optional[str] = None
     month_iso: str          # YYYY-MM
+    tier: str
+    seat_count: int
+    seat_limit: Optional[int] = None   # None = unlimited
+    can_add_instructor: bool
     totals: dict            # {students_active:int, lessons_month:int, revenue_month:float, pass_rate:float}
     rows: List[LeaderboardRow]
 
@@ -1367,10 +1394,21 @@ async def v2_school_leaderboard(sb_user: dict = Depends(get_current_supabase_use
     # Sort by revenue desc as a sensible default
     rows.sort(key=lambda r: r.revenue_month, reverse=True)
 
+    # Tier / seat metadata so the UI can render the badge + gate the invite button
+    tier = (school.get("tier") or "starter").lower()
+    seat_limit_map = {"starter": 1, "growth": 1, "pro": 1, "franchise": None}
+    seat_limit = seat_limit_map.get(tier, 1)
+    seat_count = len(instructors)
+    can_add = (seat_limit is None) or (seat_count < seat_limit)
+
     return LeaderboardResponse(
         school_id=school_id,
         business_name=school.get("business_name"),
         month_iso=month_iso,
+        tier=tier,
+        seat_count=seat_count,
+        seat_limit=seat_limit,
+        can_add_instructor=can_add,
         totals=totals,
         rows=rows,
     )

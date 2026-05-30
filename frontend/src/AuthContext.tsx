@@ -15,6 +15,7 @@ export type User = {
   student_id?: string | null;
   adi_number?: string | null;
   subscription_status?: 'free' | 'active' | 'past_due' | 'cancelled' | 'trialing';
+  tier?: 'starter' | 'growth' | 'pro' | 'franchise';
   created_at: string;
 };
 
@@ -48,7 +49,7 @@ async function loadProfile(session: Session): Promise<User> {
   // 1) Try instructor lookup — single source of truth for instructor role
   const { data: instructor } = await supabase
     .from('instructors')
-    .select('id, full_name, adi_number, school_id, driving_schools(id, business_name, subscription_status)')
+    .select('id, full_name, adi_number, school_id, driving_schools(id, business_name, subscription_status, tier)')
     .eq('auth_user_id', authUser.id)
     .maybeSingle();
 
@@ -62,6 +63,7 @@ async function loadProfile(session: Session): Promise<User> {
       instructor_id: instructor.id,
       adi_number: instructor.adi_number,
       subscription_status: (instructor as any).driving_schools?.subscription_status || 'free',
+      tier: (instructor as any).driving_schools?.tier || 'starter',
       created_at: authUser.created_at || new Date().toISOString(),
     };
   }

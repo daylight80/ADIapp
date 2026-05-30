@@ -254,9 +254,21 @@ export async function updateCompetency(
 ) {
   const row = await db.upsertCompetency(studentId, category_key, patch);
   // Auto-award a "Confident: <category>" badge once a learner reaches Level 4+.
-  // Idempotent — silently no-ops if the badge already exists.
+  // Gated by tier — Starter plan does NOT get auto-awarded badges (Growth+ only).
   try {
-    await db.maybeAwardCompetencyBadge(studentId, row);
+    const { data: { session } } = await supabase.auth.getSession();
+    const uid = session?.user.id;
+    if (uid) {
+      const { data } = await supabase
+        .from('instructors')
+        .select('driving_schools(tier)')
+        .eq('auth_user_id', uid)
+        .maybeSingle();
+      const tier = ((data as any)?.driving_schools?.tier) || 'starter';
+      if (tier === 'growth' || tier === 'pro' || tier === 'franchise') {
+        await db.maybeAwardCompetencyBadge(studentId, row);
+      }
+    }
   } catch {
     // never block the competency save on badge minting
   }

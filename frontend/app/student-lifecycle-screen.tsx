@@ -18,6 +18,7 @@ import { BottomSheet } from '../src/BottomSheet';
 import { SimpleBarChart } from '../src/SimpleBarChart';
 import { useAuth } from '../src/AuthContext';
 import { isPro } from '../src/proPlan';
+import { isPaidTier } from '../src/tiers';
 import { PaywallModal } from '../src/PaywallModal';
 import { buildInvoiceHtml, generateAndShareInvoicePdf } from '../src/invoice';
 
@@ -33,7 +34,7 @@ export default function StudentLifecycleScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { user } = useAuth();
-  const pro = isPro(user?.subscription_status);
+  const pro = isPaidTier(user?.tier);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [busyInvoice, setBusyInvoice] = useState(false);
   const id = (params.id as string) || '';

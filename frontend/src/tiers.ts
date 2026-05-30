@@ -82,6 +82,14 @@ export const TIERS: TierSpec[] = [
 export const tierById = (id: string | null | undefined): TierSpec =>
   TIERS.find((t) => t.id === id) || TIERS[0];
 
+// True when the user is on Growth, Pro, or Franchise — i.e. NOT free Starter.
+// Use this to gate "paid-only" features such as the KPI dashboard, PDF
+// invoices, push notifications, traffic-aware travel time, and auto-award
+// competency badges. Starter intentionally returns false.
+export function isPaidTier(tier: string | null | undefined): boolean {
+  return tier === 'growth' || tier === 'pro' || tier === 'franchise';
+}
+
 // ---------------------------------------------------------------------------
 // Usage snapshot read from the schools_with_usage view (migration 003).
 // ---------------------------------------------------------------------------

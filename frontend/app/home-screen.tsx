@@ -32,6 +32,7 @@ import { Card } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
 import { SimpleBarChart } from '../src/SimpleBarChart';
 import { isPro, FREE_STUDENT_LIMIT, PRO_PRICE_GBP } from '../src/proPlan';
+import { isPaidTier } from '../src/tiers';
 
 export default function InstructorHomeScreen() {
   const router = useRouter();
@@ -126,13 +127,35 @@ export default function InstructorHomeScreen() {
           </View>
         )}
 
-        {/* KPI Grid */}
-        <View style={[styles.kpiGrid, isTablet && styles.kpiGridTablet]} testID="kpi-grid">
-          <KPI label="Pass Rate" value={`${kpis.passRate}%`} icon={<TrendingUp size={20} color={theme.colors.success} />} bg="#D1FAE5" />
-          <KPI label="Active Students" value={kpis.active.toString()} icon={<Users size={20} color={theme.colors.primary} />} bg={theme.colors.primaryLight} />
-          <KPI label="Test Ready" value={kpis.testReady.toString()} icon={<CheckCircle2 size={20} color={theme.colors.accent} />} bg="#FFF7ED" />
-          <KPI label="Completed" value={kpis.completed.toString()} icon={<CalendarDays size={20} color={theme.colors.info} />} bg="#E0F2FE" />
-        </View>
+        {/* KPI Grid + MTD + Earnings — Growth tier and above */}
+        {isPaidTier(user?.tier) ? (
+          <>
+            <View style={[styles.kpiGrid, isTablet && styles.kpiGridTablet]} testID="kpi-grid">
+              <KPI label="Pass Rate" value={`${kpis.passRate}%`} icon={<TrendingUp size={20} color={theme.colors.success} />} bg="#D1FAE5" />
+              <KPI label="Active Students" value={kpis.active.toString()} icon={<Users size={20} color={theme.colors.primary} />} bg={theme.colors.primaryLight} />
+              <KPI label="Test Ready" value={kpis.testReady.toString()} icon={<CheckCircle2 size={20} color={theme.colors.accent} />} bg="#FFF7ED" />
+              <KPI label="Completed" value={kpis.completed.toString()} icon={<CalendarDays size={20} color={theme.colors.info} />} bg="#E0F2FE" />
+            </View>
+          </>
+        ) : (
+          <TouchableOpacity
+            style={styles.lockedCard}
+            onPress={() => router.push('/pricing-screen')}
+            testID="locked-kpi-card"
+            activeOpacity={0.85}
+          >
+            <View style={styles.lockedIconWrap}>
+              <TrendingUp size={22} color={theme.colors.accent} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.lockedTitle}>KPI dashboard locked</Text>
+              <Text style={styles.lockedSub}>
+                Track pass rate, active students, test-ready learners and MTD earnings — included from Growth tier (£14.99/mo).
+              </Text>
+            </View>
+            <ChevronRight size={18} color={theme.colors.accent} />
+          </TouchableOpacity>
+        )}
 
         {/* Quick Actions */}
         <Text style={styles.sectionTitle}>Quick actions</Text>
@@ -163,37 +186,41 @@ export default function InstructorHomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* MTD Status */}
-        <Card style={styles.mtdCard} testID="mtd-card">
-          <Text style={styles.cardTitle}>Month to Date</Text>
-          <View style={styles.mtdRow}>
-            <View style={styles.mtdItem}>
-              <View style={[styles.mtdIcon, { backgroundColor: theme.colors.primaryLight }]}>
-                <CalendarDays size={18} color={theme.colors.primary} />
+        {/* MTD Status — Growth+ */}
+        {isPaidTier(user?.tier) && (
+          <Card style={styles.mtdCard} testID="mtd-card">
+            <Text style={styles.cardTitle}>Month to Date</Text>
+            <View style={styles.mtdRow}>
+              <View style={styles.mtdItem}>
+                <View style={[styles.mtdIcon, { backgroundColor: theme.colors.primaryLight }]}>
+                  <CalendarDays size={18} color={theme.colors.primary} />
+                </View>
+                <Text style={styles.mtdValue}>{mtd.lessons}</Text>
+                <Text style={styles.mtdLabel}>Lessons</Text>
               </View>
-              <Text style={styles.mtdValue}>{mtd.lessons}</Text>
-              <Text style={styles.mtdLabel}>Lessons</Text>
-            </View>
-            <View style={styles.mtdDivider} />
-            <View style={styles.mtdItem}>
-              <View style={[styles.mtdIcon, { backgroundColor: '#FFF7ED' }]}>
-                <PoundSterling size={18} color={theme.colors.accent} />
+              <View style={styles.mtdDivider} />
+              <View style={styles.mtdItem}>
+                <View style={[styles.mtdIcon, { backgroundColor: '#FFF7ED' }]}>
+                  <PoundSterling size={18} color={theme.colors.accent} />
+                </View>
+                <Text style={styles.mtdValue}>£{mtd.earnings.toLocaleString()}</Text>
+                <Text style={styles.mtdLabel}>Earnings</Text>
               </View>
-              <Text style={styles.mtdValue}>£{mtd.earnings.toLocaleString()}</Text>
-              <Text style={styles.mtdLabel}>Earnings</Text>
             </View>
-          </View>
-        </Card>
+          </Card>
+        )}
 
-        {/* Earnings Chart */}
-        <Card style={styles.chartCard} testID="earnings-chart-card">
-          <Text style={styles.cardTitle}>Earnings (last 6 months)</Text>
-          <SimpleBarChart
-            data={earnings.map((e) => ({ label: e.month, value: e.value }))}
-            color={theme.colors.primary}
-            height={180}
-          />
-        </Card>
+        {/* Earnings Chart — Growth+ */}
+        {isPaidTier(user?.tier) && (
+          <Card style={styles.chartCard} testID="earnings-chart-card">
+            <Text style={styles.cardTitle}>Earnings (last 6 months)</Text>
+            <SimpleBarChart
+              data={earnings.map((e) => ({ label: e.month, value: e.value }))}
+              color={theme.colors.primary}
+              height={180}
+            />
+          </Card>
+        )}
 
         {/* Today's lessons */}
         <View style={styles.sectionHeader}>
@@ -286,6 +313,10 @@ const styles = StyleSheet.create({
   qaStudents: { backgroundColor: theme.colors.accent },
   qaDiary: { backgroundColor: theme.colors.primary },
   qaReceipts: { backgroundColor: '#0EA5E9' },
+  lockedCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA', marginBottom: 12 },
+  lockedIconWrap: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#FED7AA', alignItems: 'center', justifyContent: 'center' },
+  lockedTitle: { fontSize: 14, fontWeight: '800', color: theme.colors.text, marginBottom: 2 },
+  lockedSub: { fontSize: 12, color: theme.colors.textMuted, lineHeight: 16 },
   qaText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   mtdCard: { gap: 12 },
   cardTitle: { ...theme.font.h3 },

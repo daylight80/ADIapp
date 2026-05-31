@@ -195,6 +195,17 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         )}
 
+        {role === 'instructor' && (
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => router.push('/packages-screen' as any)}
+            testID="link-packages"
+          >
+            <Wallet size={18} color={theme.colors.accent} />
+            <Text style={styles.linkRowText}>Pricing & packages</Text>
+          </TouchableOpacity>
+        )}
+
         {role === 'student' && student && (
           <TouchableOpacity
             style={styles.linkRow}

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -15,12 +15,7 @@ import {
 } from '../src/useSupabaseData';
 import { Card, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
-
-const BLOCK_OPTIONS = [
-  { hours: 5, price: 180 },
-  { hours: 10, price: 340 },
-  { hours: 20, price: 660 },
-];
+import { listLessonPackages, LessonPackage } from '../src/supabaseDb';
 
 export default function WalletScreen() {
   const router = useRouter();
@@ -77,6 +72,15 @@ export default function WalletScreen() {
   const [buyOpen, setBuyOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'bank_transfer' | 'card' | 'cash' | null>(null);
+  const [packages, setPackages] = useState<LessonPackage[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    listLessonPackages({ activeOnly: true })
+      .then((rows) => { if (active) setPackages(rows.filter((p) => p.price != null)); })
+      .catch(() => { if (active) setPackages([]); });
+    return () => { active = false; };
+  }, []);
 
   const buy = async (hours: number, amount: number) => {
     if (!paymentMethod) {
@@ -193,21 +197,36 @@ export default function WalletScreen() {
           ))}
         </View>
 
-        {BLOCK_OPTIONS.map((opt) => (
-          <TouchableOpacity
-            key={opt.hours}
-            style={[styles.blockCard, (busy || !paymentMethod) && { opacity: 0.45 }]}
-            onPress={() => !busy && paymentMethod && buy(opt.hours, opt.price)}
-            disabled={busy || !paymentMethod}
-            testID={`block-${opt.hours}h`}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={styles.blockHours}>{opt.hours} hours</Text>
-              <Text style={styles.blockSaving}>£{(opt.price / opt.hours).toFixed(2)}/hr · save £{(opt.hours * student.hourly_rate - opt.price).toFixed(0)}</Text>
-            </View>
-            <Text style={styles.blockPrice}>£{opt.price}</Text>
-          </TouchableOpacity>
-        ))}
+        {packages.length === 0 ? (
+          <Card style={{ alignItems: 'center', paddingVertical: 18 }}>
+            <Text style={{ fontSize: 13, color: theme.colors.textMuted, textAlign: 'center' }}>
+              Your instructor hasn't published any priced packages yet. Please contact them to top up your hours.
+            </Text>
+          </Card>
+        ) : (
+          packages.map((opt) => (
+            <TouchableOpacity
+              key={opt.id}
+              style={[styles.blockCard, (busy || !paymentMethod) && { opacity: 0.45 }]}
+              onPress={() => !busy && paymentMethod && buy(opt.hours, opt.price as number)}
+              disabled={busy || !paymentMethod}
+              testID={`block-${opt.id}`}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.blockHours}>
+                  {opt.name}{opt.topic_tag ? ` · ${opt.topic_tag}` : ''}
+                </Text>
+                <Text style={styles.blockSaving}>
+                  {opt.hours} hr{opt.hours === 1 ? '' : 's'} · £{((opt.price as number) / opt.hours).toFixed(2)}/hr
+                </Text>
+                {opt.description ? (
+                  <Text style={[styles.blockSaving, { marginTop: 2 }]} numberOfLines={2}>{opt.description}</Text>
+                ) : null}
+              </View>
+              <Text style={styles.blockPrice}>£{(opt.price as number).toFixed(2)}</Text>
+            </TouchableOpacity>
+          ))
+        )}
         {!paymentMethod && (
           <Text style={styles.pmHelp}>Pick a payment method above to enable purchase.</Text>
         )}

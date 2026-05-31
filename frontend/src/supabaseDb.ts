@@ -1252,3 +1252,146 @@ export async function isCurrentUserSchoolOwner(): Promise<boolean> {
   if (error) return false;
   return !!data;
 }
+
+// =============================================================================
+// LESSON PACKAGES (instructor pricing)
+// =============================================================================
+export type LessonPackage = {
+  id: string;
+  school_id: string;
+  instructor_id: string;
+  name: string;
+  hours: number;
+  price: number | null;
+  description: string | null;
+  topic_tag: string | null;
+  active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+const pkgFromRow = (r: any): LessonPackage => ({
+  id: r.id,
+  school_id: r.school_id,
+  instructor_id: r.instructor_id,
+  name: r.name,
+  hours: Number(r.hours ?? 0),
+  price: r.price != null ? Number(r.price) : null,
+  description: r.description ?? null,
+  topic_tag: r.topic_tag ?? null,
+  active: !!r.active,
+  sort_order: Number(r.sort_order ?? 0),
+  created_at: r.created_at,
+  updated_at: r.updated_at,
+});
+
+export async function listLessonPackages(opts?: { activeOnly?: boolean; instructorId?: string }): Promise<LessonPackage[]> {
+  let q = supabase
+    .from('lesson_packages')
+    .select('*')
+    .order('sort_order', { ascending: true })
+    .order('hours', { ascending: true });
+  if (opts?.activeOnly) q = q.eq('active', true);
+  if (opts?.instructorId) q = q.eq('instructor_id', opts.instructorId);
+  const { data, error } = await q;
+  if (error) {
+    if (/relation .*lesson_packages.* does not exist/i.test(error.message || '')) {
+      throw new Error('Please apply Migration 010 first (lesson_packages table).');
+    }
+    throw error;
+  }
+  return (data || []).map(pkgFromRow);
+}
+
+export async function createLessonPackage(input: {
+  name: string;
+  hours: number;
+  price?: number | null;
+  description?: string | null;
+  topic_tag?: string | null;
+  active?: boolean;
+  sort_order?: number;
+}): Promise<LessonPackage> {
+  const { schoolId, instructorId } = await ownContext();
+  const { data, error } = await supabase
+    .from('lesson_packages')
+    .insert({
+      school_id: schoolId,
+      instructor_id: instructorId,
+      name: input.name.trim(),
+      hours: input.hours,
+      price: input.price ?? null,
+      description: input.description?.trim() || null,
+      topic_tag: input.topic_tag?.trim() || null,
+      active: input.active ?? true,
+      sort_order: input.sort_order ?? 999,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return pkgFromRow(data);
+}
+
+export async function updateLessonPackage(id: string, patch: Partial<{
+  name: string;
+  hours: number;
+  price: number | null;
+  description: string | null;
+  topic_tag: string | null;
+  active: boolean;
+  sort_order: number;
+}>): Promise<LessonPackage> {
+  const dbPatch: Record<string, any> = {};
+  if (patch.name !== undefined)        dbPatch.name = patch.name.trim();
+  if (patch.hours !== undefined)       dbPatch.hours = patch.hours;
+  if (patch.price !== undefined)       dbPatch.price = patch.price;
+  if (patch.description !== undefined) dbPatch.description = patch.description?.trim() || null;
+  if (patch.topic_tag !== undefined)   dbPatch.topic_tag = patch.topic_tag?.trim() || null;
+  if (patch.active !== undefined)      dbPatch.active = patch.active;
+  if (patch.sort_order !== undefined)  dbPatch.sort_order = patch.sort_order;
+  const { data, error } = await supabase
+    .from('lesson_packages')
+    .update(dbPatch)
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return pkgFromRow(data);
+}
+
+export async function deleteLessonPackage(id: string): Promise<void> {
+  const { error } = await supabase.from('lesson_packages').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// =============================================================================
+// INSTRUCTOR DEFAULT HOURLY RATE
+// =============================================================================
+export async function getInstructorHourlyRate(): Promise<number> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const uid = sessionData.session?.user.id;
+  if (!uid) return 36;
+  const { data } = await supabase
+    .from('instructors')
+    .select('default_hourly_rate')
+    .eq('auth_user_id', uid)
+    .maybeSingle();
+  return Number((data as any)?.default_hourly_rate ?? 36);
+}
+
+export async function updateInstructorHourlyRate(rate: number): Promise<void> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const uid = sessionData.session?.user.id;
+  if (!uid) throw new Error('Not signed in');
+  const { error } = await supabase
+    .from('instructors')
+    .update({ default_hourly_rate: rate })
+    .eq('auth_user_id', uid);
+  if (error) {
+    if (/column .*default_hourly_rate.* does not exist/i.test(error.message || '')) {
+      throw new Error('Please apply Migration 010 first (default_hourly_rate column).');
+    }
+    throw error;
+  }
+}

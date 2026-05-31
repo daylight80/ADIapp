@@ -1686,6 +1686,266 @@ async def receipts_scan(req: ReceiptScanRequest, sb_user: dict = Depends(get_cur
     )
 
 
+# ============================================================================
+# CALENDAR FEED (.ics) — per-instructor iCal subscribable feed
+# ============================================================================
+# Migration 012 adds `calendar_feed_token` on `instructors`. The feed itself is
+# publicly accessible at GET /api/calendar/{token}.ics so Apple Calendar,
+# Google Calendar and Outlook can subscribe without an OAuth dance. Knowledge
+# of the token is the only auth — instructors can rotate it any time via
+# POST /api/calendar/regenerate which instantly revokes the previous URL.
+# ============================================================================
+
+import secrets as _secrets
+from fastapi.responses import Response as _Response
+
+
+async def _find_instructor_for_auth_user(auth_user_id: str) -> Optional[dict]:
+    """Return the public.instructors row for a Supabase auth user, or None."""
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.get(
+            f"{_sb_rest_base}/instructors",
+            params={"auth_user_id": f"eq.{auth_user_id}", "select": "*", "limit": "1"},
+            headers=_sb_headers(),
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase read failed: {r.text}")
+    rows = r.json()
+    return rows[0] if rows else None
+
+
+async def _patch_instructor(instructor_id: str, patch: dict) -> dict:
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.patch(
+            f"{_sb_rest_base}/instructors",
+            params={"id": f"eq.{instructor_id}"},
+            headers=_sb_headers(prefer="return=representation"),
+            json=patch,
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase write failed: {r.text}")
+    rows = r.json()
+    return rows[0] if rows else {}
+
+
+class CalendarTokenResponse(BaseModel):
+    enabled: bool
+    token: Optional[str] = None
+    feed_path: Optional[str] = None  # relative path: /api/calendar/<token>.ics
+
+
+@api_router.post("/calendar/enable", response_model=CalendarTokenResponse)
+async def calendar_enable(sb_user: dict = Depends(get_current_supabase_user)):
+    """Idempotently turn the feed on for this instructor. Returns the existing
+    token if one is already present; otherwise mints a fresh 32-char URL-safe
+    one and persists it."""
+    instr = await _find_instructor_for_auth_user(sb_user["auth_user_id"])
+    if not instr:
+        raise HTTPException(status_code=404, detail="No instructor profile linked to this account")
+    token = instr.get("calendar_feed_token")
+    if not token:
+        token = _secrets.token_urlsafe(24)
+        updated = await _patch_instructor(instr["id"], {"calendar_feed_token": token})
+        token = updated.get("calendar_feed_token") or token
+    return CalendarTokenResponse(enabled=True, token=token, feed_path=f"/api/calendar/{token}.ics")
+
+
+@api_router.post("/calendar/regenerate", response_model=CalendarTokenResponse)
+async def calendar_regenerate(sb_user: dict = Depends(get_current_supabase_user)):
+    """Rotate the feed token. Previously-shared URLs immediately stop working."""
+    instr = await _find_instructor_for_auth_user(sb_user["auth_user_id"])
+    if not instr:
+        raise HTTPException(status_code=404, detail="No instructor profile linked to this account")
+    token = _secrets.token_urlsafe(24)
+    updated = await _patch_instructor(instr["id"], {"calendar_feed_token": token})
+    token = updated.get("calendar_feed_token") or token
+    return CalendarTokenResponse(enabled=True, token=token, feed_path=f"/api/calendar/{token}.ics")
+
+
+@api_router.post("/calendar/disable", response_model=CalendarTokenResponse)
+async def calendar_disable(sb_user: dict = Depends(get_current_supabase_user)):
+    """Disable the feed entirely. Any subscribed calendars will start getting 404s."""
+    instr = await _find_instructor_for_auth_user(sb_user["auth_user_id"])
+    if not instr:
+        raise HTTPException(status_code=404, detail="No instructor profile linked to this account")
+    await _patch_instructor(instr["id"], {"calendar_feed_token": None})
+    return CalendarTokenResponse(enabled=False, token=None, feed_path=None)
+
+
+@api_router.get("/calendar/status", response_model=CalendarTokenResponse)
+async def calendar_status(sb_user: dict = Depends(get_current_supabase_user)):
+    """Read-only — fetch the current token (if any) for this instructor."""
+    instr = await _find_instructor_for_auth_user(sb_user["auth_user_id"])
+    if not instr:
+        raise HTTPException(status_code=404, detail="No instructor profile linked to this account")
+    token = instr.get("calendar_feed_token")
+    if not token:
+        return CalendarTokenResponse(enabled=False, token=None, feed_path=None)
+    return CalendarTokenResponse(enabled=True, token=token, feed_path=f"/api/calendar/{token}.ics")
+
+
+# ---------------------------------------------------------------------------
+# iCalendar text generation helpers
+# ---------------------------------------------------------------------------
+
+def _ics_escape(text: str) -> str:
+    """Escape special characters per RFC 5545 §3.3.11 for TEXT properties."""
+    if text is None:
+        return ""
+    out = (text
+           .replace("\\", "\\\\")
+           .replace(";", "\\;")
+           .replace(",", "\\,")
+           .replace("\r\n", "\\n")
+           .replace("\n", "\\n")
+           .replace("\r", "\\n"))
+    return out
+
+
+def _ics_fold(line: str) -> str:
+    """Fold long lines (>74 octets) per RFC 5545 §3.1 — CRLF + space continuation."""
+    if len(line) <= 74:
+        return line
+    chunks = [line[:74]]
+    rest = line[74:]
+    while rest:
+        chunks.append(" " + rest[:73])
+        rest = rest[73:]
+    return "\r\n".join(chunks)
+
+
+def _ics_fmt_dt_utc(iso_ts: str) -> str:
+    """Convert a Supabase timestamptz ISO string to iCalendar UTC form."""
+    try:
+        if iso_ts.endswith("Z"):
+            iso_ts = iso_ts[:-1] + "+00:00"
+        dt = datetime.fromisoformat(iso_ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+    except Exception:
+        return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return dt.strftime("%Y%m%dT%H%M%SZ")
+
+
+@api_router.get("/calendar/{token_with_ext}")
+async def calendar_feed(token_with_ext: str):
+    """Public iCalendar feed. The token is the only authentication — share the
+    URL only with services you trust (e.g. your own Google/Apple Calendar)."""
+    if not token_with_ext.endswith(".ics"):
+        raise HTTPException(status_code=404, detail="Calendar feed not found")
+    token = token_with_ext[:-4]
+    if not token:
+        raise HTTPException(status_code=404, detail="Calendar feed not found")
+
+    # 1) Resolve the instructor by token.
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.get(
+            f"{_sb_rest_base}/instructors",
+            params={
+                "calendar_feed_token": f"eq.{token}",
+                "select": "id,full_name,school_id",
+                "limit": "1",
+            },
+            headers=_sb_headers(),
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase read failed: {r.text}")
+    rows = r.json()
+    if not rows:
+        raise HTTPException(status_code=404, detail="Calendar feed not found")
+    instr = rows[0]
+
+    # 2) Pull lessons in a -90/+365 day window. Exclude Cancelled per user 1a.
+    now = datetime.now(timezone.utc)
+    window_start = (now - timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%S")
+    window_end = (now + timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%S")
+    async with httpx.AsyncClient(timeout=15.0) as client_http:
+        lr = await client_http.get(
+            f"{_sb_rest_base}/lessons",
+            params={
+                "instructor_id": f"eq.{instr['id']}",
+                "status": "in.(Scheduled,Completed)",
+                "start_time": f"gte.{window_start}",
+                "and": f"(start_time.lte.{window_end})",
+                "select": (
+                    "id,start_time,end_time,topic,notes,pickup_address,"
+                    "status,duration_hours,students(full_name,address,postcode)"
+                ),
+                "order": "start_time.asc",
+            },
+            headers=_sb_headers(),
+        )
+    if lr.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase read failed: {lr.text}")
+    lessons = lr.json() or []
+
+    # 3) Render iCalendar text.
+    dtstamp = now.strftime("%Y%m%dT%H%M%SZ")
+    instructor_name = instr.get("full_name") or "ADI Pro Instructor"
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//ADI Pro//Lesson Diary//EN",
+        "METHOD:PUBLISH",
+        "CALSCALE:GREGORIAN",
+        f"X-WR-CALNAME:{_ics_escape('ADI Pro — ' + instructor_name)}",
+        "X-WR-TIMEZONE:Europe/London",
+        f"X-WR-CALDESC:{_ics_escape('Driving lessons synced from ADI Pro')}",
+    ]
+    for L in lessons:
+        student = L.get("students") if isinstance(L.get("students"), dict) else {}
+        student = student or {}
+        student_name = (student.get("full_name") or "Student").strip()
+        topic = (L.get("topic") or "Driving lesson").strip()
+        notes = (L.get("notes") or "").strip()
+        duration_h = L.get("duration_hours")
+        try:
+            duration_h_num = float(duration_h) if duration_h is not None else None
+        except Exception:
+            duration_h_num = None
+        summary = f"Driving lesson — {student_name}"
+        desc_bits = [topic]
+        if duration_h_num:
+            dh = int(duration_h_num) if float(duration_h_num).is_integer() else duration_h_num
+            desc_bits.append(f"{dh}h")
+        if notes:
+            desc_bits.append(notes)
+        description = " · ".join(desc_bits)
+        location = (L.get("pickup_address") or "").strip()
+        if not location:
+            loc_bits = [student.get("address") or "", student.get("postcode") or ""]
+            location = ", ".join([b for b in loc_bits if b])
+        uid = f"lesson-{L.get('id')}@adipro.app"
+        dtstart = _ics_fmt_dt_utc(L.get("start_time") or "")
+        dtend = _ics_fmt_dt_utc(L.get("end_time") or L.get("start_time") or "")
+        lines.extend([
+            "BEGIN:VEVENT",
+            f"UID:{uid}",
+            f"DTSTAMP:{dtstamp}",
+            f"DTSTART:{dtstart}",
+            f"DTEND:{dtend}",
+            f"SUMMARY:{_ics_escape(summary)}",
+            f"DESCRIPTION:{_ics_escape(description)}",
+            f"LOCATION:{_ics_escape(location)}",
+            "STATUS:CONFIRMED",
+            "TRANSP:OPAQUE",
+            "END:VEVENT",
+        ])
+    lines.append("END:VCALENDAR")
+    body = "\r\n".join(_ics_fold(ln) for ln in lines) + "\r\n"
+
+    return _Response(
+        content=body,
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Content-Disposition": f"inline; filename=\"adi-pro-{token[:8]}.ics\"",
+            "Cache-Control": "private, max-age=60",
+        },
+    )
+
+
 app.include_router(api_router)
 
 app.add_middleware(

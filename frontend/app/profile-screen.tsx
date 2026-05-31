@@ -12,6 +12,7 @@ import { isPro } from '../src/proPlan';
 import { copyToClipboard } from '../src/tools';
 import { useInstructorProfile, updatePreferredNavApp } from '../src/useSupabaseData';
 import type { NavApp } from '../src/supabaseDb';
+import { CalendarFeedCard } from '../src/CalendarFeedCard';
 import { Alert, TextInput } from 'react-native';
 
 export default function ProfileScreen() {
@@ -205,6 +206,8 @@ export default function ProfileScreen() {
             <Text style={styles.linkRowText}>Pricing & packages</Text>
           </TouchableOpacity>
         )}
+
+        {role === 'instructor' && <CalendarFeedCard />}
 
         {role === 'student' && student && (
           <TouchableOpacity

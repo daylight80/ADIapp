@@ -640,6 +640,7 @@ export type UpdateLessonInput = Partial<{
   dangerous_faults: number;
   grade: number;
   amount_paid: number;
+  payment_method: 'bank_transfer' | 'card' | 'cash' | null;
   status: LessonStatus;
   pre_check_completed_at: string;
 }>;
@@ -655,6 +656,7 @@ export async function updateLesson(id: string, patch: UpdateLessonInput): Promis
   if (patch.dangerous_faults !== undefined) dbPatch.dangerous_faults = patch.dangerous_faults;
   if (patch.grade !== undefined) dbPatch.grade = patch.grade;
   if (patch.amount_paid !== undefined) dbPatch.amount_paid = patch.amount_paid;
+  if (patch.payment_method !== undefined) dbPatch.payment_method = patch.payment_method;
   if (patch.status !== undefined) dbPatch.status = patch.status;
   if (patch.pre_check_completed_at !== undefined) dbPatch.pre_check_completed_at = patch.pre_check_completed_at;
 
@@ -1017,7 +1019,13 @@ export async function listBlockBookings(studentId: string): Promise<BlockBooking
   }));
 }
 
-export async function addBlockBooking(input: { student_id: string; hours_paid: number; amount: number; notes?: string }): Promise<BlockBooking> {
+export async function addBlockBooking(input: {
+  student_id: string;
+  hours_paid: number;
+  amount: number;
+  notes?: string;
+  payment_method?: 'bank_transfer' | 'card' | 'cash' | null;
+}): Promise<BlockBooking> {
   const { data, error } = await supabase
     .from('block_bookings')
     .insert(input)

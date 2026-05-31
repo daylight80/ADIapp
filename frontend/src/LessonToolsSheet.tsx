@@ -43,6 +43,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   const [dangerousFaults, setDangerousFaults] = useState(0);
   const [grade, setGrade] = useState<number | null>(null);
   const [amountPaid, setAmountPaid] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'bank_transfer' | 'card' | 'cash' | null>(null);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -81,6 +82,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
     setDangerousFaults(lesson.dangerous_faults ?? 0);
     setGrade(lesson.grade ?? null);
     setAmountPaid(lesson.amount_paid != null ? String(lesson.amount_paid) : '');
+    setPaymentMethod((lesson as any).payment_method ?? null);
     setNotes(lesson.notes ?? '');
   }, [visible, lesson?.id]);
 
@@ -199,9 +201,10 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
         dangerous_faults: dangerousFaults,
         grade: grade ?? undefined,
         amount_paid: amount,
+        payment_method: paymentMethod ?? undefined,
         notes: notes.trim() || undefined,
         status: 'Completed',
-      });
+      } as any);
     } catch (e: any) {
       // Fallback to mockDb for legacy lessons not in Supabase.
       mockDb.updateLesson(lesson.id, {
@@ -368,6 +371,8 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
         setGrade={setGrade}
         amountPaid={amountPaid}
         setAmountPaid={setAmountPaid}
+        paymentMethod={paymentMethod}
+        setPaymentMethod={setPaymentMethod}
         notes={notes}
         setNotes={setNotes}
         saving={saving}
@@ -505,6 +510,8 @@ type CompleteProps = {
   dangerousFaults: number;   setDangerousFaults: (n: number) => void;
   grade: number | null;      setGrade: (n: number) => void;
   amountPaid: string;        setAmountPaid: (s: string) => void;
+  paymentMethod: 'bank_transfer' | 'card' | 'cash' | null;
+  setPaymentMethod: (m: 'bank_transfer' | 'card' | 'cash' | null) => void;
   notes: string;             setNotes: (s: string) => void;
   saving: boolean;
   onSave: () => void;
@@ -580,6 +587,26 @@ function CompleteLessonModal(p: CompleteProps) {
                 style={styles.amountInput}
                 testID="input-amount-paid"
               />
+            </View>
+
+            <Text style={styles.section}>Payment method</Text>
+            <View style={styles.pmRow}>
+              {([
+                { key: 'bank_transfer', label: 'Bank Transfer' },
+                { key: 'card',          label: 'Card' },
+                { key: 'cash',          label: 'Cash' },
+              ] as const).map((m) => (
+                <TouchableOpacity
+                  key={m.key}
+                  style={[styles.pmChip, p.paymentMethod === m.key && styles.pmChipActive]}
+                  onPress={() => p.setPaymentMethod(p.paymentMethod === m.key ? null : m.key)}
+                  testID={`pm-${m.key}`}
+                >
+                  <Text style={[styles.pmChipText, p.paymentMethod === m.key && { color: '#fff', fontWeight: '700' }]}>
+                    {m.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
 
             <Text style={styles.section}>Notes</Text>
@@ -659,6 +686,10 @@ const styles = StyleSheet.create({
   gradeChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   gradeChipText: { fontSize: 16, fontWeight: '800', color: theme.colors.text },
   amountRow: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, paddingHorizontal: 12, height: 44 },
+  pmRow: { flexDirection: 'row', gap: 8, marginTop: 2 },
+  pmChip: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface },
+  pmChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  pmChipText: { fontSize: 13, color: theme.colors.text },
   amountInput: { flex: 1, fontSize: 15, color: theme.colors.text },
   notesInput: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, padding: 10, minHeight: 70, fontSize: 14, color: theme.colors.text, textAlignVertical: 'top' },
 });

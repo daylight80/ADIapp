@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import * as db from './supabaseDb';
+import { supabase } from './supabaseClient';
 
 // ---------------------------------------------------------------------------
 // Tiny invalidation hub. After a write (add/update/delete/passed) we bump the

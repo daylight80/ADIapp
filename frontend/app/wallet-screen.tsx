@@ -76,13 +76,19 @@ export default function WalletScreen() {
 
   const [buyOpen, setBuyOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'bank_transfer' | 'card' | 'cash' | null>(null);
 
   const buy = async (hours: number, amount: number) => {
+    if (!paymentMethod) {
+      Alert.alert('Choose a payment method', 'Pick Bank Transfer, Card, or Cash to record this purchase.');
+      return;
+    }
     setBusy(true);
     try {
-      await purchaseBlock({ student_id: studentId, hours_paid: hours, amount });
+      await purchaseBlock({ student_id: studentId, hours_paid: hours, amount, payment_method: paymentMethod });
       setBuyOpen(false);
-      Alert.alert('Block booked', `${hours} hours added for £${amount}. A VAT receipt is available below.`);
+      setPaymentMethod(null);
+      Alert.alert('Block booked', `${hours} hours added for £${amount} (${paymentMethodLabel(paymentMethod)}). A VAT receipt is available below.`);
     } catch (e: any) {
       Alert.alert('Purchase failed', e?.message || 'Could not add the block booking.');
     } finally {
@@ -164,14 +170,35 @@ export default function WalletScreen() {
         <View style={{ height: 32 }} />
       </ScrollView>
 
-      <BottomSheet visible={buyOpen} onClose={() => setBuyOpen(false)} title="Buy a block booking" testID="sheet-buy-block">
+      <BottomSheet visible={buyOpen} onClose={() => { setBuyOpen(false); setPaymentMethod(null); }} title="Buy a block booking" testID="sheet-buy-block">
         <Text style={styles.hint}>Save money by purchasing lessons in advance. Includes a VAT receipt.</Text>
+
+        <Text style={styles.pmLabel}>Payment method</Text>
+        <View style={styles.pmRow}>
+          {([
+            { key: 'bank_transfer', label: 'Bank Transfer' },
+            { key: 'card',          label: 'Card' },
+            { key: 'cash',          label: 'Cash' },
+          ] as const).map((m) => (
+            <TouchableOpacity
+              key={m.key}
+              style={[styles.pmChip, paymentMethod === m.key && styles.pmChipActive]}
+              onPress={() => setPaymentMethod(paymentMethod === m.key ? null : m.key)}
+              testID={`pm-${m.key}`}
+            >
+              <Text style={[styles.pmChipText, paymentMethod === m.key && { color: '#fff', fontWeight: '700' }]}>
+                {m.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         {BLOCK_OPTIONS.map((opt) => (
           <TouchableOpacity
             key={opt.hours}
-            style={[styles.blockCard, busy && { opacity: 0.5 }]}
-            onPress={() => !busy && buy(opt.hours, opt.price)}
-            disabled={busy}
+            style={[styles.blockCard, (busy || !paymentMethod) && { opacity: 0.45 }]}
+            onPress={() => !busy && paymentMethod && buy(opt.hours, opt.price)}
+            disabled={busy || !paymentMethod}
             testID={`block-${opt.hours}h`}
           >
             <View style={{ flex: 1 }}>
@@ -181,6 +208,9 @@ export default function WalletScreen() {
             <Text style={styles.blockPrice}>£{opt.price}</Text>
           </TouchableOpacity>
         ))}
+        {!paymentMethod && (
+          <Text style={styles.pmHelp}>Pick a payment method above to enable purchase.</Text>
+        )}
         {busy && (
           <View style={{ alignItems: 'center', marginTop: 12 }}>
             <ActivityIndicator color={theme.colors.primary} />
@@ -215,4 +245,14 @@ const styles = StyleSheet.create({
   blockHours: { fontSize: 16, fontWeight: '700', color: theme.colors.text },
   blockSaving: { fontSize: 12, color: theme.colors.success, marginTop: 2 },
   blockPrice: { fontSize: 18, fontWeight: '800', color: theme.colors.primary },
+  pmLabel: { fontSize: 13, fontWeight: '700', color: theme.colors.text, marginBottom: 6, marginTop: 4 },
+  pmRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  pmChip: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface },
+  pmChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  pmChipText: { fontSize: 13, color: theme.colors.text },
+  pmHelp: { fontSize: 12, color: theme.colors.textMuted, textAlign: 'center', marginTop: 6 },
 });
+
+function paymentMethodLabel(m: 'bank_transfer' | 'card' | 'cash'): string {
+  return m === 'bank_transfer' ? 'Bank Transfer' : m === 'card' ? 'Card' : 'Cash';
+}

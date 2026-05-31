@@ -1403,3 +1403,142 @@ export async function updateInstructorHourlyRate(rate: number): Promise<void> {
     throw error;
   }
 }
+
+
+// ===========================================================================
+// Availability blocks (Migration 013) — instructor unavailabilities
+// ===========================================================================
+
+export type AvailabilityCategory = 'holiday' | 'personal' | 'family' | 'sick' | 'other';
+
+export type AvailabilityBlock = {
+  id: string;
+  instructor_id: string;
+  school_id: string | null;
+  starts_at: string;   // ISO timestamptz
+  ends_at: string;     // ISO timestamptz
+  all_day: boolean;
+  category: AvailabilityCategory;
+  reason: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AddAvailabilityBlockInput = {
+  starts_at: string;
+  ends_at: string;
+  all_day?: boolean;
+  category?: AvailabilityCategory;
+  reason?: string | null;
+};
+
+/**
+ * Resolve the active user's instructor row (via auth.uid()) and current
+ * school_id. RLS would prevent inserting against another user's row anyway,
+ * but we still need both values to populate the columns on INSERT.
+ */
+async function currentInstructorIdentity(): Promise<{ instructor_id: string; school_id: string | null }> {
+  const { data: ses } = await supabase.auth.getSession();
+  const uid = ses.session?.user?.id;
+  if (!uid) throw new Error('Not signed in');
+  const { data, error } = await supabase
+    .from('instructors')
+    .select('id, school_id')
+    .eq('auth_user_id', uid)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('No instructor profile linked to this account');
+  return { instructor_id: data.id, school_id: data.school_id ?? null };
+}
+
+export async function listAvailabilityBlocks(
+  fromIso?: string,
+  toIso?: string,
+): Promise<AvailabilityBlock[]> {
+  let q = supabase
+    .from('availability_blocks')
+    .select('*')
+    .order('starts_at', { ascending: true });
+  // Overlap filter: block.ends_at > fromIso AND block.starts_at < toIso.
+  if (fromIso) q = q.gt('ends_at', fromIso);
+  if (toIso) q = q.lt('starts_at', toIso);
+  const { data, error } = await q;
+  if (error) {
+    const msg = error.message || '';
+    if (/availability_blocks/i.test(msg) && /(does not exist|schema cache)/i.test(msg)) {
+      throw new Error('Please apply Migration 013 first (availability_blocks table).');
+    }
+    throw error;
+  }
+  return (data || []) as AvailabilityBlock[];
+}
+
+export async function addAvailabilityBlock(input: AddAvailabilityBlockInput): Promise<AvailabilityBlock> {
+  const { instructor_id, school_id } = await currentInstructorIdentity();
+  const row = {
+    instructor_id,
+    school_id,
+    starts_at: input.starts_at,
+    ends_at: input.ends_at,
+    all_day: !!input.all_day,
+    category: input.category || 'other',
+    reason: input.reason ?? null,
+  };
+  const { data, error } = await supabase
+    .from('availability_blocks')
+    .insert(row)
+    .select('*')
+    .single();
+  if (error) {
+    const msg = error.message || '';
+    if (/availability_blocks/i.test(msg) && /(does not exist|schema cache)/i.test(msg)) {
+      throw new Error('Please apply Migration 013 first (availability_blocks table).');
+    }
+    throw error;
+  }
+  return data as AvailabilityBlock;
+}
+
+export async function updateAvailabilityBlock(
+  id: string,
+  patch: Partial<AddAvailabilityBlockInput>,
+): Promise<AvailabilityBlock> {
+  const dbPatch: any = {};
+  if (patch.starts_at !== undefined) dbPatch.starts_at = patch.starts_at;
+  if (patch.ends_at !== undefined) dbPatch.ends_at = patch.ends_at;
+  if (patch.all_day !== undefined) dbPatch.all_day = patch.all_day;
+  if (patch.category !== undefined) dbPatch.category = patch.category;
+  if (patch.reason !== undefined) dbPatch.reason = patch.reason;
+  const { data, error } = await supabase
+    .from('availability_blocks')
+    .update(dbPatch)
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as AvailabilityBlock;
+}
+
+export async function deleteAvailabilityBlock(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('availability_blocks')
+    .delete()
+    .eq('id', id);
+  if (error) throw error;
+}
+
+/** Pure helper — does a [startIso, endIso] window overlap any of `blocks`? */
+export function overlapsAnyBlock(
+  blocks: Pick<AvailabilityBlock, 'starts_at' | 'ends_at'>[],
+  startIso: string,
+  endIso: string,
+): boolean {
+  const s = new Date(startIso).getTime();
+  const e = new Date(endIso).getTime();
+  if (!Number.isFinite(s) || !Number.isFinite(e)) return false;
+  return blocks.some((b) => {
+    const bs = new Date(b.starts_at).getTime();
+    const be = new Date(b.ends_at).getTime();
+    return bs < e && be > s;
+  });
+}

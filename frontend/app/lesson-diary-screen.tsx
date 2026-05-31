@@ -13,7 +13,8 @@ import { useRouter } from 'expo-router';
 import { ChevronLeft, ChevronRight, Plus, ArrowLeft, AlertTriangle, Car, Calendar, CalendarDays } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb, Lesson } from '../src/mockDb';
-import { useLessonsForWeek, useStudents, createLesson, useInstructorProfile } from '../src/useSupabaseData';
+import { useLessonsForWeek, useStudents, createLesson, useInstructorProfile, useAvailabilityBlocks } from '../src/useSupabaseData';
+import { overlapsAnyBlock, type AvailabilityBlock } from '../src/supabaseDb';
 import { Card, Badge } from '../src/ui';
 import { DateField, TimeField } from '../src/DateTimeFields';
 import { BottomSheet } from '../src/BottomSheet';
@@ -22,9 +23,11 @@ import { useAuth } from '../src/AuthContext';
 import { isPro } from '../src/proPlan';
 import { scheduleLessonReminders } from '../src/notifications';
 import { LessonToolsSheet } from '../src/LessonToolsSheet';
+import { UnavailabilityModal } from '../src/UnavailabilityModal';
 import { getTravelTime, addressForStudent, lessonAddress, minutesBetween, formatEta } from '../src/maps';
 import { openNavigation } from '../src/tools';
 import { Navigation as NavIcon } from 'lucide-react-native';
+import { Ban } from 'lucide-react-native';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const TOP_HOUR = 5;
@@ -91,6 +94,37 @@ export default function LessonDiaryScreen() {
 
   const { lessons } = useLessonsForWeek(weekStart);
   const { students } = useStudents();
+
+  // Availability blocks for the visible window (week start → +7 days).
+  const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart]);
+  const { blocks: availBlocks } = useAvailabilityBlocks(weekStart, weekEnd);
+
+  // Unavailability modal state.
+  const [unavailOpen, setUnavailOpen] = useState(false);
+  const [editingBlock, setEditingBlock] = useState<AvailabilityBlock | null>(null);
+  const openUnavailNew = () => { setEditingBlock(null); setUnavailOpen(true); };
+  const openUnavailEdit = (b: AvailabilityBlock) => { setEditingBlock(b); setUnavailOpen(true); };
+
+  // Project an availability block into the diary's pixel coordinates for a
+  // given visible date. Returns null when the block doesn't intersect that day.
+  const projectBlock = (b: AvailabilityBlock, dateKey: string): { top: number; height: number; isAllDayBand: boolean } | null => {
+    const dayStart = new Date(`${dateKey}T00:00:00`);
+    const dayEnd = new Date(`${dateKey}T23:59:59`);
+    const bStart = new Date(b.starts_at);
+    const bEnd = new Date(b.ends_at);
+    if (bEnd <= dayStart || bStart >= dayEnd) return null;
+    // Clamp into this calendar day.
+    const visStart = bStart > dayStart ? bStart : dayStart;
+    const visEnd = bEnd < dayEnd ? bEnd : dayEnd;
+    const startMin = visStart.getHours() * 60 + visStart.getMinutes();
+    const endMin = visEnd.getHours() * 60 + visEnd.getMinutes() || 24 * 60;
+    const topHr = Math.max(startMin / 60, TOP_HOUR);
+    const botHr = Math.min(endMin / 60, BOTTOM_HOUR + 1);
+    if (botHr <= topHr) return null;
+    const top = (topHr - TOP_HOUR) * HOUR_HEIGHT;
+    const height = Math.max(20, (botHr - topHr) * HOUR_HEIGHT - 2);
+    return { top, height, isAllDayBand: !!b.all_day };
+  };
 
   // Lookup helper (mockDb shape used by callers)
   const getStudent = (id: string) => students.find((s) => s.id === id);
@@ -162,6 +196,17 @@ export default function LessonDiaryScreen() {
 
   const handleAdd = async () => {
     if (!studentId || !date || !topic) return;
+    // Hard-block creation if the proposed slot overlaps an unavailability.
+    try {
+      const startIso = new Date(`${date}T${startTime}:00`).toISOString();
+      const endIso = new Date(`${date}T${endTime}:00`).toISOString();
+      if (overlapsAnyBlock(availBlocks, startIso, endIso)) {
+        if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+          window.alert('This time overlaps one of your unavailabilities. Remove or shrink the block first, then try again.');
+        }
+        return;
+      }
+    } catch { /* fall through to normal flow if dates are malformed */ }
     try {
       const newLesson = await createLesson({
         student_id: studentId,
@@ -204,9 +249,14 @@ export default function LessonDiaryScreen() {
           <ArrowLeft size={22} color={theme.colors.text} />
         </TouchableOpacity>
         <Text style={styles.title}>Lesson Diary</Text>
-        <TouchableOpacity onPress={() => setAddOpen(true)} testID="btn-add-lesson" style={styles.iconBtn}>
-          <Plus size={22} color={theme.colors.primary} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 4 }}>
+          <TouchableOpacity onPress={openUnavailNew} testID="btn-add-unavailability" style={styles.iconBtn} accessibilityLabel="Add unavailability">
+            <Ban size={22} color={theme.colors.danger} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setAddOpen(true)} testID="btn-add-lesson" style={styles.iconBtn}>
+            <Plus size={22} color={theme.colors.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.toggleRow}>
@@ -265,6 +315,24 @@ export default function LessonDiaryScreen() {
                     <View key={h} style={styles.hourSlot} />
                   ))}
                 </View>
+                {/* Availability blocks — grey bands behind lessons */}
+                {availBlocks.map((b) => {
+                  const p = projectBlock(b, selectedKey);
+                  if (!p) return null;
+                  return (
+                    <Pressable
+                      key={`block-${b.id}`}
+                      style={[styles.unavailBand, { top: p.top, height: p.height }]}
+                      onPress={() => openUnavailEdit(b)}
+                      testID={`unavail-band-${b.id}`}
+                      accessibilityLabel={`Unavailable — ${b.category}${b.reason ? `: ${b.reason}` : ''}`}
+                    >
+                      <Text style={styles.unavailBandText} numberOfLines={2}>
+                        🚫 {b.reason || b.category.charAt(0).toUpperCase() + b.category.slice(1)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
                 {lessons
                   .filter((l) => l.date === selectedKey)
                   .map((l) => {
@@ -364,6 +432,9 @@ export default function LessonDiaryScreen() {
                 {DAYS.map((_, di) => {
                   const cellDate = addDays(weekStart, di).toISOString().slice(0, 10);
                   const dayLessons = lessons.filter((l) => l.date === cellDate);
+                  const dayBands = availBlocks
+                    .map((b) => ({ b, p: projectBlock(b, cellDate) }))
+                    .filter((x) => !!x.p) as { b: AvailabilityBlock; p: { top: number; height: number } }[];
                   return (
                     <View key={di} style={[styles.weekDayCol, { height: TOTAL_HEIGHT }]}>
                       <View style={StyleSheet.absoluteFill} pointerEvents="none">
@@ -371,6 +442,17 @@ export default function LessonDiaryScreen() {
                           <View key={h} style={styles.hourSlot} />
                         ))}
                       </View>
+                      {/* Grey unavailability bands for this column */}
+                      {dayBands.map(({ b, p }) => (
+                        <Pressable
+                          key={`block-${b.id}-${cellDate}`}
+                          style={[styles.unavailBandWeek, { top: p.top, height: p.height }]}
+                          onPress={() => openUnavailEdit(b)}
+                          testID={`unavail-band-${b.id}-${cellDate}`}
+                        >
+                          <Text style={styles.unavailBandTextWeek} numberOfLines={1}>🚫</Text>
+                        </Pressable>
+                      ))}
                       {dayLessons.map((l) => {
                         const s = getStudent(l.student_id);
                         const { top, height } = computePos(l);
@@ -507,6 +589,15 @@ export default function LessonDiaryScreen() {
         lesson={detailLesson}
         onChanged={() => setSelectedDate(new Date(selectedDate))}
       />
+
+      {/* Add / Edit Unavailability */}
+      <UnavailabilityModal
+        visible={unavailOpen}
+        block={editingBlock}
+        initialDate={selectedKey}
+        onClose={() => setUnavailOpen(false)}
+        onSaved={() => { /* bump() already refreshes the hook */ }}
+      />
     </SafeAreaView>
   );
 }
@@ -639,6 +730,34 @@ const styles = StyleSheet.create({
   },
   lessonBlockNameWeek: { color: '#fff', fontSize: 11, fontWeight: '700', marginTop: 2 },
   lessonBlockWarn: { backgroundColor: theme.colors.faultDriving },
+  // Unavailability bands — diagonal stripes & grey background
+  unavailBand: {
+    position: 'absolute',
+    left: 4,
+    right: 4,
+    backgroundColor: 'rgba(148,163,184,0.25)',
+    borderLeftWidth: 4,
+    borderLeftColor: '#94A3B8',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    justifyContent: 'center',
+    zIndex: 0,
+  },
+  unavailBandText: { fontSize: 11, fontWeight: '700', color: '#475569' },
+  unavailBandWeek: {
+    position: 'absolute',
+    left: 2,
+    right: 2,
+    backgroundColor: 'rgba(148,163,184,0.30)',
+    borderLeftWidth: 3,
+    borderLeftColor: '#94A3B8',
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 0,
+  },
+  unavailBandTextWeek: { fontSize: 10, color: '#475569' },
   // Greyed-out + strikethrough state for Cancelled lessons. Kept on the diary
   // (rather than filtered out) so instructors can see what was originally booked.
   lessonBlockCancelled: {

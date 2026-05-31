@@ -453,3 +453,54 @@ export async function updatePreferredNavApp(app: db.NavApp) {
   await db.updateInstructorPreferredNavApp(app);
   bump();
 }
+
+
+// ---------------------------------------------------------------------------
+// Hooks — Availability blocks (Migration 013)
+// ---------------------------------------------------------------------------
+
+/**
+ * Subscribe to all availability blocks that overlap a date window
+ * (e.g. the visible week on the Diary screen). `from` and `to` are local
+ * Date objects; we convert to ISO before querying. Re-fetches on every
+ * mutation (add/update/delete) thanks to the shared `bump()` channel.
+ */
+export function useAvailabilityBlocks(from: Date | null, to: Date | null) {
+  const version = useVersion();
+  const [blocks, setBlocks] = useState<db.AvailabilityBlock[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fromIso = from ? from.toISOString() : undefined;
+  const toIso = to ? to.toISOString() : undefined;
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    db.listAvailabilityBlocks(fromIso, toIso)
+      .then((rows) => { if (!cancelled) setBlocks(rows); })
+      .catch((e: any) => { if (!cancelled) setError(e?.message || 'Failed to load unavailabilities'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [fromIso, toIso, version]);
+
+  return { blocks, loading, error };
+}
+
+export async function createAvailabilityBlock(input: db.AddAvailabilityBlockInput) {
+  const row = await db.addAvailabilityBlock(input);
+  bump();
+  return row;
+}
+
+export async function patchAvailabilityBlock(id: string, patch: Partial<db.AddAvailabilityBlockInput>) {
+  const row = await db.updateAvailabilityBlock(id, patch);
+  bump();
+  return row;
+}
+
+export async function removeAvailabilityBlock(id: string) {
+  await db.deleteAvailabilityBlock(id);
+  bump();
+}

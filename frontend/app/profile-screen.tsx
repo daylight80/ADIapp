@@ -207,6 +207,17 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         )}
 
+        {role === 'instructor' && (
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => router.push('/unavailabilities-screen' as any)}
+            testID="link-unavailabilities"
+          >
+            <Calendar size={18} color={theme.colors.danger} />
+            <Text style={styles.linkRowText}>Unavailabilities (time off)</Text>
+          </TouchableOpacity>
+        )}
+
         {role === 'instructor' && <CalendarFeedCard />}
 
         {role === 'student' && student && (

@@ -445,7 +445,18 @@ agent_communication:
 
 
 frontend:
-  - task: "Lesson Cancellation charge prompt (full / partial / waive) + cancelled-lesson greyed display"
+  - task: "Unavailabilities — availability_blocks table, grey diary bands, hard-block lesson save on overlap (P1)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/UnavailabilityModal.tsx, /app/frontend/app/lesson-diary-screen.tsx, /app/frontend/app/unavailabilities-screen.tsx, /app/frontend/src/supabaseDb.ts (AvailabilityBlock CRUD + overlapsAnyBlock helper), /app/frontend/src/useSupabaseData.ts (useAvailabilityBlocks hook + create/patch/remove mutators), /app/frontend/app/profile-screen.tsx (Unavailabilities link added under Pricing & packages, instructor-only), /app/supabase/migrations/013_availability_blocks.sql"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Per user spec (1a · 2a · 3b · 4c · 5a · 6a): MVP one-off blocks only, all-day toggle, preset category chips (Holiday/Personal/Family/Sick/Other) + free-text note, both UI surfaces (🚫 button in Diary header + dedicated Unavailabilities screen from Profile), HARD-BLOCK on lesson overlap, hidden from students (RLS policy on availability_blocks restricts SELECT/INSERT/UPDATE/DELETE to the owning instructor; owners get school-wide SELECT via separate policy). Migration 013 introduces public.availability_blocks (id, instructor_id FK, school_id FK, starts_at, ends_at, all_day, category enum check, reason, created_at, updated_at) with chk_block_range constraint, idx_avail_blocks_instructor_range index, and a touch-updated_at trigger. UI: Diary now has a 🚫 ban icon button next to the + button — opens an Add modal with category chips, optional note, all-day Switch (hides time pickers when on), From/To date pickers, From/To time pickers, and a prominent save button. Saved blocks render as grey semi-transparent bands behind lesson cards on both Day view (with 🚫 + reason text inside) and Week view (with a small 🚫 emoji). Tapping a band re-opens the modal in Edit mode (Save changes + red Delete icon). handleAdd() in the diary now calls overlapsAnyBlock() before creating a lesson and refuses if true. Dedicated /unavailabilities-screen lists Upcoming and Past blocks with the same modal driving CRUD. Friendly error string surfaces when Migration 013 hasn't been applied (Supabase 'schema cache' error pattern matched in addAvailabilityBlock + listAvailabilityBlocks). NEEDS USER TO APPLY Migration 013 — verified via Playwright that the modal pops, all 5 category chips render, all fields work, and submit shows the 'Could not find the table public.availability_blocks' error as expected pre-migration."
+
     implemented: true
     working: "NA"
     file: "/app/frontend/src/LessonToolsSheet.tsx, /app/frontend/app/lesson-diary-screen.tsx, /app/frontend/src/supabaseDb.ts, /app/frontend/src/mockDb.ts, /app/supabase/migrations/011_lesson_cancellation_meta.sql"

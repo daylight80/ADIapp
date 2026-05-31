@@ -34,6 +34,8 @@ type Props = {
 export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props) {
   const [precheck, setPrecheck] = useState<{ eye: boolean; fit: boolean; lic: boolean }>({ eye: false, fit: false, lic: false });
   const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
   const [eta, setEta] = useState<{ traffic: number; normal: number; distance: number; fallback: boolean } | null>(null);
 
   // ---- Complete-lesson form state -----------------------------------------
@@ -151,29 +153,27 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   };
 
   const cancelLesson = () => {
-    const proceed = async () => {
+    setCancelOpen(true);
+  };
+
+  // The two cancellation paths: apply the existing charge, or waive it.
+  const cancelWithCharge = (applyCharge: boolean) => async () => {
+    setCancelBusy(true);
+    try {
+      // If waiving the charge, zero amount_paid; otherwise leave it as-is.
+      const patch: any = { status: 'Cancelled' };
+      if (!applyCharge) patch.amount_paid = 0;
       try {
-        await patchLesson(lesson.id, { status: 'Cancelled' });
+        await patchLesson(lesson.id, patch);
       } catch (e: any) {
-        mockDb.updateLesson(lesson.id, { status: 'Cancelled' });
+        mockDb.updateLesson(lesson.id, patch);
       }
+      setCancelOpen(false);
       setBroadcastOpen(true);
       onChanged?.();
-    };
-    // Alert.alert with destructive buttons doesn't render reliably on RN-Web
-    // (it polyfills to window.alert with a single OK button). Use window.confirm
-    // there; native iOS/Android keep the rich Alert.
-    if (Platform.OS === 'web') {
-      const ok = typeof window !== 'undefined'
-        ? window.confirm('Cancel this lesson? You can broadcast the freed slot to other students.')
-        : true;
-      if (ok) proceed();
-      return;
+    } finally {
+      setCancelBusy(false);
     }
-    Alert.alert('Cancel this lesson?', 'You can broadcast the freed slot to other students.', [
-      { text: 'Keep lesson', style: 'cancel' },
-      { text: 'Cancel & broadcast', style: 'destructive', onPress: proceed },
-    ]);
   };
 
   // Direct broadcast (without re-cancelling) — visible when the lesson is
@@ -356,6 +356,56 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
         }}
         lesson={lesson}
       />
+
+      {/* Cancel-lesson confirmation with charge / waive options */}
+      <Modal
+        visible={cancelOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !cancelBusy && setCancelOpen(false)}
+      >
+        <View style={cancelModalStyles.backdrop}>
+          <View style={cancelModalStyles.card}>
+            <Text style={cancelModalStyles.title}>Cancel this lesson?</Text>
+            <Text style={cancelModalStyles.body}>
+              The student will be marked as cancelled. You can also broadcast the freed slot to other learners on your waiting list.
+              {lesson?.amount_paid ? (
+                `\n\nThis lesson currently shows £${Number(lesson.amount_paid).toFixed(2)} as paid.`
+              ) : ''}
+            </Text>
+            <TouchableOpacity
+              style={[cancelModalStyles.btn, cancelModalStyles.btnDanger]}
+              onPress={cancelWithCharge(true)}
+              disabled={cancelBusy}
+              testID="btn-cancel-keep-charge"
+            >
+              {cancelBusy ? <ActivityIndicator color="#fff" /> : (
+                <Text style={cancelModalStyles.btnText}>
+                  Cancel & apply charge{lesson?.amount_paid ? ` (£${Number(lesson.amount_paid).toFixed(2)})` : ''}
+                </Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[cancelModalStyles.btn, cancelModalStyles.btnWarn]}
+              onPress={cancelWithCharge(false)}
+              disabled={cancelBusy}
+              testID="btn-cancel-waive-charge"
+            >
+              {cancelBusy ? <ActivityIndicator color="#fff" /> : (
+                <Text style={cancelModalStyles.btnText}>Cancel & waive charge</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={cancelModalStyles.btnGhost}
+              onPress={() => !cancelBusy && setCancelOpen(false)}
+              disabled={cancelBusy}
+              testID="btn-cancel-keep-lesson"
+            >
+              <Text style={cancelModalStyles.btnGhostText}>Keep lesson</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <CompleteLessonModal
         visible={completeOpen}

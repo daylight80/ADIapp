@@ -266,18 +266,24 @@ export default function LessonDiaryScreen() {
                   ))}
                 </View>
                 {lessons
-                  .filter((l) => l.date === selectedKey && l.status !== 'Cancelled')
+                  .filter((l) => l.date === selectedKey)
                   .map((l) => {
                     const s = getStudent(l.student_id);
                     const { top, height } = computePos(l);
-                    const prev = prevLessonFor(l);
+                    const isCancelled = l.status === 'Cancelled';
+                    const prev = isCancelled ? null : prevLessonFor(l);
                     const gapMin = prev ? minutesBetween(prev.end_time, prev.date, l.start_time, l.date) : null;
                     const needed = l.travel_minutes ?? prev?.travel_minutes ?? 0;
-                    const tooTight = gapMin !== null && gapMin < needed;
+                    const tooTight = !isCancelled && gapMin !== null && gapMin < needed;
                     return (
                       <Pressable
                         key={l.id}
-                        style={[styles.lessonBlockDay, tooTight && styles.lessonBlockWarn, { top, height }]}
+                        style={[
+                          styles.lessonBlockDay,
+                          tooTight && styles.lessonBlockWarn,
+                          isCancelled && styles.lessonBlockCancelled,
+                          { top, height },
+                        ]}
                         onPress={() => {
                           // eslint-disable-next-line no-console
                           console.log('[diary] lesson tapped:', l.id, l.start_time);
@@ -285,15 +291,15 @@ export default function LessonDiaryScreen() {
                         }}
                         testID={`lesson-block-${l.id}`}
                       >
-                        <Text style={styles.lessonBlockTimeBig}>
+                        <Text style={[styles.lessonBlockTimeBig, isCancelled && styles.lessonTextCancelled]}>
                           {l.start_time}–{l.end_time}
                         </Text>
-                        <Text style={styles.lessonBlockNameFull} numberOfLines={2}>
+                        <Text style={[styles.lessonBlockNameFull, isCancelled && styles.lessonTextCancelled]} numberOfLines={2}>
                           {s?.name || 'Student'}
                         </Text>
                         {height >= HOUR_HEIGHT * 1.2 && (
-                          <Text style={styles.lessonBlockTopic} numberOfLines={1}>
-                            {l.topic}
+                          <Text style={[styles.lessonBlockTopic, isCancelled && styles.lessonTextCancelled]} numberOfLines={1}>
+                            {isCancelled ? (l.cancellation_note || 'Cancelled') : l.topic}
                           </Text>
                         )}
                         {tooTight && (
@@ -301,23 +307,29 @@ export default function LessonDiaryScreen() {
                             <AlertTriangle size={10} color="#fff" />
                           </View>
                         )}
-                        {/* True one-tap 🧭 navigation — bypasses LessonToolsSheet */}
-                        <Pressable
-                          style={styles.navQuickBtn}
-                          onPress={(e: any) => {
-                            // Prevent the parent Pressable's onPress from also firing.
-                            if (e?.stopPropagation) e.stopPropagation();
-                            const addr = l.pickup_address || (s ? `${s.address || ''}, ${s.postcode || ''}` : '');
-                            // eslint-disable-next-line no-console
-                            console.log('[diary] 1-tap navigate via', preferredNav, '→', addr);
-                            openNavigation(preferredNav, addr);
-                          }}
-                          hitSlop={6}
-                          testID={`nav-quick-${l.id}`}
-                          accessibilityLabel={`Navigate to ${s?.name || 'student'}`}
-                        >
-                          <NavIcon size={14} color="#fff" />
-                        </Pressable>
+                        {isCancelled && (
+                          <View style={styles.cancelledTag} testID={`cancelled-tag-${l.id}`}>
+                            <Text style={styles.cancelledTagText}>Cancelled</Text>
+                          </View>
+                        )}
+                        {/* One-tap 🧭 — hidden on cancelled lessons */}
+                        {!isCancelled && (
+                          <Pressable
+                            style={styles.navQuickBtn}
+                            onPress={(e: any) => {
+                              if (e?.stopPropagation) e.stopPropagation();
+                              const addr = l.pickup_address || (s ? `${s.address || ''}, ${s.postcode || ''}` : '');
+                              // eslint-disable-next-line no-console
+                              console.log('[diary] 1-tap navigate via', preferredNav, '→', addr);
+                              openNavigation(preferredNav, addr);
+                            }}
+                            hitSlop={6}
+                            testID={`nav-quick-${l.id}`}
+                            accessibilityLabel={`Navigate to ${s?.name || 'student'}`}
+                          >
+                            <NavIcon size={14} color="#fff" />
+                          </Pressable>
+                        )}
                       </Pressable>
                     );
                   })}
@@ -351,7 +363,7 @@ export default function LessonDiaryScreen() {
                 </View>
                 {DAYS.map((_, di) => {
                   const cellDate = addDays(weekStart, di).toISOString().slice(0, 10);
-                  const dayLessons = lessons.filter((l) => l.date === cellDate && l.status !== 'Cancelled');
+                  const dayLessons = lessons.filter((l) => l.date === cellDate);
                   return (
                     <View key={di} style={[styles.weekDayCol, { height: TOTAL_HEIGHT }]}>
                       <View style={StyleSheet.absoluteFill} pointerEvents="none">
@@ -362,14 +374,20 @@ export default function LessonDiaryScreen() {
                       {dayLessons.map((l) => {
                         const s = getStudent(l.student_id);
                         const { top, height } = computePos(l);
-                        const prev = prevLessonFor(l);
+                        const isCancelled = l.status === 'Cancelled';
+                        const prev = isCancelled ? null : prevLessonFor(l);
                         const gapMin = prev ? minutesBetween(prev.end_time, prev.date, l.start_time, l.date) : null;
                         const needed = l.travel_minutes ?? prev?.travel_minutes ?? 0;
-                        const tooTight = gapMin !== null && gapMin < needed;
+                        const tooTight = !isCancelled && gapMin !== null && gapMin < needed;
                         return (
                           <Pressable
                             key={l.id}
-                            style={[styles.lessonBlockWeek, tooTight && styles.lessonBlockWarn, { top, height }]}
+                            style={[
+                              styles.lessonBlockWeek,
+                              tooTight && styles.lessonBlockWarn,
+                              isCancelled && styles.lessonBlockCancelled,
+                              { top, height },
+                            ]}
                             onPress={() => {
                               // eslint-disable-next-line no-console
                               console.log('[diary/week] lesson tapped:', l.id);
@@ -377,10 +395,13 @@ export default function LessonDiaryScreen() {
                             }}
                             testID={`lesson-block-${l.id}`}
                           >
-                            <Text style={styles.lessonBlockTime}>
+                            <Text style={[styles.lessonBlockTime, isCancelled && styles.lessonTextCancelled]}>
                               {l.start_time}–{l.end_time}
                             </Text>
-                            <Text style={styles.lessonBlockNameWeek} numberOfLines={2}>
+                            <Text
+                              style={[styles.lessonBlockNameWeek, isCancelled && styles.lessonTextCancelled]}
+                              numberOfLines={2}
+                            >
                               {s?.name || 'Student'}
                             </Text>
                             {tooTight && (
@@ -388,19 +409,21 @@ export default function LessonDiaryScreen() {
                                 <AlertTriangle size={10} color="#fff" />
                               </View>
                             )}
-                            {/* One-tap 🧭 navigation */}
-                            <Pressable
-                              style={styles.navQuickBtnWeek}
-                              onPress={(e: any) => {
-                                if (e?.stopPropagation) e.stopPropagation();
-                                const addr = l.pickup_address || (s ? `${s.address || ''}, ${s.postcode || ''}` : '');
-                                openNavigation(preferredNav, addr);
-                              }}
-                              hitSlop={6}
-                              testID={`nav-quick-${l.id}`}
-                            >
-                              <NavIcon size={11} color="#fff" />
-                            </Pressable>
+                            {/* One-tap 🧭 navigation — hidden when cancelled */}
+                            {!isCancelled && (
+                              <Pressable
+                                style={styles.navQuickBtnWeek}
+                                onPress={(e: any) => {
+                                  if (e?.stopPropagation) e.stopPropagation();
+                                  const addr = l.pickup_address || (s ? `${s.address || ''}, ${s.postcode || ''}` : '');
+                                  openNavigation(preferredNav, addr);
+                                }}
+                                hitSlop={6}
+                                testID={`nav-quick-${l.id}`}
+                              >
+                                <NavIcon size={11} color="#fff" />
+                              </Pressable>
+                            )}
                           </Pressable>
                         );
                       })}
@@ -616,6 +639,29 @@ const styles = StyleSheet.create({
   },
   lessonBlockNameWeek: { color: '#fff', fontSize: 11, fontWeight: '700', marginTop: 2 },
   lessonBlockWarn: { backgroundColor: theme.colors.faultDriving },
+  // Greyed-out + strikethrough state for Cancelled lessons. Kept on the diary
+  // (rather than filtered out) so instructors can see what was originally booked.
+  lessonBlockCancelled: {
+    backgroundColor: '#E5E7EB',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    opacity: 0.85,
+  },
+  lessonTextCancelled: {
+    color: '#6B7280',
+    textDecorationLine: 'line-through',
+    textDecorationStyle: 'solid',
+  },
+  cancelledTag: {
+    position: 'absolute',
+    top: 4,
+    right: 6,
+    backgroundColor: '#9CA3AF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  cancelledTagText: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 0.4 },
   warnDot: {
     position: 'absolute',
     top: 4,

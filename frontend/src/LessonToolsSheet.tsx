@@ -36,6 +36,11 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
+  // Local cancel-modal state: 'select' shows the three CTAs; 'partial' shows
+  // the £ input + confirm so an instructor can record a custom late-cancellation
+  // fee (e.g. 50% of the agreed price).
+  const [cancelStep, setCancelStep] = useState<'select' | 'partial'>('select');
+  const [partialCharge, setPartialCharge] = useState<string>('');
   const [eta, setEta] = useState<{ traffic: number; normal: number; distance: number; fallback: boolean } | null>(null);
 
   // ---- Complete-lesson form state -----------------------------------------
@@ -153,19 +158,43 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   };
 
   const cancelLesson = () => {
+    setCancelStep('select');
+    // Default partial input to half the agreed price if known, else blank.
+    const agreed = lesson?.amount_paid != null ? Number(lesson.amount_paid) : NaN;
+    setPartialCharge(Number.isFinite(agreed) && agreed > 0 ? (agreed / 2).toFixed(2) : '');
     setCancelOpen(true);
   };
 
-  // The two cancellation paths: apply the existing charge, or waive it.
-  const cancelWithCharge = (applyCharge: boolean) => async () => {
+  // Unified cancellation handler. Sets status + amount_paid + cancellation_charge
+  // + a short human-readable cancellation_note so the audit trail survives.
+  const applyCancellation = async (mode: 'full' | 'partial' | 'waive', overrideAmount?: number) => {
+    if (!lesson) return;
+    const agreed = lesson.amount_paid != null ? Number(lesson.amount_paid) : 0;
+    let charge = 0;
+    let note = '';
+    if (mode === 'full') {
+      charge = agreed;
+      note = agreed > 0 ? `Cancelled — full charge applied (£${charge.toFixed(2)})` : 'Cancelled — full charge applied';
+    } else if (mode === 'partial') {
+      charge = Number.isFinite(overrideAmount ?? NaN) ? Math.max(0, Number(overrideAmount)) : 0;
+      note = `Cancelled — partial charge (£${charge.toFixed(2)})`;
+    } else {
+      charge = 0;
+      note = 'Cancelled — charge waived';
+    }
+
     setCancelBusy(true);
     try {
-      // If waiving the charge, zero amount_paid; otherwise leave it as-is.
-      const patch: any = { status: 'Cancelled' };
-      if (!applyCharge) patch.amount_paid = 0;
+      const patch: any = {
+        status: 'Cancelled',
+        amount_paid: charge,
+        cancellation_charge: charge,
+        cancellation_note: note,
+      };
       try {
         await patchLesson(lesson.id, patch);
       } catch (e: any) {
+        // Fallback to mockDb (legacy demo data + offline path)
         mockDb.updateLesson(lesson.id, patch);
       }
       setCancelOpen(false);
@@ -249,6 +278,23 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
               {lesson.travel_minutes && <Badge label={`${lesson.travel_minutes}m travel`} bg="#FFF7ED" color={theme.colors.accent} />}
               {lesson.pre_check_completed_at && <Badge label="Pre-check ✓" bg="#D1FAE5" color={theme.colors.success} />}
             </View>
+
+            {/* Cancellation summary — only shown when the lesson was cancelled.
+                Surfaces the recorded charge + audit note from Migration 011. */}
+            {lesson.status === 'Cancelled' && (lesson.cancellation_note || lesson.cancellation_charge != null) && (
+              <View style={styles.cancelInfoBox} testID="cancellation-summary">
+                <Text style={styles.cancelInfoTitle}>Cancellation record</Text>
+                {lesson.cancellation_charge != null && (
+                  <Text style={styles.cancelInfoLine}>
+                    Charge retained:{' '}
+                    <Text style={styles.cancelInfoStrong}>£{Number(lesson.cancellation_charge).toFixed(2)}</Text>
+                  </Text>
+                )}
+                {lesson.cancellation_note ? (
+                  <Text style={styles.cancelInfoLine}>{lesson.cancellation_note}</Text>
+                ) : null}
+              </View>
+            )}
 
             {/* Navigation */}
             <Text style={styles.section}>Navigate to pickup</Text>
@@ -357,7 +403,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
         lesson={lesson}
       />
 
-      {/* Cancel-lesson confirmation with charge / waive options */}
+      {/* Cancel-lesson confirmation — 3 options: full charge / partial / waive */}
       <Modal
         visible={cancelOpen}
         transparent
@@ -366,43 +412,125 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
       >
         <View style={cancelModalStyles.backdrop}>
           <View style={cancelModalStyles.card}>
-            <Text style={cancelModalStyles.title}>Cancel this lesson?</Text>
-            <Text style={cancelModalStyles.body}>
-              The student will be marked as cancelled. You can also broadcast the freed slot to other learners on your waiting list.
-              {lesson?.amount_paid ? (
-                `\n\nThis lesson currently shows £${Number(lesson.amount_paid).toFixed(2)} as paid.`
-              ) : ''}
-            </Text>
-            <TouchableOpacity
-              style={[cancelModalStyles.btn, cancelModalStyles.btnDanger]}
-              onPress={cancelWithCharge(true)}
-              disabled={cancelBusy}
-              testID="btn-cancel-keep-charge"
-            >
-              {cancelBusy ? <ActivityIndicator color="#fff" /> : (
-                <Text style={cancelModalStyles.btnText}>
-                  Cancel & apply charge{lesson?.amount_paid ? ` (£${Number(lesson.amount_paid).toFixed(2)})` : ''}
+            {cancelStep === 'select' ? (
+              <>
+                <Text style={cancelModalStyles.title}>Cancel this lesson?</Text>
+                <Text style={cancelModalStyles.body}>
+                  Choose how to handle the charge for {student.name.split(' ')[0]}'s lesson.
+                  {lesson?.amount_paid
+                    ? `\n\nAgreed price: £${Number(lesson.amount_paid).toFixed(2)}.`
+                    : '\n\nNo agreed price recorded on this lesson.'}
                 </Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[cancelModalStyles.btn, cancelModalStyles.btnWarn]}
-              onPress={cancelWithCharge(false)}
-              disabled={cancelBusy}
-              testID="btn-cancel-waive-charge"
-            >
-              {cancelBusy ? <ActivityIndicator color="#fff" /> : (
-                <Text style={cancelModalStyles.btnText}>Cancel & waive charge</Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={cancelModalStyles.btnGhost}
-              onPress={() => !cancelBusy && setCancelOpen(false)}
-              disabled={cancelBusy}
-              testID="btn-cancel-keep-lesson"
-            >
-              <Text style={cancelModalStyles.btnGhostText}>Keep lesson</Text>
-            </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[cancelModalStyles.btn, cancelModalStyles.btnDanger]}
+                  onPress={() => applyCancellation('full')}
+                  disabled={cancelBusy}
+                  testID="btn-cancel-full-charge"
+                >
+                  {cancelBusy ? <ActivityIndicator color="#fff" /> : (
+                    <Text style={cancelModalStyles.btnText}>
+                      Apply full charge{lesson?.amount_paid ? ` (£${Number(lesson.amount_paid).toFixed(2)})` : ''}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[cancelModalStyles.btn, cancelModalStyles.btnPartial]}
+                  onPress={() => setCancelStep('partial')}
+                  disabled={cancelBusy}
+                  testID="btn-cancel-partial-charge"
+                >
+                  <Text style={cancelModalStyles.btnText}>Apply partial charge…</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[cancelModalStyles.btn, cancelModalStyles.btnWarn]}
+                  onPress={() => applyCancellation('waive')}
+                  disabled={cancelBusy}
+                  testID="btn-cancel-waive-charge"
+                >
+                  {cancelBusy ? <ActivityIndicator color="#fff" /> : (
+                    <Text style={cancelModalStyles.btnText}>Waive charge (£0.00)</Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={cancelModalStyles.btnGhost}
+                  onPress={() => !cancelBusy && setCancelOpen(false)}
+                  disabled={cancelBusy}
+                  testID="btn-cancel-keep-lesson"
+                >
+                  <Text style={cancelModalStyles.btnGhostText}>Keep lesson</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={cancelModalStyles.title}>Partial charge</Text>
+                <Text style={cancelModalStyles.body}>
+                  Enter the amount to charge {student.name.split(' ')[0]} for this late cancellation.
+                  {lesson?.amount_paid
+                    ? ` Agreed price is £${Number(lesson.amount_paid).toFixed(2)}.`
+                    : ''}
+                </Text>
+
+                <View style={cancelModalStyles.amountWrap}>
+                  <Text style={cancelModalStyles.poundSign}>£</Text>
+                  <TextInput
+                    value={partialCharge}
+                    onChangeText={(v) => setPartialCharge(v.replace(/[^0-9.]/g, ''))}
+                    placeholder="0.00"
+                    keyboardType="decimal-pad"
+                    style={cancelModalStyles.amountInput}
+                    testID="input-partial-amount"
+                    autoFocus
+                  />
+                </View>
+
+                {/* Quick % chips relative to the agreed price */}
+                {lesson?.amount_paid ? (
+                  <View style={cancelModalStyles.chipRow}>
+                    {[25, 50, 75].map((pct) => (
+                      <TouchableOpacity
+                        key={pct}
+                        style={cancelModalStyles.chip}
+                        onPress={() => setPartialCharge((Number(lesson!.amount_paid) * (pct / 100)).toFixed(2))}
+                        testID={`partial-chip-${pct}`}
+                      >
+                        <Text style={cancelModalStyles.chipText}>{pct}%</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null}
+
+                <TouchableOpacity
+                  style={[cancelModalStyles.btn, cancelModalStyles.btnDanger]}
+                  onPress={() => {
+                    const v = parseFloat(partialCharge);
+                    if (!Number.isFinite(v) || v < 0) {
+                      Alert.alert('Invalid amount', 'Please enter a valid amount in pounds.');
+                      return;
+                    }
+                    applyCancellation('partial', v);
+                  }}
+                  disabled={cancelBusy}
+                  testID="btn-confirm-partial"
+                >
+                  {cancelBusy ? <ActivityIndicator color="#fff" /> : (
+                    <Text style={cancelModalStyles.btnText}>Cancel & charge £{partialCharge || '0.00'}</Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={cancelModalStyles.btnGhost}
+                  onPress={() => !cancelBusy && setCancelStep('select')}
+                  disabled={cancelBusy}
+                  testID="btn-partial-back"
+                >
+                  <Text style={cancelModalStyles.btnGhostText}>Back</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -742,4 +870,80 @@ const styles = StyleSheet.create({
   pmChipText: { fontSize: 13, color: theme.colors.text },
   amountInput: { flex: 1, fontSize: 15, color: theme.colors.text },
   notesInput: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, padding: 10, minHeight: 70, fontSize: 14, color: theme.colors.text, textAlignVertical: 'top' },
+  // Cancellation summary box — appears above the navigation section whenever a
+  // cancelled lesson is re-opened so instructors can see the audit trail.
+  cancelInfoBox: {
+    backgroundColor: '#F3F4F6',
+    borderLeftWidth: 4,
+    borderLeftColor: theme.colors.danger,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+  },
+  cancelInfoTitle: { fontSize: 13, fontWeight: '800', color: theme.colors.danger, marginBottom: 4 },
+  cancelInfoLine: { fontSize: 13, color: theme.colors.text, lineHeight: 18 },
+  cancelInfoStrong: { fontWeight: '800', color: theme.colors.text },
 });
+
+// =============================================================================
+// Cancel-lesson modal styles (full / partial / waive)
+// =============================================================================
+const cancelModalStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 18,
+    padding: 22,
+    gap: 10,
+  },
+  title: { fontSize: 18, fontWeight: '800', color: theme.colors.text },
+  body: { fontSize: 13, color: theme.colors.textMuted, lineHeight: 19, marginBottom: 6 },
+  btn: {
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    marginTop: 6,
+  },
+  btnDanger: { backgroundColor: theme.colors.danger },
+  btnPartial: { backgroundColor: theme.colors.primary },
+  btnWarn: { backgroundColor: theme.colors.accent ?? '#EA580C' },
+  btnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  btnGhost: { alignItems: 'center', justifyContent: 'center', paddingVertical: 12, marginTop: 4 },
+  btnGhostText: { color: theme.colors.textMuted, fontWeight: '600', fontSize: 14 },
+  amountWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: theme.colors.primary,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    height: 56,
+    marginTop: 4,
+    backgroundColor: theme.colors.background,
+  },
+  poundSign: { fontSize: 22, fontWeight: '700', color: theme.colors.text, marginRight: 6 },
+  amountInput: { flex: 1, fontSize: 22, fontWeight: '700', color: theme.colors.text, padding: 0 },
+  chipRow: { flexDirection: 'row', gap: 8, marginTop: 6 },
+  chip: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surface,
+  },
+  chipText: { fontSize: 13, fontWeight: '700', color: theme.colors.primary },
+});
+

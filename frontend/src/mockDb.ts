@@ -70,6 +70,12 @@ export type Lesson = {
   status: 'Scheduled' | 'Completed' | 'Cancelled';
   student_reflection?: string;
   pre_check_completed_at?: string;
+  // ---- Cancellation audit (Migration 011) --------------------------------
+  // When a lesson is cancelled, instructors may apply a full / partial /
+  // waived charge. `cancellation_charge` mirrors the £ amount retained and
+  // `cancellation_note` stores the human-readable rationale for reports.
+  cancellation_charge?: number;
+  cancellation_note?: string;
 };
 
 export type Badge = { key: string; name: string; description: string; earned_at?: string };

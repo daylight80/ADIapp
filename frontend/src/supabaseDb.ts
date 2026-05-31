@@ -506,6 +506,8 @@ export type Lesson = {
   amount_paid?: number;
   status: LessonStatus;
   pre_check_completed_at?: string;
+  cancellation_charge?: number;
+  cancellation_note?: string;
 };
 
 // Helpers for HH:mm <-> timestamptz
@@ -551,6 +553,8 @@ const lessonFromRow = (r: any): Lesson => {
     amount_paid: r.amount_paid != null ? Number(r.amount_paid) : undefined,
     status: (r.status ?? 'Scheduled') as LessonStatus,
     pre_check_completed_at: r.pre_check_completed_at ?? undefined,
+    cancellation_charge: r.cancellation_charge != null ? Number(r.cancellation_charge) : undefined,
+    cancellation_note: r.cancellation_note ?? undefined,
   };
 };
 
@@ -643,6 +647,8 @@ export type UpdateLessonInput = Partial<{
   payment_method: 'bank_transfer' | 'card' | 'cash' | null;
   status: LessonStatus;
   pre_check_completed_at: string;
+  cancellation_charge: number | null;
+  cancellation_note: string | null;
 }>;
 
 export async function updateLesson(id: string, patch: UpdateLessonInput): Promise<Lesson | undefined> {
@@ -659,6 +665,8 @@ export async function updateLesson(id: string, patch: UpdateLessonInput): Promis
   if (patch.payment_method !== undefined) dbPatch.payment_method = patch.payment_method;
   if (patch.status !== undefined) dbPatch.status = patch.status;
   if (patch.pre_check_completed_at !== undefined) dbPatch.pre_check_completed_at = patch.pre_check_completed_at;
+  if (patch.cancellation_charge !== undefined) dbPatch.cancellation_charge = patch.cancellation_charge;
+  if (patch.cancellation_note !== undefined) dbPatch.cancellation_note = patch.cancellation_note;
 
   if (patch.date && patch.start_time) dbPatch.start_time = combineToISO(patch.date, patch.start_time);
   if (patch.date && patch.end_time)   dbPatch.end_time   = combineToISO(patch.date, patch.end_time);

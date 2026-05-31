@@ -445,7 +445,18 @@ agent_communication:
 
 
 frontend:
-  - task: "Pricing & Packages — hourly rate + lesson_packages CRUD (instructor-side + student wallet gating)"
+  - task: "Lesson Cancellation charge prompt (full / partial / waive) + cancelled-lesson greyed display"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/LessonToolsSheet.tsx, /app/frontend/app/lesson-diary-screen.tsx, /app/frontend/src/supabaseDb.ts, /app/frontend/src/mockDb.ts, /app/supabase/migrations/011_lesson_cancellation_meta.sql"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Implemented per user spec: when an instructor cancels a lesson via LessonToolsSheet, a new modal offers THREE explicit options: (a) Apply full charge — keeps amount_paid as the agreed price and writes cancellation_note='Cancelled — full charge applied (£X)'; (b) Apply partial charge… — opens a sub-screen with a £ TextInput, quick % chips (25/50/75 of the agreed price), and writes amount_paid=user_value + cancellation_note='Cancelled — partial charge (£X)'; (c) Waive charge — sets amount_paid=0 + cancellation_note='Cancelled — charge waived'. All three paths additionally write cancellation_charge:numeric and status:'Cancelled' to the lessons row. NEW Migration 011 (cancellation_note text, cancellation_charge numeric(10,2)) added — user MUST apply this in Supabase SQL editor before the new fields will persist (UI falls back to mockDb if the columns are missing). lesson-diary-screen now KEEPS cancelled lessons visible (previously they were filtered out) and renders them with greyBackground (#E5E7EB) + textDecorationLine:'line-through' on the time/student/topic + a small 'Cancelled' tag, in both Day and Week views. The 1-tap navigation 🧭 button and gap-warning triangle are hidden on cancelled lessons. Re-opening a cancelled lesson in the LessonToolsSheet now shows a 'Cancellation record' info box with the retained charge + audit note. ALSO fixed a pre-existing bug: cancelModalStyles was referenced but never defined — added the StyleSheet definition (the original 2-option modal would have crashed at render). Not yet tested by user — awaiting Migration 011 apply + visual verification."
+
     implemented: true
     working: true
     file: "/app/frontend/app/packages-screen.tsx, /app/frontend/app/profile-screen.tsx, /app/frontend/app/wallet-screen.tsx"

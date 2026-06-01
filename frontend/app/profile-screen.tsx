@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown, ShieldCheck, Wallet, Copy, IdCard, Car, Navigation as NavIcon } from 'lucide-react-native';
+import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown, ShieldCheck, Wallet, Copy, IdCard, Car, Navigation as NavIcon, Users } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { mockDb, instructorProfile } from '../src/mockDb';
@@ -13,6 +13,7 @@ import { copyToClipboard } from '../src/tools';
 import { useInstructorProfile, updatePreferredNavApp } from '../src/useSupabaseData';
 import type { NavApp } from '../src/supabaseDb';
 import { CalendarFeedCard } from '../src/CalendarFeedCard';
+import { ContactsImportSheet } from '../src/ContactsImportSheet';
 import { Alert, TextInput } from 'react-native';
 
 export default function ProfileScreen() {
@@ -30,6 +31,7 @@ export default function ProfileScreen() {
     if (sbInstructor?.preferred_nav_app) setNavApp(sbInstructor.preferred_nav_app);
   }, [sbInstructor?.preferred_nav_app]);
   const [savingNav, setSavingNav] = useState(false);
+  const [contactsImportOpen, setContactsImportOpen] = useState(false);
   const onPickNavApp = async (app: NavApp) => {
     const prev = navApp;
     setNavApp(app); // optimistic
@@ -210,6 +212,17 @@ export default function ProfileScreen() {
         {role === 'instructor' && (
           <TouchableOpacity
             style={styles.linkRow}
+            onPress={() => setContactsImportOpen(true)}
+            testID="link-import-contacts"
+          >
+            <Users size={18} color={theme.colors.primary} />
+            <Text style={styles.linkRowText}>Import students from Contacts</Text>
+          </TouchableOpacity>
+        )}
+
+        {role === 'instructor' && (
+          <TouchableOpacity
+            style={styles.linkRow}
             onPress={() => router.push('/unavailabilities-screen' as any)}
             testID="link-unavailabilities"
           >
@@ -251,6 +264,12 @@ export default function ProfileScreen() {
       </ScrollView>
 
       <BottomNav role={role} />
+
+      {/* Contacts import — Profile entry point (manual re-trigger after dismissal) */}
+      <ContactsImportSheet
+        visible={contactsImportOpen}
+        onClose={() => setContactsImportOpen(false)}
+      />
     </SafeAreaView>
   );
 }

@@ -33,6 +33,7 @@ import { BottomNav } from '../src/BottomNav';
 import { SimpleBarChart } from '../src/SimpleBarChart';
 import { isPro, FREE_STUDENT_LIMIT, PRO_PRICE_GBP } from '../src/proPlan';
 import { isPaidTier } from '../src/tiers';
+import { ContactsImportBanner } from '../src/ContactsImportBanner';
 
 export default function InstructorHomeScreen() {
   const router = useRouter();
@@ -97,6 +98,11 @@ export default function InstructorHomeScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         testID="instructor-home-scroll"
       >
+        {/* Onboarding — Import students from device Contacts.
+            Auto-hides once handled (server-side via instructors.contacts_import_dismissed_at)
+            or once the instructor has ≥3 students. */}
+        <ContactsImportBanner studentCount={kpis.total} isInstructor={true} />
+
         {/* Upgrade banner (Free tier only) */}
         {!isPro(user?.subscription_status) && (
           <TouchableOpacity

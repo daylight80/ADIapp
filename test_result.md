@@ -445,7 +445,18 @@ agent_communication:
 
 
 frontend:
-  - task: "Unavailabilities — availability_blocks table, grey diary bands, hard-block lesson save on overlap (P1)"
+  - task: "Import Students from Contacts — instructor onboarding banner + Profile entry point (P1)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/ContactsImportBanner.tsx, /app/frontend/src/ContactsImportSheet.tsx, /app/frontend/app/home-screen.tsx (banner injected at top of ScrollView), /app/frontend/app/profile-screen.tsx (manual re-trigger link), /app/frontend/app.json (NSContactsUsageDescription + Android READ_CONTACTS), /app/supabase/migrations/014_contacts_import_dismissal.sql"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Per user spec (1a · 2a · 3c · 4a · 5a · 6a) + 'imported students set to status=New'. Built two components: ContactsImportBanner (the privacy-first onboarding card with prominent ORANGE 'Import Students from Contacts' button + muted-purple 'I'll Do This Later' link + white-text disclaimer copying the user's exact wording 'You will be asked to grant permission to access your contacts. This is only used to import student names and phone numbers.'), and ContactsImportSheet (the actual modal that requests expo-contacts permission, lists every phone-contact with multi-select checkboxes + Select-all toggle + search field, and bulk-creates students with name+phone only — provisional_licence='PENDING', no email/address — status defaults to 'New' via addStudent()). Banner auto-shows on the instructor home screen when studentCount < 3 AND the instructor hasn't dismissed before (Migration 014 adds instructors.contacts_import_dismissed_at). Both CTAs persist the dismissal — primary tap opens the sheet AND marks dismissed; secondary marks dismissed only. Re-access via Profile → 'Import students from Contacts' link (always available). Web fallback per spec 6a: Smartphone icon + 'Open the app on your phone' copy. Permissions handled gracefully — denied state shows AlertTriangle with explanation. After successful import, a green-check summary screen shows '{n} students imported' with guidance to add email/address/licence later on the Students screen. Pre-migration safe: markContactsImportDismissed silently no-ops if column missing; isContactsImportDismissed returns false in catch — banner just stays visible until user dismisses again or migration is applied. expo-contacts@15.0.11 installed via yarn expo install. NSContactsUsageDescription + READ_CONTACTS permission strings added to app.json. Verified end-to-end on web: Profile link renders, sheet opens with web fallback ('Open the app on your phone'), banner stays hidden for Alex (school owner with >=3 students). NEEDS Migration 014 applied + real-device test for the contacts permission/picker flow."
+
     implemented: true
     working: "NA"
     file: "/app/frontend/src/UnavailabilityModal.tsx, /app/frontend/app/lesson-diary-screen.tsx, /app/frontend/app/unavailabilities-screen.tsx, /app/frontend/src/supabaseDb.ts (AvailabilityBlock CRUD + overlapsAnyBlock helper), /app/frontend/src/useSupabaseData.ts (useAvailabilityBlocks hook + create/patch/remove mutators), /app/frontend/app/profile-screen.tsx (Unavailabilities link added under Pricing & packages, instructor-only), /app/supabase/migrations/013_availability_blocks.sql"

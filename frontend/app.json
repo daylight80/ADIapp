@@ -12,7 +12,8 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Scan fuel and maintenance receipts",
-        "NSPhotoLibraryUsageDescription": "Attach receipt photos to expenses"
+        "NSPhotoLibraryUsageDescription": "Attach receipt photos to expenses",
+        "NSContactsUsageDescription": "Import student names and phone numbers"
       }
     },
     "android": {
@@ -23,7 +24,8 @@
       "edgeToEdgeEnabled": true,
       "permissions": [
         "CAMERA",
-        "READ_MEDIA_IMAGES"
+        "READ_MEDIA_IMAGES",
+        "READ_CONTACTS"
       ]
     },
     "web": {

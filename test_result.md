@@ -445,7 +445,18 @@ agent_communication:
 
 
 frontend:
-  - task: "Import Students from Contacts — instructor onboarding banner + Profile entry point (P1)"
+  - task: "Date-range Income & Expense CSV report (P1)"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/income-expense-report-screen.tsx, /app/frontend/src/csvExport.ts, /app/frontend/app/profile-screen.tsx (link added)"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Built dedicated /income-expense-report-screen with From/To DateField pickers + quick-pick chips (This month / Last month / This year / UK Tax year 6 Apr-5 Apr). 'Generate report' fetches lessons (Completed amount_paid + Cancelled cancellation_charge > 0 per Migration 011) and expense_receipts (Migration 008) in the chosen window, scoped to the instructor via auth_user_id lookup. Renders an inline Summary card (Income, Expenses, Net with positive/negative tint) + preview lists of first 8 rows of each section + 'Download CSV' button. CSV builder in /app/frontend/src/csvExport.ts emits RFC-4180-escaped rows (handles commas, quotes, newlines in vendor/note cells) and writes a header block followed by INCOME section, EXPENSES section, and SUMMARY block. Download mechanism: web uses Blob + hidden anchor click; native uses expo-file-system writeAsStringAsync to cache dir + expo-sharing.shareAsync to open the OS Share Sheet with text/csv MIME. Pre-Migration 008 safe: catch around listReceipts converts schema-cache errors to a non-blocking warning '(Migration 008) not applied — Income figures only' and continues rendering income figures. Verified end-to-end on web: navigated to screen → selected Last month → Generate → summary card displayed £38.00 income (the May 27 Roundabouts practice lesson) + £0 expenses + £38 net → Download CSV → adi-pro-income-expense_2026-05-01_to_2026-05-31.csv downloaded successfully → inspected file content; header, sections, totals and amounts all correct."
+
     implemented: true
     working: "NA"
     file: "/app/frontend/src/ContactsImportBanner.tsx, /app/frontend/src/ContactsImportSheet.tsx, /app/frontend/app/home-screen.tsx (banner injected at top of ScrollView), /app/frontend/app/profile-screen.tsx (manual re-trigger link), /app/frontend/app.json (NSContactsUsageDescription + Android READ_CONTACTS), /app/supabase/migrations/014_contacts_import_dismissal.sql"

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown, ShieldCheck, Wallet, Copy, IdCard, Car, Navigation as NavIcon, Users } from 'lucide-react-native';
+import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown, ShieldCheck, Wallet, Copy, IdCard, Car, Navigation as NavIcon, Users, FileSpreadsheet } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { mockDb, instructorProfile } from '../src/mockDb';
@@ -206,6 +206,17 @@ export default function ProfileScreen() {
           >
             <Wallet size={18} color={theme.colors.accent} />
             <Text style={styles.linkRowText}>Pricing & packages</Text>
+          </TouchableOpacity>
+        )}
+
+        {role === 'instructor' && (
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => router.push('/income-expense-report-screen' as any)}
+            testID="link-income-expense"
+          >
+            <FileSpreadsheet size={18} color={theme.colors.success} />
+            <Text style={styles.linkRowText}>Income & expense report (CSV)</Text>
           </TouchableOpacity>
         )}
 

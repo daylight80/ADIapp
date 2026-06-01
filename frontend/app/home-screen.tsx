@@ -34,6 +34,9 @@ import { SimpleBarChart } from '../src/SimpleBarChart';
 import { isPro, FREE_STUDENT_LIMIT, PRO_PRICE_GBP } from '../src/proPlan';
 import { isPaidTier } from '../src/tiers';
 import { ContactsImportBanner } from '../src/ContactsImportBanner';
+import { useInstructorTestOutcomes } from '../src/useSupabaseData';
+import { computeTestKpis } from '../src/supabaseDb';
+import { Trophy } from 'lucide-react-native';
 
 export default function InstructorHomeScreen() {
   const router = useRouter();
@@ -65,6 +68,12 @@ export default function InstructorHomeScreen() {
   const mtd = mockDb.getMTDStats();
   const todayLessons = mockDb.listTodayLessons();
   const earnings = mockDb.getEarningsByMonth();
+
+  // Real DVSA test outcomes — drives the Pass Rate KPI and the breakdown card.
+  // Only fetched for paid tiers (Growth+) per user spec; the hook itself is
+  // cheap (single SELECT) but we still gate display below.
+  const { rows: testOutcomes } = useInstructorTestOutcomes();
+  const testKpis = computeTestKpis(testOutcomes);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -137,11 +146,57 @@ export default function InstructorHomeScreen() {
         {isPaidTier(user?.tier) ? (
           <>
             <View style={[styles.kpiGrid, isTablet && styles.kpiGridTablet]} testID="kpi-grid">
-              <KPI label="Pass Rate" value={`${kpis.passRate}%`} icon={<TrendingUp size={20} color={theme.colors.success} />} bg="#D1FAE5" />
+              <KPI
+                label="Pass Rate"
+                value={testKpis.total > 0 ? `${testKpis.passRatePct}%` : '—'}
+                icon={<TrendingUp size={20} color={theme.colors.success} />}
+                bg="#D1FAE5"
+              />
               <KPI label="Active Students" value={kpis.active.toString()} icon={<Users size={20} color={theme.colors.primary} />} bg={theme.colors.primaryLight} />
               <KPI label="Test Ready" value={kpis.testReady.toString()} icon={<CheckCircle2 size={20} color={theme.colors.accent} />} bg="#FFF7ED" />
               <KPI label="Completed" value={kpis.completed.toString()} icon={<CalendarDays size={20} color={theme.colors.info} />} bg="#E0F2FE" />
             </View>
+
+            {/* Test Performance — DVSA-only breakdown using real test_outcomes data. */}
+            <Card style={styles.testPerfCard} testID="card-test-performance">
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Trophy size={16} color={theme.colors.primary} />
+                <Text style={styles.testPerfTitle}>Test performance</Text>
+              </View>
+              {testKpis.total === 0 ? (
+                <Text style={styles.testPerfEmpty}>
+                  No test outcomes logged yet. Open a student profile → “Log test” to record results.
+                </Text>
+              ) : (
+                <>
+                  <View style={styles.testPerfRow}>
+                    <View style={styles.testPerfTile}>
+                      <Text style={styles.testPerfLabel}>Practical</Text>
+                      <Text style={styles.testPerfValue}>{testKpis.practicalPassRatePct}%</Text>
+                      <Text style={styles.testPerfMeta}>
+                        {testKpis.practicalPasses}/{testKpis.practicalTotal} passed
+                      </Text>
+                    </View>
+                    <View style={styles.testPerfTile}>
+                      <Text style={styles.testPerfLabel}>Theory</Text>
+                      <Text style={styles.testPerfValue}>{testKpis.theoryPassRatePct}%</Text>
+                      <Text style={styles.testPerfMeta}>
+                        {testKpis.theoryPasses}/{testKpis.theoryTotal} passed
+                      </Text>
+                    </View>
+                    <View style={styles.testPerfTile}>
+                      <Text style={styles.testPerfLabel}>Overall</Text>
+                      <Text style={[styles.testPerfValue, { color: theme.colors.success }]}>
+                        {testKpis.passRatePct}%
+                      </Text>
+                      <Text style={styles.testPerfMeta}>
+                        {testKpis.passes}/{testKpis.total} passed
+                      </Text>
+                    </View>
+                  </View>
+                </>
+              )}
+            </Card>
           </>
         ) : (
           <TouchableOpacity
@@ -320,6 +375,20 @@ const styles = StyleSheet.create({
   qaDiary: { backgroundColor: theme.colors.primary },
   qaReceipts: { backgroundColor: '#0EA5E9' },
   lockedCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA', marginBottom: 12 },
+  // Test Performance card (Growth+ only — DVSA test_outcomes aggregate)
+  testPerfCard: { marginBottom: 12, gap: 10 },
+  testPerfTitle: { fontSize: 14, fontWeight: '800', color: theme.colors.text },
+  testPerfEmpty: { fontSize: 12, color: theme.colors.textMuted, lineHeight: 18 },
+  testPerfRow: { flexDirection: 'row', gap: 8 },
+  testPerfTile: {
+    flex: 1, padding: 10, borderRadius: 10,
+    backgroundColor: theme.colors.background,
+    borderWidth: 1, borderColor: theme.colors.border,
+    alignItems: 'center', gap: 2,
+  },
+  testPerfLabel: { fontSize: 11, fontWeight: '700', color: theme.colors.textMuted, letterSpacing: 0.4 },
+  testPerfValue: { fontSize: 22, fontWeight: '800', color: theme.colors.text },
+  testPerfMeta: { fontSize: 10, color: theme.colors.textMuted },
   lockedIconWrap: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#FED7AA', alignItems: 'center', justifyContent: 'center' },
   lockedTitle: { fontSize: 14, fontWeight: '800', color: theme.colors.text, marginBottom: 2 },
   lockedSub: { fontSize: 12, color: theme.colors.textMuted, lineHeight: 16 },

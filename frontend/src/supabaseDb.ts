@@ -1542,3 +1542,169 @@ export function overlapsAnyBlock(
     return bs < e && be > s;
   });
 }
+
+// ===========================================================================
+// Test outcomes (Migration 015) — DVSA theory & practical test results
+// ===========================================================================
+
+export type TestType = 'theory' | 'practical';
+export type TestResult = 'pass' | 'fail';
+
+/** DVSA common mark-sheet preset chips for retest reasons. */
+export const TEST_RETEST_REASONS = [
+  'Junctions (observation)',
+  'Mirrors (signalling)',
+  'Use of speed',
+  'Move off (control)',
+  'Reverse parking',
+  'Roundabouts',
+  'Response to signs/signals',
+  'Steering',
+  'Positioning (normal driving)',
+] as const;
+
+export type TestOutcome = {
+  id: string;
+  instructor_id: string;
+  school_id: string | null;
+  student_id: string;
+  test_type: TestType;
+  test_date: string;              // ISO date YYYY-MM-DD
+  result: TestResult;
+  // Practical
+  driving_faults?: number | null;
+  serious_faults?: number | null;
+  dangerous_faults?: number | null;
+  // Theory
+  theory_mc_score?: number | null;
+  theory_hp_score?: number | null;
+  // Both
+  test_centre?: string | null;
+  examiner_notes?: string | null;
+  retest_reasons: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type AddTestOutcomeInput = {
+  student_id: string;
+  test_type: TestType;
+  test_date: string;
+  result: TestResult;
+  driving_faults?: number | null;
+  serious_faults?: number | null;
+  dangerous_faults?: number | null;
+  theory_mc_score?: number | null;
+  theory_hp_score?: number | null;
+  test_centre?: string | null;
+  examiner_notes?: string | null;
+  retest_reasons?: string[];
+};
+
+function isMissingTestOutcomesTable(msg: string): boolean {
+  return /test_outcomes/i.test(msg) && /(does not exist|schema cache)/i.test(msg);
+}
+
+export async function addTestOutcome(input: AddTestOutcomeInput): Promise<TestOutcome> {
+  const { instructor_id, school_id } = await currentInstructorIdentity();
+  const row: any = {
+    instructor_id,
+    school_id,
+    student_id: input.student_id,
+    test_type: input.test_type,
+    test_date: input.test_date,
+    result: input.result,
+    retest_reasons: input.retest_reasons || [],
+  };
+  if (input.test_centre !== undefined) row.test_centre = input.test_centre;
+  if (input.examiner_notes !== undefined) row.examiner_notes = input.examiner_notes;
+  if (input.test_type === 'practical') {
+    row.driving_faults = input.driving_faults ?? null;
+    row.serious_faults = input.serious_faults ?? null;
+    row.dangerous_faults = input.dangerous_faults ?? null;
+  } else {
+    row.theory_mc_score = input.theory_mc_score ?? null;
+    row.theory_hp_score = input.theory_hp_score ?? null;
+  }
+  const { data, error } = await supabase
+    .from('test_outcomes')
+    .insert(row)
+    .select('*')
+    .single();
+  if (error) {
+    if (isMissingTestOutcomesTable(error.message || '')) {
+      throw new Error('Please apply Migration 015 first (test_outcomes table).');
+    }
+    throw error;
+  }
+  return data as TestOutcome;
+}
+
+export async function listTestOutcomesForStudent(studentId: string): Promise<TestOutcome[]> {
+  const { data, error } = await supabase
+    .from('test_outcomes')
+    .select('*')
+    .eq('student_id', studentId)
+    .order('test_date', { ascending: false });
+  if (error) {
+    if (isMissingTestOutcomesTable(error.message || '')) return [];
+    throw error;
+  }
+  return (data || []) as TestOutcome[];
+}
+
+export async function listTestOutcomesForInstructor(): Promise<TestOutcome[]> {
+  const { instructor_id } = await currentInstructorIdentity();
+  const { data, error } = await supabase
+    .from('test_outcomes')
+    .select('*')
+    .eq('instructor_id', instructor_id)
+    .order('test_date', { ascending: false });
+  if (error) {
+    if (isMissingTestOutcomesTable(error.message || '')) return [];
+    throw error;
+  }
+  return (data || []) as TestOutcome[];
+}
+
+export async function deleteTestOutcome(id: string): Promise<void> {
+  const { error } = await supabase.from('test_outcomes').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/** Compute aggregate KPIs across an instructor's test history. */
+export type TestKpis = {
+  total: number;
+  passes: number;
+  fails: number;
+  passRatePct: number;     // 0–100, integer
+  practicalTotal: number;
+  practicalPasses: number;
+  practicalPassRatePct: number;
+  theoryTotal: number;
+  theoryPasses: number;
+  theoryPassRatePct: number;
+};
+
+export function computeTestKpis(rows: TestOutcome[]): TestKpis {
+  const total = rows.length;
+  const passes = rows.filter((r) => r.result === 'pass').length;
+  const practical = rows.filter((r) => r.test_type === 'practical');
+  const theory = rows.filter((r) => r.test_type === 'theory');
+  const pP = practical.filter((r) => r.result === 'pass').length;
+  const tP = theory.filter((r) => r.result === 'pass').length;
+  const pct = (n: number, d: number) => (d === 0 ? 0 : Math.round((n / d) * 100));
+  return {
+    total,
+    passes,
+    fails: total - passes,
+    passRatePct: pct(passes, total),
+    practicalTotal: practical.length,
+    practicalPasses: pP,
+    practicalPassRatePct: pct(pP, practical.length),
+    theoryTotal: theory.length,
+    theoryPasses: tP,
+    theoryPassRatePct: pct(tP, theory.length),
+  };
+}
+

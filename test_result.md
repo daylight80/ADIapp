@@ -445,7 +445,18 @@ agent_communication:
 
 
 frontend:
-  - task: "Recurring lessons — weekly bulk insert with auto-skip on clashes/unavailabilities (P1)"
+  - task: "Test Outcomes — DVSA theory/practical pass-fail log + retest reasons (P1)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/TestOutcomeModal.tsx, /app/frontend/app/student-lifecycle-screen.tsx (Test outcomes card on Overview tab with Log test button + outcome list + long-press to delete), /app/frontend/src/supabaseDb.ts (TestOutcome type + AddTestOutcomeInput + addTestOutcome/listTestOutcomesForStudent/listTestOutcomesForInstructor/deleteTestOutcome/computeTestKpis + TEST_RETEST_REASONS preset chips), /app/frontend/src/useSupabaseData.ts (useTestOutcomesForStudent + useInstructorTestOutcomes + createTestOutcome + removeTestOutcome), /app/supabase/migrations/015_test_outcomes.sql"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Per user defaults (Both theory+practical, full DVSA mark-sheet depth, preset retest chips, entry from Student Profile, per-student history visible immediately; instructor-dashboard KPI deferred for follow-up; DVSA two-change tracker is P2 backlog). Migration 015 adds public.test_outcomes (id, instructor_id, school_id, student_id, test_type ENUM ['theory','practical'], test_date, result ENUM ['pass','fail'], driving_faults/serious_faults/dangerous_faults for practical, theory_mc_score(0-50)/theory_hp_score(0-75) for theory, test_centre, examiner_notes, retest_reasons text[] for multi-select chips, created_at/updated_at) with chk constraints, two btree indexes (instructor+date desc, student+date desc), touch-updated_at trigger, and 3 RLS policies: instructor manages own rows, owner reads school-wide rows, student reads own rows. TestOutcomeModal supports Practical (3 fault counts) vs Theory (2 score fields) toggling, Pass/Fail buttons (green/red), date picker, test centre, preset retest chips (9 DVSA common faults: Junctions observation/Mirrors signalling/Use of speed/Move off control/Reverse parking/Roundabouts/Response to signs and signals/Steering/Positioning normal driving) shown only on Fail, and free-text examiner notes. Per-student card on student-lifecycle-screen.tsx Overview tab shows 'No tests recorded yet.' empty state, list of outcomes with pass/fail badge + date + test centre + faults/score summary + comma-joined retest reasons. Long-press a row to delete (window.confirm guard). NEEDS Migration 015 to be applied (verified pre-migration: 'Please apply Migration 015 first' shown in modal as expected)."
+
     implemented: true
     working: true
     file: "/app/frontend/app/lesson-diary-screen.tsx (handleAdd refactored for iteration + Repeat-weekly Switch + chip/numeric weeks input + dynamic Save button label)"

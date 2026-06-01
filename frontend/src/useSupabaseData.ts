@@ -504,3 +504,52 @@ export async function removeAvailabilityBlock(id: string) {
   await db.deleteAvailabilityBlock(id);
   bump();
 }
+
+// ---------------------------------------------------------------------------
+// Hooks — Test outcomes (Migration 015)
+// ---------------------------------------------------------------------------
+
+export function useTestOutcomesForStudent(studentId?: string | null) {
+  const version = useVersion();
+  const [rows, setRows] = useState<db.TestOutcome[]>([]);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (!studentId) { setRows([]); return; }
+    let cancelled = false;
+    setLoading(true);
+    db.listTestOutcomesForStudent(studentId)
+      .then((r) => { if (!cancelled) setRows(r); })
+      .catch(() => { if (!cancelled) setRows([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [studentId, version]);
+  return { rows, loading };
+}
+
+export function useInstructorTestOutcomes() {
+  const version = useVersion();
+  const [rows, setRows] = useState<db.TestOutcome[]>([]);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    db.listTestOutcomesForInstructor()
+      .then((r) => { if (!cancelled) setRows(r); })
+      .catch(() => { if (!cancelled) setRows([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [version]);
+  return { rows, loading };
+}
+
+export async function createTestOutcome(input: db.AddTestOutcomeInput) {
+  const row = await db.addTestOutcome(input);
+  bump();
+  return row;
+}
+
+export async function removeTestOutcome(id: string) {
+  await db.deleteTestOutcome(id);
+  bump();
+}
+

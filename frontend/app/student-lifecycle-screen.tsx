@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown, Pencil, Trash2, Trophy } from 'lucide-react-native';
+import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown, Pencil, Trash2, Trophy, CircleX, Plus } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb } from '../src/mockDb';
 import {
@@ -12,6 +12,8 @@ import {
   removeStudent,
   useLessonsForStudent,
   useCompetencies,
+  useTestOutcomesForStudent,
+  removeTestOutcome,
 } from '../src/useSupabaseData';
 import { Card, ProgressBar, StatusBadge, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
@@ -21,6 +23,7 @@ import { isPro } from '../src/proPlan';
 import { isPaidTier } from '../src/tiers';
 import { PaywallModal } from '../src/PaywallModal';
 import { buildInvoiceHtml, generateAndShareInvoicePdf } from '../src/invoice';
+import { TestOutcomeModal } from '../src/TestOutcomeModal';
 
 type Tab = 'overview' | 'lessons' | 'competency' | 'earnings';
 const TABS: { key: Tab; label: string }[] = [
@@ -37,6 +40,7 @@ export default function StudentLifecycleScreen() {
   const pro = isPaidTier(user?.tier);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [busyInvoice, setBusyInvoice] = useState(false);
+  const [testOutcomeOpen, setTestOutcomeOpen] = useState(false);
   const id = (params.id as string) || '';
   const { student: sbStudent, loading: studentLoading } = useStudent(id);
   // Fall back to mockDb until lessons + competencies are migrated in the next slice.
@@ -45,6 +49,7 @@ export default function StudentLifecycleScreen() {
   const lessons = useMemo(() => (sbLessons && sbLessons.length > 0 ? sbLessons : (student ? mockDb.listLessonsForStudent(student.id) : [])), [sbLessons, student?.id]);
   // DVSA Competency Tracker — live from Supabase (dvsa_syllabus_tracking)
   const { competencies: sbCompetencies, loading: compLoading } = useCompetencies(student?.id);
+  const { rows: testOutcomes } = useTestOutcomesForStudent(student?.id);
   const competencies = useMemo(
     () => (sbCompetencies && sbCompetencies.length > 0
       ? sbCompetencies
@@ -278,6 +283,64 @@ export default function StudentLifecycleScreen() {
                 driving for the next two lessons and review manoeuvres before the test.
               </Text>
             </Card>
+
+            <Card style={{ gap: 10 }} testID="card-test-outcomes">
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={styles.cardTitle}>Test outcomes</Text>
+                <TouchableOpacity
+                  onPress={() => setTestOutcomeOpen(true)}
+                  style={styles.logTestBtn}
+                  testID="btn-log-test"
+                >
+                  <Plus size={14} color="#fff" />
+                  <Text style={styles.logTestText}>Log test</Text>
+                </TouchableOpacity>
+              </View>
+              {testOutcomes.length === 0 ? (
+                <Text style={styles.empty}>No tests recorded yet.</Text>
+              ) : testOutcomes.map((o) => {
+                const passed = o.result === 'pass';
+                const dateLabel = new Date(o.test_date + 'T12:00:00').toLocaleDateString('en-GB', {
+                  day: 'numeric', month: 'short', year: 'numeric',
+                });
+                return (
+                  <TouchableOpacity
+                    key={o.id}
+                    style={styles.outcomeRow}
+                    onLongPress={async () => {
+                      const yes = typeof window !== 'undefined' && typeof window.confirm === 'function'
+                        ? window.confirm('Delete this test outcome?')
+                        : true;
+                      if (yes) await removeTestOutcome(o.id);
+                    }}
+                    testID={`outcome-row-${o.id}`}
+                  >
+                    <View style={[styles.outcomeBadge, passed ? styles.outcomePass : styles.outcomeFail]}>
+                      {passed ? <Trophy size={14} color="#fff" /> : <CircleX size={14} color="#fff" />}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.outcomeTitle}>
+                        {o.test_type === 'practical' ? 'Practical' : 'Theory'} · {passed ? 'Pass' : 'Fail'}
+                      </Text>
+                      <Text style={styles.outcomeMeta} numberOfLines={1}>
+                        {dateLabel}
+                        {o.test_centre ? ` · ${o.test_centre}` : ''}
+                        {o.test_type === 'practical' && o.driving_faults != null ? ` · ${o.driving_faults} faults` : ''}
+                        {o.test_type === 'theory' && o.theory_mc_score != null ? ` · ${o.theory_mc_score}/50 MC` : ''}
+                      </Text>
+                      {o.retest_reasons && o.retest_reasons.length > 0 && (
+                        <Text style={styles.outcomeMeta} numberOfLines={2}>
+                          {o.retest_reasons.join(' · ')}
+                        </Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+              {testOutcomes.length > 0 && (
+                <Text style={[styles.empty, { fontStyle: 'italic' }]}>Long-press a row to delete.</Text>
+              )}
+            </Card>
           </View>
         )}
 
@@ -433,6 +496,15 @@ export default function StudentLifecycleScreen() {
           </TouchableOpacity>
         </ScrollView>
       </BottomSheet>
+
+      {/* Test outcome modal */}
+      {student && (
+        <TestOutcomeModal
+          visible={testOutcomeOpen}
+          studentId={student.id}
+          onClose={() => setTestOutcomeOpen(false)}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -540,4 +612,24 @@ const styles = StyleSheet.create({
   saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   cancelBtn: { height: 44, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', marginTop: 8, marginBottom: 8 },
   cancelBtnText: { color: theme.colors.textMuted, fontWeight: '600', fontSize: 14 },
+  // Test outcomes card
+  logTestBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 6,
+    backgroundColor: theme.colors.primary, borderRadius: 8,
+  },
+  logTestText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  outcomeRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border,
+  },
+  outcomeBadge: {
+    width: 32, height: 32, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  outcomePass: { backgroundColor: theme.colors.success },
+  outcomeFail: { backgroundColor: theme.colors.danger },
+  outcomeTitle: { fontSize: 14, fontWeight: '800', color: theme.colors.text },
+  outcomeMeta: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
+  empty: { fontSize: 12, color: theme.colors.textMuted, paddingVertical: 4 },
 });

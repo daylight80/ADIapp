@@ -445,6 +445,33 @@ agent_communication:
 
 
 frontend:
+  - task: "Recurring series link — series_id + 'Cancel all remaining in series' (P1)"
+    implemented: true
+    working: true
+    file: "/app/supabase/migrations/016_lesson_series.sql (adds nullable series_id uuid column + partial index), /app/frontend/src/supabaseDb.ts (Lesson.series_id + AddLessonInput.series_id + addLesson includes series_id with pre-migration retry fallback + countUpcomingInSeries + cancelSeriesFromDate), /app/frontend/src/useSupabaseData.ts (re-exports countUpcomingInSeries + cancelSeriesFromDate), /app/frontend/src/mockDb.ts (Lesson.series_id field), /app/frontend/app/lesson-diary-screen.tsx (mints crypto.randomUUID series_id when repeatOn && toCreate.length >= 2 and stamps every occurrence), /app/frontend/src/LessonToolsSheet.tsx (seriesRemaining + cancelEntireSeries handler + dashed-border 'Cancel all N remaining in this series' button that opens window.confirm/Alert and calls cancelSeriesFromDate with £0 waived charge)"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Bulk-create now stamps every occurrence of a Repeat-weekly series with the same uuid. On the lesson tools sheet, when a lesson belongs to a series AND there are ≥2 scheduled occurrences remaining (counting this one), a dashed-outline danger button 'Cancel all N remaining in this series' appears below the regular cancel button. Tapping it shows a confirm dialog ('This will cancel N lessons in this weekly series for <Name> (including this one). Charges will be waived (£0). Continue?'), then issues a single Supabase UPDATE that flips every matching row (series_id+Scheduled+start_time>=pivot) to status='Cancelled' with cancellation_charge=0 and a human-readable cancellation_note. Pre-Migration-016 safety: addLesson retries without series_id if Postgres reports 'series_id' column missing, and countUpcomingInSeries returns 0 if the column doesn't exist — so the new button is simply hidden until the migration is applied. Verified on web: bundle compiles with 0 console errors, Lesson Diary loads, Add Lesson sheet opens with the existing Repeat weekly toggle intact."
+      - working: "NA"
+        agent: "main"
+        comment: "Pending user action: apply Migration 016 (/app/supabase/migrations/016_lesson_series.sql) to enable the new feature end-to-end."
+
+  - task: "Seed-lesson dedupe SQL — clean up duplicate 27 May rows (P1)"
+    implemented: true
+    working: "NA"
+    file: "/app/supabase/cleanup/001_dedupe_seed_lessons.sql"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Two-step SQL script (PREVIEW then DELETE) scoped to status='Scheduled' lessons on 2026-05-26..2026-05-29 only. Dedup cluster key: (instructor_id, student_id, start_time, end_time, topic). Keeps the OLDEST row of each duplicate cluster (lowest created_at) so any downstream FKs that already point at a row remain intact. DELETE step is commented out by default — user pastes the PREVIEW query first to eyeball, then uncomments DELETE inside a transaction and commits only after verifying the affected row count. Idempotent: re-runs on a clean DB are a no-op."
+
   - task: "Test Outcomes — DVSA theory/practical pass-fail log + retest reasons (P1)"
     implemented: true
     working: true

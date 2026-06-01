@@ -19,6 +19,7 @@ import { theme } from './theme';
 import { Lesson, Student, mockDb } from './mockDb';
 import { patchLesson } from './useSupabaseData';
 import { useStudent } from './useSupabaseData';
+import { countUpcomingInSeries, cancelSeriesFromDate } from './useSupabaseData';
 import { openNavigation, openSmsComposer } from './tools';
 import { fireInstantNotification } from './notifications';
 import { Badge } from './ui';
@@ -53,6 +54,13 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   const [paymentMethod, setPaymentMethod] = useState<'bank_transfer' | 'card' | 'cash' | null>(null);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // ---- Series state (Migration 016) --------------------------------------
+  // Number of remaining (Scheduled) occurrences in this lesson's series,
+  // STARTING FROM and INCLUDING this lesson. So a row of "3 remaining" means
+  // tapping the bulk-cancel button will cancel THIS lesson + the next two.
+  const [seriesRemaining, setSeriesRemaining] = useState(0);
+  const [seriesBusy, setSeriesBusy] = useState(false);
 
   useEffect(() => {
     setEta(null);
@@ -92,6 +100,63 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
     setPaymentMethod((lesson as any).payment_method ?? null);
     setNotes(lesson.notes ?? '');
   }, [visible, lesson?.id]);
+
+  // ---- Series occurrence count -------------------------------------------
+  // When the sheet opens for a lesson that belongs to a recurring series,
+  // count how many SCHEDULED occurrences (including this one) remain. The
+  // CTA only renders when ≥2 — otherwise the regular per-lesson cancel
+  // covers it.
+  useEffect(() => {
+    setSeriesRemaining(0);
+    if (!visible || !lesson || !lesson.series_id) return;
+    let cancelled = false;
+    const sIso = new Date(`${lesson.date}T${lesson.start_time}:00`).toISOString();
+    countUpcomingInSeries(lesson.series_id, sIso)
+      .then((n) => { if (!cancelled) setSeriesRemaining(n); })
+      .catch(() => { /* graceful — missing column / pre-migration */ });
+    return () => { cancelled = true; };
+  }, [visible, lesson?.id, lesson?.series_id]);
+
+  // Bulk-cancel every remaining occurrence in the series, starting from this
+  // lesson. Uses window.confirm on web (single OK is sufficient) and
+  // Alert.alert on native.
+  const cancelEntireSeries = async () => {
+    if (!lesson || !lesson.series_id) return;
+    const fromIso = new Date(`${lesson.date}T${lesson.start_time}:00`).toISOString();
+    const msg = `This will cancel ${seriesRemaining} lesson${seriesRemaining === 1 ? '' : 's'} in this weekly series for ${student.name.split(' ')[0]} (including this one). Charges will be waived (£0). Continue?`;
+    const confirmed = await (async (): Promise<boolean> => {
+      if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+        return window.confirm(msg);
+      }
+      return await new Promise((resolve) => {
+        Alert.alert('Cancel all remaining?', msg, [
+          { text: 'Keep them', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Cancel all', style: 'destructive', onPress: () => resolve(true) },
+        ]);
+      });
+    })();
+    if (!confirmed) return;
+    setSeriesBusy(true);
+    try {
+      const n = await cancelSeriesFromDate(lesson.series_id, fromIso, { charge: 0 });
+      onChanged?.();
+      onClose();
+      // Surface a confirmation toast / alert so the instructor knows it worked.
+      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+        window.alert(`Cancelled ${n} lesson${n === 1 ? '' : 's'} in this series.`);
+      } else {
+        Alert.alert('Series cancelled', `Cancelled ${n} lesson${n === 1 ? '' : 's'} in this series.`);
+      }
+    } catch (e: any) {
+      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+        window.alert(`Could not cancel series: ${e?.message || 'unknown error'}`);
+      } else {
+        Alert.alert('Could not cancel series', e?.message || 'unknown error');
+      }
+    } finally {
+      setSeriesBusy(false);
+    }
+  };
 
   // ----- Student resolution (hooks must run unconditionally) ----------------
   // Try Supabase first when student_id looks like a UUID; otherwise mockDb.
@@ -388,6 +453,29 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
               <Megaphone size={18} color={theme.colors.danger} />
               <Text style={styles.cancelText}>Cancel lesson & broadcast gap</Text>
             </TouchableOpacity>
+
+            {/* Bulk-cancel — only visible when this lesson belongs to a
+                recurring series AND there's MORE THAN one remaining
+                (otherwise the regular cancel above is the right tool). */}
+            {lesson.series_id && seriesRemaining > 1 && (
+              <TouchableOpacity
+                style={[styles.seriesCancelBtn, seriesBusy && styles.btnDisabled]}
+                onPress={cancelEntireSeries}
+                disabled={seriesBusy}
+                testID="btn-cancel-series"
+              >
+                {seriesBusy ? (
+                  <ActivityIndicator color={theme.colors.danger} />
+                ) : (
+                  <>
+                    <Megaphone size={16} color={theme.colors.danger} />
+                    <Text style={styles.seriesCancelText}>
+                      Cancel all {seriesRemaining} remaining in this series
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
 
             <View style={{ height: 12 }} />
           </ScrollView>
@@ -843,6 +931,8 @@ const styles = StyleSheet.create({
   confirmText: { color: '#fff', fontWeight: '700' },
   cancelBtn: { marginTop: 14, height: 48, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: theme.colors.danger },
   cancelText: { color: theme.colors.danger, fontWeight: '700' },
+  seriesCancelBtn: { marginTop: 8, height: 42, borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderStyle: 'dashed', borderColor: theme.colors.danger, backgroundColor: 'transparent' },
+  seriesCancelText: { color: theme.colors.danger, fontWeight: '700', fontSize: 13 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.6)', alignItems: 'center', justifyContent: 'center', padding: 20 },
   modalCard: { width: '100%', maxWidth: 400, backgroundColor: theme.colors.surface, borderRadius: 20, padding: 24, alignItems: 'center', gap: 10 },
   modalTitle: { fontSize: 20, fontWeight: '800', color: theme.colors.text },

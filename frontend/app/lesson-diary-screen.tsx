@@ -324,6 +324,26 @@ export default function LessonDiaryScreen() {
     const toCreate = plan.filter((p) => !p.reason);
     const skipped = plan.length - toCreate.length;
 
+    // -------- Mint series_id when recurring & we have ≥2 dates to create ----
+    // Only stamp when there's a genuine recurrence (>=2 occurrences), so
+    // single-lesson fall-through (e.g. user toggled on/off) keeps a NULL
+    // series_id and isn't accidentally treated as a series-of-one.
+    let seriesId: string | undefined;
+    if (repeatOn && toCreate.length >= 2) {
+      // Prefer the browser's crypto.randomUUID; fall back to a v4 polyfill so
+      // older WebViews still work.
+      const g: any = (typeof globalThis !== 'undefined' ? globalThis : {}) as any;
+      if (g.crypto && typeof g.crypto.randomUUID === 'function') {
+        seriesId = g.crypto.randomUUID();
+      } else {
+        seriesId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+          const r = (Math.random() * 16) | 0;
+          const v = c === 'x' ? r : (r & 0x3) | 0x8;
+          return v.toString(16);
+        });
+      }
+    }
+
     // -------- Bulk create -------------------------------------------------
     let created = 0;
     let firstCreated: any = null;
@@ -337,6 +357,7 @@ export default function LessonDiaryScreen() {
           travel_minutes: parseInt(travelMinutes, 10) || 0,
           topic,
           amount_paid: undefined,
+          series_id: seriesId,
         });
         if (!firstCreated) firstCreated = row;
         created += 1;

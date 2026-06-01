@@ -224,6 +224,24 @@ export async function removeLesson(id: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Recurring series helpers (Migration 016)
+// ---------------------------------------------------------------------------
+
+export async function countUpcomingInSeries(seriesId: string, fromIso: string) {
+  return db.countUpcomingInSeries(seriesId, fromIso);
+}
+
+export async function cancelSeriesFromDate(
+  seriesId: string,
+  fromIso: string,
+  opts?: { charge?: number; note?: string },
+) {
+  const n = await db.cancelSeriesFromDate(seriesId, fromIso, opts);
+  bump();
+  return n;
+}
+
+// ---------------------------------------------------------------------------
 // Hooks — Competencies, Reflective Logs, Badges, Block Bookings
 // ---------------------------------------------------------------------------
 

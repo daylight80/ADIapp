@@ -508,6 +508,7 @@ export type Lesson = {
   pre_check_completed_at?: string;
   cancellation_charge?: number;
   cancellation_note?: string;
+  series_id?: string;
 };
 
 // Helpers for HH:mm <-> timestamptz
@@ -555,6 +556,7 @@ const lessonFromRow = (r: any): Lesson => {
     pre_check_completed_at: r.pre_check_completed_at ?? undefined,
     cancellation_charge: r.cancellation_charge != null ? Number(r.cancellation_charge) : undefined,
     cancellation_note: r.cancellation_note ?? undefined,
+    series_id: r.series_id ?? undefined,
   };
 };
 
@@ -599,6 +601,7 @@ export type AddLessonInput = {
   notes?: string;
   amount_paid?: number;
   vehicle_id?: string; // optional override; otherwise default vehicle is used
+  series_id?: string;  // shared uuid stamped on every occurrence of a recurring series
 };
 
 export async function addLesson(input: AddLessonInput): Promise<Lesson> {
@@ -612,7 +615,7 @@ export async function addLesson(input: AddLessonInput): Promise<Lesson> {
   const [eh, em] = input.end_time.split(':').map(Number);
   const duration = Math.max(0.25, (eh + em / 60) - (sh + sm / 60));
 
-  const payload = {
+  const payload: Record<string, any> = {
     student_id: input.student_id,
     instructor_id: instructorId,
     vehicle_id: vehicleId,
@@ -626,8 +629,21 @@ export async function addLesson(input: AddLessonInput): Promise<Lesson> {
     amount_paid: input.amount_paid ?? null,
     status: 'Scheduled' as LessonStatus,
   };
+  if (input.series_id) payload.series_id = input.series_id;
   const { data, error } = await supabase.from('lessons').insert(payload).select('*').single();
-  if (error) throw error;
+  if (error) {
+    // Graceful fallback for instances where Migration 016 hasn't been applied
+    // yet — retry the insert without series_id so the lesson still saves and
+    // the instructor isn't blocked. The bulk-cancel feature will simply
+    // operate per-row rather than per-series.
+    if (input.series_id && /series_id/i.test(error.message || '')) {
+      delete payload.series_id;
+      const retry = await supabase.from('lessons').insert(payload).select('*').single();
+      if (retry.error) throw retry.error;
+      return lessonFromRow(retry.data);
+    }
+    throw error;
+  }
   return lessonFromRow(data);
 }
 
@@ -686,6 +702,70 @@ export async function deleteLesson(id: string): Promise<boolean> {
   const { error } = await supabase.from('lessons').delete().eq('id', id);
   if (error) throw error;
   return true;
+}
+
+// =============================================================================
+// SERIES helpers — bulk operations on recurring lessons (Migration 016)
+// =============================================================================
+
+export type SeriesSummary = {
+  series_id: string;
+  total: number;     // total occurrences in the series (any status)
+  upcoming: number;  // remaining Scheduled occurrences from a given pivot
+};
+
+/**
+ * Counts how many Scheduled occurrences of `seriesId` start at or after
+ * `fromIso`. Used to power the "Cancel all 3 remaining lessons" CTA wording.
+ */
+export async function countUpcomingInSeries(seriesId: string, fromIso: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('lessons')
+    .select('id', { count: 'exact', head: true })
+    .eq('series_id', seriesId)
+    .eq('status', 'Scheduled')
+    .gte('start_time', fromIso);
+  if (error) {
+    // Pre-migration 016 path: column doesn't exist → treat as zero.
+    if (/series_id/i.test(error.message || '')) return 0;
+    throw error;
+  }
+  return count || 0;
+}
+
+/**
+ * Bulk-cancels every Scheduled occurrence of `seriesId` that starts at or
+ * after `fromIso`. Returns the number of rows affected. Used by the
+ * "Cancel all remaining in series" CTA in LessonToolsSheet.
+ *
+ * Charge / note semantics:
+ *   • charge defaults to 0 (waived) — bulk cancellations are typically the
+ *     instructor stepping away from a series, not chasing every student for
+ *     a fee. Override per-call if needed.
+ *   • cancellation_note is human-readable and includes the series_id tail
+ *     so the audit trail is searchable.
+ */
+export async function cancelSeriesFromDate(
+  seriesId: string,
+  fromIso: string,
+  opts?: { charge?: number; note?: string },
+): Promise<number> {
+  const charge = opts?.charge ?? 0;
+  const note = opts?.note ?? `Cancelled — bulk cancel of recurring series (…${seriesId.slice(-6)})`;
+  const { data, error } = await supabase
+    .from('lessons')
+    .update({
+      status: 'Cancelled',
+      amount_paid: charge,
+      cancellation_charge: charge,
+      cancellation_note: note,
+    })
+    .eq('series_id', seriesId)
+    .eq('status', 'Scheduled')
+    .gte('start_time', fromIso)
+    .select('id');
+  if (error) throw error;
+  return (data || []).length;
 }
 
 // =============================================================================

@@ -76,6 +76,10 @@ export type Lesson = {
   // `cancellation_note` stores the human-readable rationale for reports.
   cancellation_charge?: number;
   cancellation_note?: string;
+  // Recurring-series link (Migration 016). Set on every occurrence of a
+  // weekly-repeating lesson so the LessonToolsSheet can offer
+  // "Cancel all remaining in series".
+  series_id?: string;
 };
 
 export type Badge = { key: string; name: string; description: string; earned_at?: string };

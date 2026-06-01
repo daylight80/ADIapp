@@ -24,6 +24,7 @@ import { isPaidTier } from '../src/tiers';
 import { PaywallModal } from '../src/PaywallModal';
 import { buildInvoiceHtml, generateAndShareInvoicePdf } from '../src/invoice';
 import { TestOutcomeModal } from '../src/TestOutcomeModal';
+import { OpenInMapsButton } from '../src/OpenInMapsButton';
 
 type Tab = 'overview' | 'lessons' | 'competency' | 'earnings';
 const TABS: { key: Tab; label: string }[] = [
@@ -231,7 +232,18 @@ export default function StudentLifecycleScreen() {
               <View style={styles.contactList}>
                 <ContactRow icon={<Mail size={16} color={theme.colors.textMuted} />} text={student.email} />
                 <ContactRow icon={<Phone size={16} color={theme.colors.textMuted} />} text={student.phone} />
-                <ContactRow icon={<MapPin size={16} color={theme.colors.textMuted} />} text={`${student.address}, ${student.postcode}`} />
+                <View style={styles.contactRow}>
+                  <MapPin size={16} color={theme.colors.textMuted} />
+                  <Text style={[styles.contactText, { flex: 1 }]} numberOfLines={2}>
+                    {`${student.address || ''}, ${student.postcode || ''}`.replace(/^,\s*|,\s*$/g, '')}
+                  </Text>
+                  <OpenInMapsButton
+                    address={`${student.address || ''}, ${student.postcode || ''}`}
+                    variant="pill"
+                    label="Maps"
+                    testID={`btn-open-maps-student-${student.id}`}
+                  />
+                </View>
               </View>
             </Card>
 
@@ -334,6 +346,13 @@ export default function StudentLifecycleScreen() {
                         </Text>
                       )}
                     </View>
+                    {o.test_centre ? (
+                      <OpenInMapsButton
+                        address={`${o.test_centre} test centre, UK`}
+                        variant="icon"
+                        testID={`btn-open-maps-centre-${o.id}`}
+                      />
+                    ) : null}
                   </TouchableOpacity>
                 );
               })}

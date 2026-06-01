@@ -14,6 +14,7 @@ import { useInstructorProfile, updatePreferredNavApp } from '../src/useSupabaseD
 import type { NavApp } from '../src/supabaseDb';
 import { CalendarFeedCard } from '../src/CalendarFeedCard';
 import { ContactsImportSheet } from '../src/ContactsImportSheet';
+import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { Alert, TextInput } from 'react-native';
 
 export default function ProfileScreen() {
@@ -90,7 +91,18 @@ export default function ProfileScreen() {
               <Text style={styles.cardTitle}>Contact details</Text>
               <Row icon={<Mail size={16} color={theme.colors.textMuted} />} text={student.email} />
               <Row icon={<Phone size={16} color={theme.colors.textMuted} />} text={student.phone} />
-              <Row icon={<MapPin size={16} color={theme.colors.textMuted} />} text={`${student.address}, ${student.postcode}`} />
+              <View style={styles.contactRow}>
+                <MapPin size={16} color={theme.colors.textMuted} />
+                <Text style={[styles.contactText, { flex: 1 }]} numberOfLines={2}>
+                  {`${student.address || ''}, ${student.postcode || ''}`.replace(/^,\s*|,\s*$/g, '')}
+                </Text>
+                <OpenInMapsButton
+                  address={`${student.address || ''}, ${student.postcode || ''}`}
+                  variant="pill"
+                  label="Maps"
+                  testID="btn-open-maps-my-address"
+                />
+              </View>
             </Card>
 
             <Card style={{ gap: 10 }}>

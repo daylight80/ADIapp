@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
+import { Platform } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabaseClient';
 
@@ -281,10 +282,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // password.
   const forgotPassword: AuthContextType['forgotPassword'] = useCallback(async (email) => {
     try {
-      // On native, redirect via the app's URL scheme; on web, use the current
-      // origin so the link always opens this exact deployment.
+      // Deterministic redirect URL — single source of truth per platform.
+      // Web: always the current deployment origin (preview / staging / prod /
+      // custom domain all resolve correctly via window.location.origin).
+      // Native: the app's custom URL scheme registered in app.json.
       const redirectTo =
-        typeof window !== 'undefined' && window.location?.origin
+        Platform.OS === 'web'
           ? `${window.location.origin}/reset-password-screen`
           : 'adipro://reset-password-screen';
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });

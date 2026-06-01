@@ -8,6 +8,7 @@ import {
   TextInput,
   Pressable,
   Alert,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -80,6 +81,12 @@ export default function LessonDiaryScreen() {
   const [endTime, setEndTime] = useState('11:00');
   const [topic, setTopic] = useState('');
   const [travelMinutes, setTravelMinutes] = useState('15');
+
+  // Recurrence state — when on, the lesson is bulk-created across `repeatWeeks`
+  // consecutive weeks on the same weekday/time. Each occurrence is independent
+  // (no series_id link in MVP — instructor can delete each one individually).
+  const [repeatOn, setRepeatOn] = useState(false);
+  const [repeatWeeks, setRepeatWeeks] = useState<string>('4');
 
   // ScrollView ref so we can auto-jump the diary to a newly-added lesson's
   // start-time (otherwise lessons after midday fall below the scroll fold).
@@ -204,113 +211,179 @@ export default function LessonDiaryScreen() {
 
   const handleAdd = async () => {
     if (!studentId || !date || !topic) return;
-    // Hard-block creation if the proposed slot overlaps an unavailability.
+
+    // Build the list of target dates. Single lesson → [date]. Recurring → date
+    // + N-1 subsequent weeks on the same weekday.
+    const weeks = repeatOn ? Math.max(2, Math.min(26, parseInt(repeatWeeks, 10) || 4)) : 1;
+    const baseDate = new Date(`${date}T00:00:00`);
+    const targetDates: string[] = [];
+    for (let i = 0; i < weeks; i += 1) {
+      const d = new Date(baseDate);
+      d.setDate(d.getDate() + i * 7);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      targetDates.push(`${y}-${m}-${dd}`);
+    }
+
+    // -------- Pre-flight: resolve instructor + cache day-by-day clash info --
+    let instructorId: string | null = null;
     try {
-      const startIso = new Date(`${date}T${startTime}:00`).toISOString();
-      const endIso = new Date(`${date}T${endTime}:00`).toISOString();
-      if (overlapsAnyBlock(availBlocks, startIso, endIso)) {
+      const { data: ses } = await supabase.auth.getSession();
+      const uid = ses.session?.user?.id;
+      if (uid) {
+        const { data: instr } = await supabase
+          .from('instructors').select('id').eq('auth_user_id', uid).maybeSingle();
+        instructorId = instr?.id || null;
+      }
+    } catch { /* fall through — no overlap check, but allow save */ }
+
+    // For each occurrence, check (a) unavailability overlap, (b) clash.
+    type Plan = { date: string; reason?: 'unavailable' | 'clash' };
+    const plan: Plan[] = [];
+    for (const d of targetDates) {
+      try {
+        const sIso = new Date(`${d}T${startTime}:00`).toISOString();
+        const eIso = new Date(`${d}T${endTime}:00`).toISOString();
+        if (overlapsAnyBlock(availBlocks, sIso, eIso)) {
+          plan.push({ date: d, reason: 'unavailable' });
+          continue;
+        }
+        if (instructorId) {
+          const fromIsoX = `${d}T00:00:00`;
+          const toIsoX = `${d}T23:59:59`;
+          const { data: dayLessons } = await supabase
+            .from('lessons')
+            .select('id, start_time, end_time, status, students(full_name)')
+            .eq('instructor_id', instructorId)
+            .gte('start_time', fromIsoX)
+            .lte('start_time', toIsoX);
+          const newStartMs = new Date(sIso).getTime();
+          const newEndMs = new Date(eIso).getTime();
+          let clashed = false;
+          let clashName = '';
+          let clashStart = '';
+          let clashEnd = '';
+          for (const L of (dayLessons || []) as any[]) {
+            if (L.status === 'Cancelled') continue;
+            const lsMs = new Date(L.start_time).getTime();
+            const leMs = new Date(L.end_time).getTime();
+            if (!Number.isFinite(lsMs) || !Number.isFinite(leMs)) continue;
+            if (lsMs < newEndMs && leMs > newStartMs) {
+              clashed = true;
+              clashName = (L.students && (L.students as any).full_name) || 'another student';
+              const hhmm = (dt: Date) => `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+              clashStart = hhmm(new Date(L.start_time));
+              clashEnd = hhmm(new Date(L.end_time));
+              break;
+            }
+          }
+          if (clashed) {
+            // For SINGLE lesson: keep the existing soft-warn UX.
+            if (!repeatOn) {
+              const msg = `This slot clashes with ${clashName}'s lesson (${clashStart}–${clashEnd}). Save anyway?`;
+              const proceed = await (async (): Promise<boolean> => {
+                if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+                  return window.confirm(msg);
+                }
+                return await new Promise((resolve) => {
+                  Alert.alert('Lesson clash', msg, [
+                    { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+                    { text: 'Save anyway', style: 'destructive', onPress: () => resolve(true) },
+                  ]);
+                });
+              })();
+              if (!proceed) return;
+              plan.push({ date: d });
+              continue;
+            }
+            // For RECURRING: silently skip the clashing occurrence.
+            plan.push({ date: d, reason: 'clash' });
+            continue;
+          }
+        }
+        // No clash and no unavailability.
+        // For SINGLE lesson: also need to check the unavailability hard-block.
+        plan.push({ date: d });
+      } catch {
+        plan.push({ date: d }); // be permissive on errors
+      }
+    }
+
+    // For SINGLE lesson: enforce the hard-block on unavailabilities.
+    if (!repeatOn) {
+      const first = plan[0];
+      if (first && first.reason === 'unavailable') {
         if (typeof window !== 'undefined' && typeof window.alert === 'function') {
           window.alert('This time overlaps one of your unavailabilities. Remove or shrink the block first, then try again.');
         }
         return;
       }
+    }
 
-      // Soft-warn (with override) if the proposed slot overlaps an existing
-      // scheduled lesson with another student. Cancelled lessons are ignored
-      // — only Scheduled / Completed are considered real clashes.
-      // We do a direct Supabase fetch for `date` rather than relying on the
-      // in-memory `lessons` array (which only holds the currently-visible week)
-      // so the check works even when the instructor picks a date in another week.
-      // NB: lessons.start_time / end_time are timestamptz — we compare as Date
-      //     objects so timezone-conversion (BST vs UTC) is handled correctly.
-      const newStartDt = new Date(`${date}T${startTime}:00`);
-      const newEndDt = new Date(`${date}T${endTime}:00`);
-      const fromIso = `${date}T00:00:00`;
-      const toIsoX = `${date}T23:59:59`;
-      let clashRow: { start_time: string; end_time: string; student_name: string } | null = null;
+    const toCreate = plan.filter((p) => !p.reason);
+    const skipped = plan.length - toCreate.length;
+
+    // -------- Bulk create -------------------------------------------------
+    let created = 0;
+    let firstCreated: any = null;
+    for (const p of toCreate) {
       try {
-        const { data: ses } = await supabase.auth.getSession();
-        const uid = ses.session?.user?.id;
-        if (uid) {
-          const { data: instr } = await supabase
-            .from('instructors')
-            .select('id')
-            .eq('auth_user_id', uid)
-            .maybeSingle();
-          if (instr?.id) {
-            const { data: dayLessons } = await supabase
-              .from('lessons')
-              .select('id, start_time, end_time, status, students(full_name)')
-              .eq('instructor_id', instr.id)
-              .gte('start_time', fromIso)
-              .lte('start_time', toIsoX);
-            for (const L of (dayLessons || []) as any[]) {
-              if (L.status === 'Cancelled') continue;
-              const ls = new Date(L.start_time);
-              const le = new Date(L.end_time);
-              if (!Number.isFinite(ls.getTime()) || !Number.isFinite(le.getTime())) continue;
-              // Open-interval overlap.
-              if (ls.getTime() < newEndDt.getTime() && le.getTime() > newStartDt.getTime()) {
-                const hhmm = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-                clashRow = {
-                  start_time: hhmm(ls),
-                  end_time: hhmm(le),
-                  student_name: (L.students && (L.students as any).full_name) || 'another student',
-                };
-                break;
-              }
-            }
-          }
-        }
-      } catch { /* if the fetch fails, fall through silently (don't block the save) */ }
-      if (clashRow) {
-        const proceed = await (async (): Promise<boolean> => {
-          const msg = `This slot clashes with ${clashRow!.student_name}'s lesson (${clashRow!.start_time}–${clashRow!.end_time}). Save anyway?`;
-          if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
-            return window.confirm(msg);
-          }
-          return await new Promise((resolve) => {
-            Alert.alert('Lesson clash', msg, [
-              { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-              { text: 'Save anyway', style: 'destructive', onPress: () => resolve(true) },
-            ]);
-          });
-        })();
-        if (!proceed) return;
+        const row = await createLesson({
+          student_id: studentId,
+          date: p.date,
+          start_time: startTime,
+          end_time: endTime,
+          travel_minutes: parseInt(travelMinutes, 10) || 0,
+          topic,
+          amount_paid: undefined,
+        });
+        if (!firstCreated) firstCreated = row;
+        created += 1;
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[diary] addLesson failed', e);
       }
-    } catch { /* fall through to normal flow if dates are malformed */ }
-    try {
-      const newLesson = await createLesson({
-        student_id: studentId,
-        date,
-        start_time: startTime,
-        end_time: endTime,
-        travel_minutes: parseInt(travelMinutes, 10) || 0,
-        topic,
-        amount_paid: undefined,
-      });
-      setStudentId('');
-      setDate('');
-      setTopic('');
-      setAddOpen(false);
-      // Auto-scroll the diary so the new lesson is visible without scrolling.
-      scrollToTime(startTime);
-      // Also flip the diary's selected day to the lesson's date if different.
-      if (newLesson && date) {
-        const lessonDate = new Date(`${date}T00:00:00`);
-        if (lessonDate.toDateString() !== selectedDate.toDateString()) {
-          setSelectedDate(lessonDate);
-        }
-      }
+    }
 
-      // Pro: schedule 24h and 1h reminders
-      if (pro) {
-        const student = getStudent(studentId);
-        if (student) scheduleLessonReminders(newLesson as any, student as any).catch(() => {});
+    // -------- Wrap up -----------------------------------------------------
+    setStudentId('');
+    setDate('');
+    setTopic('');
+    setAddOpen(false);
+    setRepeatOn(false);
+    scrollToTime(startTime);
+
+    if (firstCreated && date) {
+      const lessonDate = new Date(`${date}T00:00:00`);
+      if (lessonDate.toDateString() !== selectedDate.toDateString()) {
+        setSelectedDate(lessonDate);
       }
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn('[diary] addLesson failed', e);
+    }
+
+    // Schedule reminders for the first occurrence (Pro only — same as before).
+    if (pro && firstCreated) {
+      const student = getStudent(studentId);
+      if (student) scheduleLessonReminders(firstCreated as any, student as any).catch(() => {});
+    }
+
+    // Summary toast — only when recurring, to avoid noise on a single save.
+    if (repeatOn) {
+      const lines: string[] = [`Created ${created} lesson${created === 1 ? '' : 's'}.`];
+      if (skipped > 0) {
+        const unav = plan.filter((p) => p.reason === 'unavailable').length;
+        const clashes = plan.filter((p) => p.reason === 'clash').length;
+        const bits: string[] = [];
+        if (unav > 0) bits.push(`${unav} time off`);
+        if (clashes > 0) bits.push(`${clashes} clash${clashes === 1 ? '' : 'es'}`);
+        lines.push(`Skipped ${skipped} (${bits.join(' · ')}).`);
+      }
+      const msg = lines.join(' ');
+      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+        window.alert(msg);
+      } else {
+        Alert.alert('Recurring lessons', msg);
+      }
     }
   };
 
@@ -649,8 +722,54 @@ export default function LessonDiaryScreen() {
           </View>
         )}
 
+        {/* Recurrence — bulk-create the lesson on the same weekday & time for N weeks */}
+        <View style={styles.recurRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.label}>Repeat weekly</Text>
+            <Text style={styles.recurHint}>
+              Same weekday & time. Skips occurrences that clash or hit your time off.
+            </Text>
+          </View>
+          <Switch
+            value={repeatOn}
+            onValueChange={setRepeatOn}
+            trackColor={{ true: theme.colors.primary, false: theme.colors.border }}
+            testID="switch-repeat"
+          />
+        </View>
+        {repeatOn && (
+          <View style={styles.recurWeeksBlock} testID="recur-weeks-block">
+            <Text style={styles.label}>Number of weeks (incl. this one)</Text>
+            <View style={styles.weekChipsRow}>
+              {[2, 4, 8, 12, 26].map((n) => (
+                <TouchableOpacity
+                  key={n}
+                  style={[styles.weekChip, parseInt(repeatWeeks, 10) === n && styles.weekChipActive]}
+                  onPress={() => setRepeatWeeks(String(n))}
+                  testID={`recur-chip-${n}`}
+                >
+                  <Text style={[styles.weekChipText, parseInt(repeatWeeks, 10) === n && styles.weekChipTextActive]}>
+                    {n}w
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TextInput
+              style={[styles.input, { marginTop: 8 }]}
+              value={repeatWeeks}
+              onChangeText={(v) => setRepeatWeeks(v.replace(/[^0-9]/g, '').slice(0, 2))}
+              keyboardType="numeric"
+              placeholder="4"
+              placeholderTextColor={theme.colors.textMuted}
+              testID="input-recur-weeks"
+            />
+          </View>
+        )}
+
         <TouchableOpacity style={styles.submitBtn} onPress={handleAdd} testID="btn-submit-lesson">
-          <Text style={styles.submitBtnText}>Save Lesson</Text>
+          <Text style={styles.submitBtnText}>
+            {repeatOn ? `Save ${Math.max(2, Math.min(26, parseInt(repeatWeeks, 10) || 4))} lessons` : 'Save Lesson'}
+          </Text>
         </TouchableOpacity>
       </BottomSheet>
 
@@ -830,6 +949,24 @@ const styles = StyleSheet.create({
     zIndex: 0,
   },
   unavailBandTextWeek: { fontSize: 10, color: '#475569' },
+  // Recurrence section in the Add Lesson sheet
+  recurRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 6,
+    marginTop: 4,
+  },
+  recurHint: { fontSize: 11, color: theme.colors.textMuted, marginTop: 2, lineHeight: 16 },
+  recurWeeksBlock: { marginTop: 4 },
+  weekChipsRow: { flexDirection: 'row', gap: 6, marginTop: 2 },
+  weekChip: {
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14,
+    borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.background,
+  },
+  weekChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  weekChipText: { fontSize: 13, fontWeight: '700', color: theme.colors.text },
+  weekChipTextActive: { color: '#fff' },
   // Greyed-out + strikethrough state for Cancelled lessons. Kept on the diary
   // (rather than filtered out) so instructors can see what was originally booked.
   lessonBlockCancelled: {

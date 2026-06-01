@@ -445,7 +445,18 @@ agent_communication:
 
 
 frontend:
-  - task: "Clash resolution — soft-warn on Save Lesson when overlapping another scheduled lesson (P1)"
+  - task: "Recurring lessons — weekly bulk insert with auto-skip on clashes/unavailabilities (P1)"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/lesson-diary-screen.tsx (handleAdd refactored for iteration + Repeat-weekly Switch + chip/numeric weeks input + dynamic Save button label)"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Per user defaults (1: weekly only; 2: Repeat section in Add Lesson sheet; 3: silent-skip clashes + unavailabilities; 4: no series_id MVP; 5: default 4, max 26, min 2). New 'Repeat weekly' Switch in the Add Lesson sheet — when on, reveals a weeks-picker with chip presets (2w / 4w / 8w / 12w / 26w) plus a numeric TextInput for custom values, all clamped 2–26 server-side. Save button label updates dynamically ('Save N lessons'). On submit, handleAdd computes N target dates (same weekday, +7 days each), then for each date checks (a) availability_blocks overlap, (b) lessons clash via a fresh Supabase query (handles BST/UTC correctly). Single-lesson mode keeps the existing soft-warn confirm UX. Recurring mode silently skips clashing/unavailable occurrences and bulk-inserts the rest via createLesson, then shows a summary alert: 'Created N lessons. Skipped M (X time off · Y clashes).' First occurrence triggers Pro lesson reminders (24h + 1h) as before. Verified end-to-end on web: toggle reveals weeks UI, 4w chip selects, button reads 'Save 4 lessons', 4 weekly Mondays from 2026-06-15 created successfully, alert confirmed 'Created 4 lessons.'"
+
     implemented: true
     working: true
     file: "/app/frontend/app/lesson-diary-screen.tsx (handleAdd extended with Supabase-fetch overlap check + web-safe confirm modal)"

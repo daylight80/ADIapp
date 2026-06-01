@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   TextInput,
   Pressable,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -15,6 +16,7 @@ import { theme } from '../src/theme';
 import { mockDb, Lesson } from '../src/mockDb';
 import { useLessonsForWeek, useStudents, createLesson, useInstructorProfile, useAvailabilityBlocks } from '../src/useSupabaseData';
 import { overlapsAnyBlock, type AvailabilityBlock } from '../src/supabaseDb';
+import { supabase } from '../src/supabaseClient';
 import { Card, Badge } from '../src/ui';
 import { DateField, TimeField } from '../src/DateTimeFields';
 import { BottomSheet } from '../src/BottomSheet';
@@ -194,6 +196,12 @@ export default function LessonDiaryScreen() {
     .sort((a, b) => a.end_time.localeCompare(b.end_time))
     .pop();
 
+  // Convert 'HH:MM' to total minutes since midnight — used for clash overlap detection.
+  const toMin = (hhmm: string): number => {
+    const [h, m] = (hhmm || '').split(':').map(Number);
+    return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+  };
+
   const handleAdd = async () => {
     if (!studentId || !date || !topic) return;
     // Hard-block creation if the proposed slot overlaps an unavailability.
@@ -205,6 +213,70 @@ export default function LessonDiaryScreen() {
           window.alert('This time overlaps one of your unavailabilities. Remove or shrink the block first, then try again.');
         }
         return;
+      }
+
+      // Soft-warn (with override) if the proposed slot overlaps an existing
+      // scheduled lesson with another student. Cancelled lessons are ignored
+      // — only Scheduled / Completed are considered real clashes.
+      // We do a direct Supabase fetch for `date` rather than relying on the
+      // in-memory `lessons` array (which only holds the currently-visible week)
+      // so the check works even when the instructor picks a date in another week.
+      // NB: lessons.start_time / end_time are timestamptz — we compare as Date
+      //     objects so timezone-conversion (BST vs UTC) is handled correctly.
+      const newStartDt = new Date(`${date}T${startTime}:00`);
+      const newEndDt = new Date(`${date}T${endTime}:00`);
+      const fromIso = `${date}T00:00:00`;
+      const toIsoX = `${date}T23:59:59`;
+      let clashRow: { start_time: string; end_time: string; student_name: string } | null = null;
+      try {
+        const { data: ses } = await supabase.auth.getSession();
+        const uid = ses.session?.user?.id;
+        if (uid) {
+          const { data: instr } = await supabase
+            .from('instructors')
+            .select('id')
+            .eq('auth_user_id', uid)
+            .maybeSingle();
+          if (instr?.id) {
+            const { data: dayLessons } = await supabase
+              .from('lessons')
+              .select('id, start_time, end_time, status, students(full_name)')
+              .eq('instructor_id', instr.id)
+              .gte('start_time', fromIso)
+              .lte('start_time', toIsoX);
+            for (const L of (dayLessons || []) as any[]) {
+              if (L.status === 'Cancelled') continue;
+              const ls = new Date(L.start_time);
+              const le = new Date(L.end_time);
+              if (!Number.isFinite(ls.getTime()) || !Number.isFinite(le.getTime())) continue;
+              // Open-interval overlap.
+              if (ls.getTime() < newEndDt.getTime() && le.getTime() > newStartDt.getTime()) {
+                const hhmm = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+                clashRow = {
+                  start_time: hhmm(ls),
+                  end_time: hhmm(le),
+                  student_name: (L.students && (L.students as any).full_name) || 'another student',
+                };
+                break;
+              }
+            }
+          }
+        }
+      } catch { /* if the fetch fails, fall through silently (don't block the save) */ }
+      if (clashRow) {
+        const proceed = await (async (): Promise<boolean> => {
+          const msg = `This slot clashes with ${clashRow!.student_name}'s lesson (${clashRow!.start_time}–${clashRow!.end_time}). Save anyway?`;
+          if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+            return window.confirm(msg);
+          }
+          return await new Promise((resolve) => {
+            Alert.alert('Lesson clash', msg, [
+              { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Save anyway', style: 'destructive', onPress: () => resolve(true) },
+            ]);
+          });
+        })();
+        if (!proceed) return;
       }
     } catch { /* fall through to normal flow if dates are malformed */ }
     try {

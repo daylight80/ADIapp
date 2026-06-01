@@ -445,7 +445,18 @@ agent_communication:
 
 
 frontend:
-  - task: "Date-range Income & Expense CSV report (P1)"
+  - task: "Clash resolution — soft-warn on Save Lesson when overlapping another scheduled lesson (P1)"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/lesson-diary-screen.tsx (handleAdd extended with Supabase-fetch overlap check + web-safe confirm modal)"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Soft-warn with override. After the existing unavailability hard-block, handleAdd now does a targeted Supabase fetch for lessons on the proposed date (instead of relying on the in-memory `lessons` array which only covers the visible week) to ensure clash detection works even when the instructor picks a date outside the current view. Compares the proposed window against each existing Scheduled/Completed lesson as JS Date objects so BST/UTC timezone differences are handled correctly. If overlap is found, surfaces a web-safe window.confirm() (and Alert.alert on native) showing the clashing student's name + time range — 'This slot clashes with Amelia Hughes\\'s lesson (09:00–10:00). Save anyway?' — with Cancel/Save anyway choices. Cancelled lessons are excluded from the check. Verified end-to-end on web after clearing Metro cache: confirm dialog fires with correct message including the clashing student's name and the actual saved start/end times converted from UTC to local (BST). Console logs confirmed 6 day-lessons were considered and the overlap calc returned `true` for the 09:00 row."
+
     implemented: true
     working: true
     file: "/app/frontend/app/income-expense-report-screen.tsx, /app/frontend/src/csvExport.ts, /app/frontend/app/profile-screen.tsx (link added)"

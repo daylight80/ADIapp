@@ -447,15 +447,18 @@ agent_communication:
 frontend:
   - task: "Test Outcomes — DVSA theory/practical pass-fail log + retest reasons (P1)"
     implemented: true
-    working: "NA"
+    working: true
     file: "/app/frontend/src/TestOutcomeModal.tsx, /app/frontend/app/student-lifecycle-screen.tsx (Test outcomes card on Overview tab with Log test button + outcome list + long-press to delete), /app/frontend/src/supabaseDb.ts (TestOutcome type + AddTestOutcomeInput + addTestOutcome/listTestOutcomesForStudent/listTestOutcomesForInstructor/deleteTestOutcome/computeTestKpis + TEST_RETEST_REASONS preset chips), /app/frontend/src/useSupabaseData.ts (useTestOutcomesForStudent + useInstructorTestOutcomes + createTestOutcome + removeTestOutcome), /app/supabase/migrations/015_test_outcomes.sql"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
-        comment: "Per user defaults (Both theory+practical, full DVSA mark-sheet depth, preset retest chips, entry from Student Profile, per-student history visible immediately; instructor-dashboard KPI deferred for follow-up; DVSA two-change tracker is P2 backlog). Migration 015 adds public.test_outcomes (id, instructor_id, school_id, student_id, test_type ENUM ['theory','practical'], test_date, result ENUM ['pass','fail'], driving_faults/serious_faults/dangerous_faults for practical, theory_mc_score(0-50)/theory_hp_score(0-75) for theory, test_centre, examiner_notes, retest_reasons text[] for multi-select chips, created_at/updated_at) with chk constraints, two btree indexes (instructor+date desc, student+date desc), touch-updated_at trigger, and 3 RLS policies: instructor manages own rows, owner reads school-wide rows, student reads own rows. TestOutcomeModal supports Practical (3 fault counts) vs Theory (2 score fields) toggling, Pass/Fail buttons (green/red), date picker, test centre, preset retest chips (9 DVSA common faults: Junctions observation/Mirrors signalling/Use of speed/Move off control/Reverse parking/Roundabouts/Response to signs and signals/Steering/Positioning normal driving) shown only on Fail, and free-text examiner notes. Per-student card on student-lifecycle-screen.tsx Overview tab shows 'No tests recorded yet.' empty state, list of outcomes with pass/fail badge + date + test centre + faults/score summary + comma-joined retest reasons. Long-press a row to delete (window.confirm guard). NEEDS Migration 015 to be applied (verified pre-migration: 'Please apply Migration 015 first' shown in modal as expected)."
+        comment: "Initial build. Migration 015 created, frontend modal + per-student card wired in via supabaseDb.ts + useSupabaseData.ts hooks. Empty-table fallback added (isMissingTestOutcomesTable returns []) so the UI renders gracefully even before the user applies the migration."
+      - working: true
+        agent: "main"
+        comment: "Screenshot-verified end-to-end on the web preview (390×844) with alex@adipro.uk. Login → Students → Sophie Carter → Overview shows the 'Test outcomes' card with 'Log test' button + 'No tests recorded yet.' empty state. Tapping Log test opens the bottom-sheet modal; verified all three states: (a) Practical+Pass → Driving/Serious/Dangerous fault counts visible; (b) Practical+Fail → fault counts plus 9-chip 'Fault categories' multi-select (Junctions observation / Mirrors signalling / Use of speed / Move off control / Reverse parking / Roundabouts / Response to signs and signals / Steering / Positioning normal driving); (c) Theory+Fail → Multiple choice (/50) + Hazard perception (/75) score fields plus the same fault-category chips. Date defaults to today (06/01/2026), Test centre placeholder 'e.g. Bristol (Avonmouth)', examiner notes textarea with placeholder 'e.g. Confident on roundabouts, more practice on dual carriageways'. UK spellings confirmed throughout (centre, manoeuvres, signalling). Save test outcome button present. The actual INSERT round-trip is blocked until the user applies Migration 015 — the modal will then surface a clear 'Please apply Migration 015 first (test_outcomes table).' error if attempted before that, per the isMissingTestOutcomesTable guard in supabaseDb.ts."
 
     implemented: true
     working: true

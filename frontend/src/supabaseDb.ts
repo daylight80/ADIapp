@@ -1743,6 +1743,32 @@ export async function listTestOutcomesForInstructor(): Promise<TestOutcome[]> {
   return (data || []) as TestOutcome[];
 }
 
+/**
+ * Fetch every test outcome across all instructors in the given school.
+ * Used by the Owner Dashboard's "Test performance" card so the owner can
+ * see school-wide pass rates and the most recent results in one place.
+ */
+export async function listTestOutcomesForSchool(schoolId: string): Promise<TestOutcome[]> {
+  // First find every instructor in this school
+  const { data: insts, error: e1 } = await supabase
+    .from('instructors')
+    .select('id')
+    .eq('school_id', schoolId);
+  if (e1) throw e1;
+  const ids = (insts || []).map((i: any) => i.id);
+  if (ids.length === 0) return [];
+  const { data, error } = await supabase
+    .from('test_outcomes')
+    .select('*')
+    .in('instructor_id', ids)
+    .order('test_date', { ascending: false });
+  if (error) {
+    if (isMissingTestOutcomesTable(error.message || '')) return [];
+    throw error;
+  }
+  return (data || []) as TestOutcome[];
+}
+
 export async function deleteTestOutcome(id: string): Promise<void> {
   const { error } = await supabase.from('test_outcomes').delete().eq('id', id);
   if (error) throw error;

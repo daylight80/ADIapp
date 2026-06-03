@@ -7,13 +7,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
   Trophy, Users, CalendarDays, PoundSterling, TrendingUp, Plus, Mail, LogOut,
-  ChevronRight, Crown, ArrowUpDown, Receipt,
+  ChevronRight, Crown, ArrowUpDown, Receipt, Award, CircleX,
 } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { Card, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { useAuth } from '../src/AuthContext';
 import { supabase } from '../src/supabaseClient';
+import {
+  listTestOutcomesForSchool, computeTestKpis, type TestOutcome,
+} from '../src/supabaseDb';
 
 const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || '';
 
@@ -59,6 +62,7 @@ export default function OwnerDashboardScreen() {
 
   const [leaderboard, setLeaderboard] = useState<Leaderboard | null>(null);
   const [today, setToday] = useState<TodayLesson[]>([]);
+  const [testOutcomes, setTestOutcomes] = useState<TestOutcome[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +93,20 @@ export default function OwnerDashboardScreen() {
       const todayJson = tr.ok ? ((await tr.json()) as TodayLesson[]) : [];
       setLeaderboard(lbJson);
       setToday(todayJson);
+
+      // Pull every test outcome across all instructors in this school.
+      // Used by the "Test performance" card below the KPI grid.
+      if (lbJson?.school_id) {
+        try {
+          const outcomes = await listTestOutcomesForSchool(lbJson.school_id);
+          setTestOutcomes(outcomes);
+        } catch (e) {
+          // Non-fatal — empty state will render instead.
+          // eslint-disable-next-line no-console
+          console.warn('[owner] listTestOutcomesForSchool failed', e);
+          setTestOutcomes([]);
+        }
+      }
     } catch (e: any) {
       setError(e?.message || 'Could not load the school dashboard.');
     } finally {
@@ -104,6 +122,17 @@ export default function OwnerDashboardScreen() {
     if (!leaderboard) return [];
     return [...leaderboard.rows].sort((a, b) => (b[sortKey] as number) - (a[sortKey] as number));
   }, [leaderboard, sortKey]);
+
+  // Aggregate KPIs across every test outcome in the school.
+  const testKpis = useMemo(() => computeTestKpis(testOutcomes), [testOutcomes]);
+  // Look up instructor name + student name for the 5 most recent results
+  // so we can show them inline on the Test performance card.
+  const instructorNameById = useMemo(() => {
+    const m: Record<string, string> = {};
+    leaderboard?.rows.forEach((r) => { m[r.instructor_id] = r.full_name; });
+    return m;
+  }, [leaderboard]);
+  const recentOutcomes = useMemo(() => testOutcomes.slice(0, 5), [testOutcomes]);
 
   const inviteInstructor = async () => {
     if (!/^[^@]+@[^@]+\.[^@]+$/.test(inviteForm.email.trim())) {
@@ -209,6 +238,80 @@ export default function OwnerDashboardScreen() {
           <KPI label="Pass rate" value={`${leaderboard?.totals.pass_rate ?? 0}%`}
                icon={<TrendingUp size={20} color={theme.colors.accent} />} bg="#FFF7ED" />
         </View>
+
+        {/* ------- Test Performance card ---------------------------------- */}
+        <View style={styles.sectionHeader}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+            <Award size={18} color={theme.colors.accent} />
+            <Text style={styles.sectionTitle}>Test performance</Text>
+          </View>
+          <TouchableOpacity onPress={() => router.push('/student-crm-screen')} testID="btn-log-test">
+            <Text style={styles.linkText}>Log a test</Text>
+          </TouchableOpacity>
+        </View>
+        <Card style={styles.perfCard} testID="card-test-performance">
+          {testKpis.total === 0 ? (
+            <View style={styles.perfEmpty}>
+              <Award size={36} color={theme.colors.textMuted} />
+              <Text style={styles.perfEmptyTitle}>No tests logged yet</Text>
+              <Text style={styles.perfEmptySub}>
+                Pop into a student's profile and tap "Add test outcome" after their next driving or theory test to start tracking your school's pass rate.
+              </Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.perfTopRow}>
+                <View style={styles.perfBigNumberBox}>
+                  <Text style={styles.perfBigNumber}>{testKpis.passRatePct}%</Text>
+                  <Text style={styles.perfBigLabel}>OVERALL PASS RATE</Text>
+                  <Text style={styles.perfBigSub}>
+                    {testKpis.passes} pass · {testKpis.fails} fail · {testKpis.total} total
+                  </Text>
+                </View>
+                <View style={styles.perfBreakdown}>
+                  <BreakdownRow
+                    label="Practical"
+                    pct={testKpis.practicalPassRatePct}
+                    pass={testKpis.practicalPasses}
+                    total={testKpis.practicalTotal}
+                  />
+                  <BreakdownRow
+                    label="Theory"
+                    pct={testKpis.theoryPassRatePct}
+                    pass={testKpis.theoryPasses}
+                    total={testKpis.theoryTotal}
+                  />
+                </View>
+              </View>
+              {recentOutcomes.length > 0 && (
+                <>
+                  <View style={styles.perfDivider} />
+                  <Text style={styles.perfRecentLabel}>Most recent results</Text>
+                  {recentOutcomes.map((o) => {
+                    const passed = o.result === 'pass';
+                    return (
+                      <View key={o.id} style={styles.perfRecentRow} testID={`recent-outcome-${o.id}`}>
+                        <View style={[styles.perfRecentBadge, { backgroundColor: passed ? theme.colors.success : theme.colors.danger }]}>
+                          {passed ? <Trophy size={12} color="#fff" /> : <CircleX size={12} color="#fff" />}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.perfRecentTitle} numberOfLines={1}>
+                            {o.test_type === 'practical' ? 'Practical' : 'Theory'} · {passed ? 'Pass' : 'Fail'}
+                            {o.test_centre ? ` · ${o.test_centre}` : ''}
+                          </Text>
+                          <Text style={styles.perfRecentMeta} numberOfLines={1}>
+                            {new Date(o.test_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            {instructorNameById[o.instructor_id] ? ` · ${instructorNameById[o.instructor_id]}` : ''}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </>
+              )}
+            </>
+          )}
+        </Card>
 
         {/* Owner quick actions */}
         <View style={styles.qaRow}>
@@ -423,6 +526,25 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function BreakdownRow({ label, pct, pass, total }: { label: string; pct: number; pass: number; total: number }) {
+  const hasData = total > 0;
+  const tone = !hasData ? theme.colors.textMuted : pct >= 60 ? theme.colors.success : pct >= 40 ? theme.colors.accent : theme.colors.danger;
+  return (
+    <View style={styles.breakdownRow}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.breakdownLabel}>{label}</Text>
+        <View style={styles.breakdownBarBg}>
+          <View style={[styles.breakdownBarFill, { width: `${hasData ? pct : 0}%`, backgroundColor: tone }]} />
+        </View>
+      </View>
+      <View style={{ alignItems: 'flex-end', minWidth: 64 }}>
+        <Text style={[styles.breakdownPct, { color: tone }]}>{hasData ? `${pct}%` : '—'}</Text>
+        <Text style={styles.breakdownCount}>{hasData ? `${pass}/${total}` : 'No tests'}</Text>
+      </View>
+    </View>
+  );
+}
+
 function SortPicker({ value, onChange }: { value: SortKey; onChange: (v: SortKey) => void }) {
   const options: { key: SortKey; label: string }[] = [
     { key: 'revenue_month',   label: 'Revenue' },
@@ -484,6 +606,46 @@ const styles = StyleSheet.create({
   lbStats: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: 8 },
   statValue: { fontSize: 14, fontWeight: '800', color: theme.colors.text },
   statLabel: { fontSize: 11, color: theme.colors.textMuted, marginTop: 2 },
+  linkText: { color: theme.colors.primary, fontSize: 13, fontWeight: '700' },
+  // ---- Test performance card ----
+  perfCard: { marginHorizontal: 16, marginBottom: 12, padding: 16, gap: 12 },
+  perfEmpty: { alignItems: 'center', paddingVertical: 16, gap: 6 },
+  perfEmptyTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text, marginTop: 6 },
+  perfEmptySub: { fontSize: 12, color: theme.colors.textMuted, textAlign: 'center', lineHeight: 17 },
+  perfTopRow: { flexDirection: 'row', gap: 12, alignItems: 'stretch' },
+  perfBigNumberBox: {
+    backgroundColor: theme.colors.primaryLight,
+    borderRadius: 14,
+    padding: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 120,
+    flexBasis: '40%',
+  },
+  perfBigNumber: { fontSize: 32, fontWeight: '900', color: theme.colors.primary, lineHeight: 36 },
+  perfBigLabel: { fontSize: 10, color: theme.colors.primary, fontWeight: '800', letterSpacing: 0.8, marginTop: 4 },
+  perfBigSub: { fontSize: 11, color: theme.colors.text, marginTop: 4, textAlign: 'center' },
+  perfBreakdown: { flex: 1, gap: 12, justifyContent: 'center' },
+  breakdownRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+  breakdownLabel: { fontSize: 12, fontWeight: '700', color: theme.colors.text, marginBottom: 4 },
+  breakdownBarBg: {
+    height: 8, borderRadius: 4, backgroundColor: theme.colors.border, overflow: 'hidden',
+  },
+  breakdownBarFill: { height: '100%', borderRadius: 4 },
+  breakdownPct: { fontSize: 16, fontWeight: '800' },
+  breakdownCount: { fontSize: 11, color: theme.colors.textMuted, fontWeight: '600' },
+  perfDivider: { height: 1, backgroundColor: theme.colors.border, marginTop: 4 },
+  perfRecentLabel: {
+    fontSize: 11, color: theme.colors.textMuted, fontWeight: '700',
+    letterSpacing: 0.8, textTransform: 'uppercase',
+  },
+  perfRecentRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
+  perfRecentBadge: {
+    width: 22, height: 22, borderRadius: 11,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  perfRecentTitle: { fontSize: 13, fontWeight: '700', color: theme.colors.text },
+  perfRecentMeta: { fontSize: 11, color: theme.colors.textMuted, marginTop: 1 },
 
   ownerPill: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: theme.colors.accent, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 },
   ownerPillText: { fontSize: 9, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },

@@ -298,8 +298,14 @@ export async function deleteStudent(id: string): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
-// Demo seeding — creates a small set of UK driving-school demo students for
-// the freshly-logged-in instructor if their table is empty. Idempotent.
+// Demo seeding — DISABLED for production.
+//
+// Previously this seeded a small set of demo students (Sophie Carter,
+// Oliver Bennett, Jamie Williams, Amelia Hughes with @example.co.uk emails)
+// into a freshly-logged-in instructor's account. That created repeated
+// duplicates across schools and polluted the database, so it has been turned
+// off. To re-enable for dev/demo, restore the array and remove the early
+// return in `seedDemoStudentsIfEmpty()`.
 // ---------------------------------------------------------------------------
 
 const DEMO_STUDENTS: Omit<AddStudentInput, 'provisional_licence'>[] = [
@@ -310,20 +316,10 @@ const DEMO_STUDENTS: Omit<AddStudentInput, 'provisional_licence'>[] = [
 ];
 
 export async function seedDemoStudentsIfEmpty(): Promise<{ created: number }> {
-  const existing = await listStudents();
-  if (existing.length > 0) return { created: 0 };
-  let created = 0;
-  for (const s of DEMO_STUDENTS) {
-    try {
-      await addStudent({ ...s, provisional_licence: 'CARTE901071SC9AB' });
-      created += 1;
-    } catch (e) {
-      // ignore individual failures (e.g. unique constraint)
-      // eslint-disable-next-line no-console
-      console.warn('[seedDemoStudents] insert failed', e);
-    }
-  }
-  return { created };
+  // Auto-seeding is disabled in production to keep the database clean.
+  // Instructors add their own real students via the "Add student" FAB.
+  void DEMO_STUDENTS; // keep reference to avoid TS unused warning
+  return { created: 0 };
 }
 
 // =============================================================================

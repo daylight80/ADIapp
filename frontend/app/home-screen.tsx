@@ -157,40 +157,24 @@ export default function InstructorHomeScreen() {
               <KPI label="Completed" value={kpis.completed.toString()} icon={<CalendarDays size={20} color={theme.colors.info} />} bg="#E0F2FE" />
             </View>
 
-            {/* Test Performance — DVSA-only breakdown using real test_outcomes data. */}
+            {/* Test Performance — Practical-only (instructors focus on practical tests). */}
             <Card style={styles.testPerfCard} testID="card-test-performance">
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Trophy size={16} color={theme.colors.primary} />
                 <Text style={styles.testPerfTitle}>Test performance</Text>
               </View>
-              {testKpis.total === 0 ? (
+              {testKpis.practicalTotal === 0 ? (
                 <Text style={styles.testPerfEmpty}>
-                  No test outcomes logged yet. Open a student profile → “Log test” to record results.
+                  No practical test outcomes logged yet. Open a student profile → "Log test" to record results.
                 </Text>
               ) : (
                 <>
                   <View style={styles.testPerfRow}>
                     <View style={styles.testPerfTile}>
                       <Text style={styles.testPerfLabel}>Practical</Text>
-                      <Text style={styles.testPerfValue}>{testKpis.practicalPassRatePct}%</Text>
+                      <Text style={[styles.testPerfValue, { color: theme.colors.success }]}>{testKpis.practicalPassRatePct}%</Text>
                       <Text style={styles.testPerfMeta}>
                         {testKpis.practicalPasses}/{testKpis.practicalTotal} passed
-                      </Text>
-                    </View>
-                    <View style={styles.testPerfTile}>
-                      <Text style={styles.testPerfLabel}>Theory</Text>
-                      <Text style={styles.testPerfValue}>{testKpis.theoryPassRatePct}%</Text>
-                      <Text style={styles.testPerfMeta}>
-                        {testKpis.theoryPasses}/{testKpis.theoryTotal} passed
-                      </Text>
-                    </View>
-                    <View style={styles.testPerfTile}>
-                      <Text style={styles.testPerfLabel}>Overall</Text>
-                      <Text style={[styles.testPerfValue, { color: theme.colors.success }]}>
-                        {testKpis.passRatePct}%
-                      </Text>
-                      <Text style={styles.testPerfMeta}>
-                        {testKpis.passes}/{testKpis.total} passed
                       </Text>
                     </View>
                   </View>

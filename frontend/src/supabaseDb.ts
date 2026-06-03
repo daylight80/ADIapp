@@ -1774,33 +1774,44 @@ export async function deleteTestOutcome(id: string): Promise<void> {
   if (error) throw error;
 }
 
-/** Compute aggregate KPIs across an instructor's test history. */
+/**
+ * Compute aggregate KPIs across an instructor's test history.
+ *
+ * NOTE: As of the practical-only KPI change, the top-level
+ * `total/passes/fails/passRatePct` reflect **practical tests only**.
+ * Theory test rows are still stored (instructors may want to record them
+ * for personal student tracking) but they no longer affect the headline
+ * KPIs on the dashboard. The `theory*` fields remain in the type for
+ * backward compatibility but are not used by any of the current cards.
+ */
 export type TestKpis = {
-  total: number;
-  passes: number;
-  fails: number;
-  passRatePct: number;     // 0–100, integer
+  total: number;                // = practicalTotal
+  passes: number;               // = practicalPasses
+  fails: number;                // = practicalTotal - practicalPasses
+  passRatePct: number;          // 0–100 integer; practical-only
   practicalTotal: number;
   practicalPasses: number;
   practicalPassRatePct: number;
+  /** @deprecated kept only for historical callers; not surfaced in any KPI card. */
   theoryTotal: number;
+  /** @deprecated */
   theoryPasses: number;
+  /** @deprecated */
   theoryPassRatePct: number;
 };
 
 export function computeTestKpis(rows: TestOutcome[]): TestKpis {
-  const total = rows.length;
-  const passes = rows.filter((r) => r.result === 'pass').length;
   const practical = rows.filter((r) => r.test_type === 'practical');
   const theory = rows.filter((r) => r.test_type === 'theory');
   const pP = practical.filter((r) => r.result === 'pass').length;
   const tP = theory.filter((r) => r.result === 'pass').length;
   const pct = (n: number, d: number) => (d === 0 ? 0 : Math.round((n / d) * 100));
+  // Top-level KPIs are PRACTICAL-ONLY by design (instructors focus on practical pass).
   return {
-    total,
-    passes,
-    fails: total - passes,
-    passRatePct: pct(passes, total),
+    total: practical.length,
+    passes: pP,
+    fails: practical.length - pP,
+    passRatePct: pct(pP, practical.length),
     practicalTotal: practical.length,
     practicalPasses: pP,
     practicalPassRatePct: pct(pP, practical.length),

@@ -124,6 +124,7 @@ export default function OwnerDashboardScreen() {
   }, [leaderboard, sortKey]);
 
   // Aggregate KPIs across every test outcome in the school.
+  // Theory tests are ignored at the KPI level — instructors focus on practical.
   const testKpis = useMemo(() => computeTestKpis(testOutcomes), [testOutcomes]);
   // Look up instructor name + student name for the 5 most recent results
   // so we can show them inline on the Test performance card.
@@ -132,7 +133,12 @@ export default function OwnerDashboardScreen() {
     leaderboard?.rows.forEach((r) => { m[r.instructor_id] = r.full_name; });
     return m;
   }, [leaderboard]);
-  const recentOutcomes = useMemo(() => testOutcomes.slice(0, 5), [testOutcomes]);
+  // Only practical results are surfaced in the "Most recent results" list
+  // for consistency with the practical-only KPI.
+  const recentOutcomes = useMemo(
+    () => testOutcomes.filter((o) => o.test_type === 'practical').slice(0, 5),
+    [testOutcomes],
+  );
 
   const inviteInstructor = async () => {
     if (!/^[^@]+@[^@]+\.[^@]+$/.test(inviteForm.email.trim())) {
@@ -253,19 +259,19 @@ export default function OwnerDashboardScreen() {
           {testKpis.total === 0 ? (
             <View style={styles.perfEmpty}>
               <Award size={36} color={theme.colors.textMuted} />
-              <Text style={styles.perfEmptyTitle}>No tests logged yet</Text>
+              <Text style={styles.perfEmptyTitle}>No practical tests logged yet</Text>
               <Text style={styles.perfEmptySub}>
-                Pop into a student's profile and tap "Add test outcome" after their next driving or theory test to start tracking your school's pass rate.
+                Pop into a student's profile and tap "Add test outcome" after their next practical test to start tracking your school's pass rate.
               </Text>
             </View>
           ) : (
             <>
               <View style={styles.perfTopRow}>
                 <View style={styles.perfBigNumberBox}>
-                  <Text style={styles.perfBigNumber}>{testKpis.passRatePct}%</Text>
-                  <Text style={styles.perfBigLabel}>OVERALL PASS RATE</Text>
+                  <Text style={styles.perfBigNumber}>{testKpis.practicalPassRatePct}%</Text>
+                  <Text style={styles.perfBigLabel}>PRACTICAL PASS RATE</Text>
                   <Text style={styles.perfBigSub}>
-                    {testKpis.passes} pass · {testKpis.fails} fail · {testKpis.total} total
+                    {testKpis.practicalPasses} pass · {testKpis.practicalTotal - testKpis.practicalPasses} fail · {testKpis.practicalTotal} total
                   </Text>
                 </View>
                 <View style={styles.perfBreakdown}>
@@ -275,18 +281,12 @@ export default function OwnerDashboardScreen() {
                     pass={testKpis.practicalPasses}
                     total={testKpis.practicalTotal}
                   />
-                  <BreakdownRow
-                    label="Theory"
-                    pct={testKpis.theoryPassRatePct}
-                    pass={testKpis.theoryPasses}
-                    total={testKpis.theoryTotal}
-                  />
                 </View>
               </View>
               {recentOutcomes.length > 0 && (
                 <>
                   <View style={styles.perfDivider} />
-                  <Text style={styles.perfRecentLabel}>Most recent results</Text>
+                  <Text style={styles.perfRecentLabel}>Most recent practical results</Text>
                   {recentOutcomes.map((o) => {
                     const passed = o.result === 'pass';
                     return (
@@ -296,7 +296,7 @@ export default function OwnerDashboardScreen() {
                         </View>
                         <View style={{ flex: 1 }}>
                           <Text style={styles.perfRecentTitle} numberOfLines={1}>
-                            {o.test_type === 'practical' ? 'Practical' : 'Theory'} · {passed ? 'Pass' : 'Fail'}
+                            {passed ? 'Pass' : 'Fail'}
                             {o.test_centre ? ` · ${o.test_centre}` : ''}
                           </Text>
                           <Text style={styles.perfRecentMeta} numberOfLines={1}>

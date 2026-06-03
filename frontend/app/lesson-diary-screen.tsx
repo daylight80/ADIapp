@@ -1,71 +1,41 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  Pressable,
-  Alert,
-  Switch,
-} from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, ChevronRight, Plus, ArrowLeft, AlertTriangle, Car, Calendar, CalendarDays } from 'lucide-react-native';
+import {
+  ChevronLeft, ChevronRight, Plus, ArrowLeft, AlertTriangle,
+  Calendar, CalendarDays, Ban, Navigation as NavIcon,
+} from 'lucide-react-native';
 import { theme } from '../src/theme';
-import { mockDb, Lesson } from '../src/mockDb';
-import { useLessonsForWeek, useStudents, createLesson, useInstructorProfile, useAvailabilityBlocks } from '../src/useSupabaseData';
-import { overlapsAnyBlock, type AvailabilityBlock } from '../src/supabaseDb';
-import { supabase } from '../src/supabaseClient';
-import { Card, Badge } from '../src/ui';
-import { DateField, TimeField } from '../src/DateTimeFields';
-import { BottomSheet } from '../src/BottomSheet';
+import { Lesson } from '../src/mockDb';
+import {
+  useLessonsForWeek, useStudents, useInstructorProfile, useAvailabilityBlocks,
+} from '../src/useSupabaseData';
+import { type AvailabilityBlock } from '../src/supabaseDb';
 import { BottomNav } from '../src/BottomNav';
 import { useAuth } from '../src/AuthContext';
 import { isPro } from '../src/proPlan';
-import { scheduleLessonReminders } from '../src/notifications';
 import { LessonToolsSheet } from '../src/LessonToolsSheet';
 import { UnavailabilityModal } from '../src/UnavailabilityModal';
-import { getTravelTime, addressForStudent, lessonAddress, minutesBetween, formatEta } from '../src/maps';
+import { minutesBetween } from '../src/maps';
 import { openNavigation } from '../src/tools';
-import { Navigation as NavIcon } from 'lucide-react-native';
-import { Ban } from 'lucide-react-native';
 
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const TOP_HOUR = 5;
-const BOTTOM_HOUR = 22;
-const HOURS = Array.from({ length: BOTTOM_HOUR - TOP_HOUR + 1 }, (_, i) => i + TOP_HOUR); // 05:00 - 22:00
-const HOUR_HEIGHT = 64;
-const TOTAL_HEIGHT = (BOTTOM_HOUR - TOP_HOUR) * HOUR_HEIGHT;
-
-function startOfWeek(d: Date): Date {
-  const c = new Date(d);
-  const day = c.getDay();
-  const diff = (day + 6) % 7; // make Monday=0
-  c.setDate(c.getDate() - diff);
-  c.setHours(0, 0, 0, 0);
-  return c;
-}
-
-function addDays(d: Date, n: number): Date {
-  const c = new Date(d);
-  c.setDate(c.getDate() + n);
-  return c;
-}
-
-function formatDateRange(start: Date): string {
-  const end = addDays(start, 6);
-  const m = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-  return `${m(start)} - ${m(end)}`;
-}
+// Diary-specific extractions
+import {
+  DAYS, TOP_HOUR, BOTTOM_HOUR, HOURS, HOUR_HEIGHT, TOTAL_HEIGHT, TIME_W,
+} from '../src/diary/constants';
+import { startOfWeek, addDays, formatDateRange, localDateKey } from '../src/diary/dateUtils';
+import { styles } from '../src/diary/diaryStyles';
+import { AddLessonSheet } from '../src/diary/AddLessonSheet';
 
 export default function LessonDiaryScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const pro = isPro(user?.subscription_status);
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
-  const [selectedDate, setSelectedDate] = useState<Date>(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d;
+  });
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
   const [addOpen, setAddOpen] = useState(false);
   const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
@@ -74,30 +44,15 @@ export default function LessonDiaryScreen() {
   const { profile: instructorProfile } = useInstructorProfile();
   const preferredNav = (instructorProfile?.preferred_nav_app || 'google') as 'google' | 'waze' | 'apple';
 
-  // Form state
-  const [studentId, setStudentId] = useState('');
-  const [date, setDate] = useState('');
-  const [startTime, setStartTime] = useState('09:00');
-  const [endTime, setEndTime] = useState('11:00');
-  const [topic, setTopic] = useState('');
-  const [travelMinutes, setTravelMinutes] = useState('15');
-
-  // Recurrence state — when on, the lesson is bulk-created across `repeatWeeks`
-  // consecutive weeks on the same weekday/time. Each occurrence is independent
-  // (no series_id link in MVP — instructor can delete each one individually).
-  const [repeatOn, setRepeatOn] = useState(false);
-  const [repeatWeeks, setRepeatWeeks] = useState<string>('4');
-
-  // ScrollView ref so we can auto-jump the diary to a newly-added lesson's
-  // start-time (otherwise lessons after midday fall below the scroll fold).
+  // ScrollView ref — used to jump the diary to a newly-added lesson's start
+  // time so it's always visible after a save.
   const scrollRef = useRef<ScrollView | null>(null);
 
-  // Scroll the diary so the given HH:mm time lands ~80px from the top.
+  /** Scroll the diary so the given HH:mm time lands ~80px from the top. */
   const scrollToTime = (hhmm: string) => {
     if (!scrollRef.current) return;
     const [hh, mm] = hhmm.split(':').map(Number);
     const offset = Math.max(0, ((hh - TOP_HOUR) + mm / 60) * HOUR_HEIGHT - 80);
-    // Fire on next tick so the lesson block has been laid out first.
     setTimeout(() => scrollRef.current?.scrollTo({ y: offset, animated: true }), 100);
   };
 
@@ -114,15 +69,16 @@ export default function LessonDiaryScreen() {
   const openUnavailNew = () => { setEditingBlock(null); setUnavailOpen(true); };
   const openUnavailEdit = (b: AvailabilityBlock) => { setEditingBlock(b); setUnavailOpen(true); };
 
-  // Project an availability block into the diary's pixel coordinates for a
-  // given visible date. Returns null when the block doesn't intersect that day.
+  /**
+   * Project an availability block into the diary's pixel coordinates for a
+   * given visible date. Returns null when the block doesn't intersect that day.
+   */
   const projectBlock = (b: AvailabilityBlock, dateKey: string): { top: number; height: number; isAllDayBand: boolean } | null => {
     const dayStart = new Date(`${dateKey}T00:00:00`);
     const dayEnd = new Date(`${dateKey}T23:59:59`);
     const bStart = new Date(b.starts_at);
     const bEnd = new Date(b.ends_at);
     if (bEnd <= dayStart || bStart >= dayEnd) return null;
-    // Clamp into this calendar day.
     const visStart = bStart > dayStart ? bStart : dayStart;
     const visEnd = bEnd < dayEnd ? bEnd : dayEnd;
     const startMin = visStart.getHours() * 60 + visStart.getMinutes();
@@ -135,39 +91,7 @@ export default function LessonDiaryScreen() {
     return { top, height, isAllDayBand: !!b.all_day };
   };
 
-  // Lookup helper (mockDb shape used by callers)
   const getStudent = (id: string) => students.find((s) => s.id === id);
-
-  // Travel-time auto-suggest when a student is picked for a new lesson
-  const [travelInfo, setTravelInfo] = useState<string | null>(null);
-  useEffect(() => {
-    if (!addOpen || !studentId || !date) return;
-    const newStudent = getStudent(studentId);
-    if (!newStudent) return;
-    // Find most recent lesson on this date before the new one
-    const todays = lessons
-      .filter((l) => l.date === date && l.status !== 'Cancelled')
-      .sort((a, b) => a.end_time.localeCompare(b.end_time));
-    const prior = todays.filter((l) => l.end_time <= startTime).pop();
-    const newDest = lessonAddress(
-      { pickup_address: '', student_id: newStudent.id } as any,
-      newStudent
-    );
-    const origin = prior
-      ? lessonAddress(prior, getStudent(prior.student_id))
-      : null;
-    if (!origin || !newDest) {
-      setTravelInfo(null);
-      return;
-    }
-    let cancelled = false;
-    getTravelTime(origin, newDest, new Date(`${date}T${startTime}:00`)).then((t) => {
-      if (cancelled || !t) return;
-      setTravelMinutes(String(t.duration_in_traffic_minutes));
-      setTravelInfo(`Predicted ${t.duration_in_traffic_minutes}m via traffic · ${t.distance_km}km · from previous lesson${t.status === 'fallback' ? ' (estimate)' : ''}`);
-    });
-    return () => { cancelled = true; };
-  }, [addOpen, studentId, date, startTime, lessons]);
 
   // On mount, if we're viewing today, scroll to roughly the current hour.
   useEffect(() => {
@@ -176,7 +100,6 @@ export default function LessonDiaryScreen() {
       const h = today.getHours();
       const m = today.getMinutes();
       const hhmm = `${String(Math.max(h, TOP_HOUR)).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-      // Wait for layout — the lessons need to be rendered first.
       setTimeout(() => scrollToTime(hhmm), 400);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -188,8 +111,8 @@ export default function LessonDiaryScreen() {
   const navLabel = viewMode === 'day'
     ? selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })
     : formatDateRange(weekStart);
-  const selectedKey = selectedDate.toISOString().slice(0, 10);
-  const todayKey = new Date().toISOString().slice(0, 10);
+  const selectedKey = localDateKey(selectedDate);
+  const todayKey = localDateKey(new Date());
 
   const computePos = (l: Lesson) => {
     const [sh, sm] = l.start_time.split(':').map(Number);
@@ -203,209 +126,13 @@ export default function LessonDiaryScreen() {
     .sort((a, b) => a.end_time.localeCompare(b.end_time))
     .pop();
 
-  // Convert 'HH:MM' to total minutes since midnight — used for clash overlap detection.
-  const toMin = (hhmm: string): number => {
-    const [h, m] = (hhmm || '').split(':').map(Number);
-    return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
-  };
-
-  const handleAdd = async () => {
-    if (!studentId || !date || !topic) return;
-
-    // Build the list of target dates. Single lesson → [date]. Recurring → date
-    // + N-1 subsequent weeks on the same weekday.
-    const weeks = repeatOn ? Math.max(2, Math.min(26, parseInt(repeatWeeks, 10) || 4)) : 1;
-    const baseDate = new Date(`${date}T00:00:00`);
-    const targetDates: string[] = [];
-    for (let i = 0; i < weeks; i += 1) {
-      const d = new Date(baseDate);
-      d.setDate(d.getDate() + i * 7);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      targetDates.push(`${y}-${m}-${dd}`);
+  /** Called by the AddLessonSheet after a successful create. */
+  const handleLessonCreated = (info: { firstDate: string; startTime: string; created: number; recurring: boolean }) => {
+    const lessonDate = new Date(`${info.firstDate}T00:00:00`);
+    if (lessonDate.toDateString() !== selectedDate.toDateString()) {
+      setSelectedDate(lessonDate);
     }
-
-    // -------- Pre-flight: resolve instructor + cache day-by-day clash info --
-    let instructorId: string | null = null;
-    try {
-      const { data: ses } = await supabase.auth.getSession();
-      const uid = ses.session?.user?.id;
-      if (uid) {
-        const { data: instr } = await supabase
-          .from('instructors').select('id').eq('auth_user_id', uid).maybeSingle();
-        instructorId = instr?.id || null;
-      }
-    } catch { /* fall through — no overlap check, but allow save */ }
-
-    // For each occurrence, check (a) unavailability overlap, (b) clash.
-    type Plan = { date: string; reason?: 'unavailable' | 'clash' };
-    const plan: Plan[] = [];
-    for (const d of targetDates) {
-      try {
-        const sIso = new Date(`${d}T${startTime}:00`).toISOString();
-        const eIso = new Date(`${d}T${endTime}:00`).toISOString();
-        if (overlapsAnyBlock(availBlocks, sIso, eIso)) {
-          plan.push({ date: d, reason: 'unavailable' });
-          continue;
-        }
-        if (instructorId) {
-          const fromIsoX = `${d}T00:00:00`;
-          const toIsoX = `${d}T23:59:59`;
-          const { data: dayLessons } = await supabase
-            .from('lessons')
-            .select('id, start_time, end_time, status, students(full_name)')
-            .eq('instructor_id', instructorId)
-            .gte('start_time', fromIsoX)
-            .lte('start_time', toIsoX);
-          const newStartMs = new Date(sIso).getTime();
-          const newEndMs = new Date(eIso).getTime();
-          let clashed = false;
-          let clashName = '';
-          let clashStart = '';
-          let clashEnd = '';
-          for (const L of (dayLessons || []) as any[]) {
-            if (L.status === 'Cancelled') continue;
-            const lsMs = new Date(L.start_time).getTime();
-            const leMs = new Date(L.end_time).getTime();
-            if (!Number.isFinite(lsMs) || !Number.isFinite(leMs)) continue;
-            if (lsMs < newEndMs && leMs > newStartMs) {
-              clashed = true;
-              clashName = (L.students && (L.students as any).full_name) || 'another student';
-              const hhmm = (dt: Date) => `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
-              clashStart = hhmm(new Date(L.start_time));
-              clashEnd = hhmm(new Date(L.end_time));
-              break;
-            }
-          }
-          if (clashed) {
-            // For SINGLE lesson: keep the existing soft-warn UX.
-            if (!repeatOn) {
-              const msg = `This slot clashes with ${clashName}'s lesson (${clashStart}–${clashEnd}). Save anyway?`;
-              const proceed = await (async (): Promise<boolean> => {
-                if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
-                  return window.confirm(msg);
-                }
-                return await new Promise((resolve) => {
-                  Alert.alert('Lesson clash', msg, [
-                    { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-                    { text: 'Save anyway', style: 'destructive', onPress: () => resolve(true) },
-                  ]);
-                });
-              })();
-              if (!proceed) return;
-              plan.push({ date: d });
-              continue;
-            }
-            // For RECURRING: silently skip the clashing occurrence.
-            plan.push({ date: d, reason: 'clash' });
-            continue;
-          }
-        }
-        // No clash and no unavailability.
-        // For SINGLE lesson: also need to check the unavailability hard-block.
-        plan.push({ date: d });
-      } catch {
-        plan.push({ date: d }); // be permissive on errors
-      }
-    }
-
-    // For SINGLE lesson: enforce the hard-block on unavailabilities.
-    if (!repeatOn) {
-      const first = plan[0];
-      if (first && first.reason === 'unavailable') {
-        if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-          window.alert('This time overlaps one of your unavailabilities. Remove or shrink the block first, then try again.');
-        }
-        return;
-      }
-    }
-
-    const toCreate = plan.filter((p) => !p.reason);
-    const skipped = plan.length - toCreate.length;
-
-    // -------- Mint series_id when recurring & we have ≥2 dates to create ----
-    // Only stamp when there's a genuine recurrence (>=2 occurrences), so
-    // single-lesson fall-through (e.g. user toggled on/off) keeps a NULL
-    // series_id and isn't accidentally treated as a series-of-one.
-    let seriesId: string | undefined;
-    if (repeatOn && toCreate.length >= 2) {
-      // Prefer the browser's crypto.randomUUID; fall back to a v4 polyfill so
-      // older WebViews still work.
-      const g: any = (typeof globalThis !== 'undefined' ? globalThis : {}) as any;
-      if (g.crypto && typeof g.crypto.randomUUID === 'function') {
-        seriesId = g.crypto.randomUUID();
-      } else {
-        seriesId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-          const r = (Math.random() * 16) | 0;
-          const v = c === 'x' ? r : (r & 0x3) | 0x8;
-          return v.toString(16);
-        });
-      }
-    }
-
-    // -------- Bulk create -------------------------------------------------
-    let created = 0;
-    let firstCreated: any = null;
-    for (const p of toCreate) {
-      try {
-        const row = await createLesson({
-          student_id: studentId,
-          date: p.date,
-          start_time: startTime,
-          end_time: endTime,
-          travel_minutes: parseInt(travelMinutes, 10) || 0,
-          topic,
-          amount_paid: undefined,
-          series_id: seriesId,
-        });
-        if (!firstCreated) firstCreated = row;
-        created += 1;
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn('[diary] addLesson failed', e);
-      }
-    }
-
-    // -------- Wrap up -----------------------------------------------------
-    setStudentId('');
-    setDate('');
-    setTopic('');
-    setAddOpen(false);
-    setRepeatOn(false);
-    scrollToTime(startTime);
-
-    if (firstCreated && date) {
-      const lessonDate = new Date(`${date}T00:00:00`);
-      if (lessonDate.toDateString() !== selectedDate.toDateString()) {
-        setSelectedDate(lessonDate);
-      }
-    }
-
-    // Schedule reminders for the first occurrence (Pro only — same as before).
-    if (pro && firstCreated) {
-      const student = getStudent(studentId);
-      if (student) scheduleLessonReminders(firstCreated as any, student as any).catch(() => {});
-    }
-
-    // Summary toast — only when recurring, to avoid noise on a single save.
-    if (repeatOn) {
-      const lines: string[] = [`Created ${created} lesson${created === 1 ? '' : 's'}.`];
-      if (skipped > 0) {
-        const unav = plan.filter((p) => p.reason === 'unavailable').length;
-        const clashes = plan.filter((p) => p.reason === 'clash').length;
-        const bits: string[] = [];
-        if (unav > 0) bits.push(`${unav} time off`);
-        if (clashes > 0) bits.push(`${clashes} clash${clashes === 1 ? '' : 'es'}`);
-        lines.push(`Skipped ${skipped} (${bits.join(' · ')}).`);
-      }
-      const msg = lines.join(' ');
-      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-        window.alert(msg);
-      } else {
-        Alert.alert('Recurring lessons', msg);
-      }
-    }
+    scrollToTime(info.startTime);
   };
 
   return (
@@ -481,7 +208,7 @@ export default function LessonDiaryScreen() {
                     <View key={h} style={styles.hourSlot} />
                   ))}
                 </View>
-                {/* Availability blocks — grey bands behind lessons */}
+                {/* Availability bands behind lessons */}
                 {availBlocks.map((b) => {
                   const p = projectBlock(b, selectedKey);
                   if (!p) return null;
@@ -518,11 +245,7 @@ export default function LessonDiaryScreen() {
                           isCancelled && styles.lessonBlockCancelled,
                           { top, height },
                         ]}
-                        onPress={() => {
-                          // eslint-disable-next-line no-console
-                          console.log('[diary] lesson tapped:', l.id, l.start_time);
-                          setDetailLesson(l);
-                        }}
+                        onPress={() => setDetailLesson(l)}
                         testID={`lesson-block-${l.id}`}
                       >
                         <Text style={[styles.lessonBlockTimeBig, isCancelled && styles.lessonTextCancelled]}>
@@ -553,8 +276,6 @@ export default function LessonDiaryScreen() {
                             onPress={(e: any) => {
                               if (e?.stopPropagation) e.stopPropagation();
                               const addr = l.pickup_address || (s ? `${s.address || ''}, ${s.postcode || ''}` : '');
-                              // eslint-disable-next-line no-console
-                              console.log('[diary] 1-tap navigate via', preferredNav, '→', addr);
                               openNavigation(preferredNav, addr);
                             }}
                             hitSlop={6}
@@ -596,7 +317,7 @@ export default function LessonDiaryScreen() {
                   ))}
                 </View>
                 {DAYS.map((_, di) => {
-                  const cellDate = addDays(weekStart, di).toISOString().slice(0, 10);
+                  const cellDate = localDateKey(addDays(weekStart, di));
                   const dayLessons = lessons.filter((l) => l.date === cellDate);
                   const dayBands = availBlocks
                     .map((b) => ({ b, p: projectBlock(b, cellDate) }))
@@ -636,11 +357,7 @@ export default function LessonDiaryScreen() {
                               isCancelled && styles.lessonBlockCancelled,
                               { top, height },
                             ]}
-                            onPress={() => {
-                              // eslint-disable-next-line no-console
-                              console.log('[diary/week] lesson tapped:', l.id);
-                              setDetailLesson(l);
-                            }}
+                            onPress={() => setDetailLesson(l)}
                             testID={`lesson-block-${l.id}`}
                           >
                             <Text style={[styles.lessonBlockTime, isCancelled && styles.lessonTextCancelled]}>
@@ -686,113 +403,16 @@ export default function LessonDiaryScreen() {
 
       <BottomNav role="instructor" />
 
-      {/* Add Lesson Sheet */}
-      <BottomSheet visible={addOpen} onClose={() => setAddOpen(false)} title="Add Lesson" testID="sheet-add-lesson">
-        <Text style={styles.label}>Student</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
-          {students.map((s) => (
-            <TouchableOpacity
-              key={s.id}
-              style={[styles.chip, studentId === s.id && styles.chipActive]}
-              onPress={() => setStudentId(s.id)}
-              testID={`pick-student-${s.id}`}
-            >
-              <Text style={[styles.chipText, studentId === s.id && styles.chipTextActive]}>{s.name}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        <Text style={styles.label}>Date</Text>
-        <DateField value={date} onChange={setDate} testID="input-lesson-date" />
-
-        <View style={{ flexDirection: 'row', gap: 12 }}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>Start</Text>
-            <TimeField value={startTime} onChange={setStartTime} testID="input-lesson-start" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>End</Text>
-            <TimeField value={endTime} onChange={setEndTime} testID="input-lesson-end" />
-          </View>
-        </View>
-
-        <Text style={styles.label}>Topic</Text>
-        <TextInput
-          style={styles.input}
-          value={topic}
-          onChangeText={setTopic}
-          placeholder="e.g. Roundabouts & Junctions"
-          placeholderTextColor={theme.colors.textMuted}
-          testID="input-lesson-topic"
-        />
-
-        <Text style={styles.label}>Travel buffer (minutes to next lesson)</Text>
-        <TextInput
-          style={styles.input}
-          value={travelMinutes}
-          onChangeText={setTravelMinutes}
-          keyboardType="numeric"
-          placeholder="15"
-          placeholderTextColor={theme.colors.textMuted}
-          testID="input-lesson-travel"
-        />
-        {travelInfo && (
-          <View style={styles.travelInfoBox} testID="travel-info">
-            <Car size={14} color={theme.colors.primary} />
-            <Text style={styles.travelInfoText}>{travelInfo}</Text>
-          </View>
-        )}
-
-        {/* Recurrence — bulk-create the lesson on the same weekday & time for N weeks */}
-        <View style={styles.recurRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>Repeat weekly</Text>
-            <Text style={styles.recurHint}>
-              Same weekday & time. Skips occurrences that clash or hit your time off.
-            </Text>
-          </View>
-          <Switch
-            value={repeatOn}
-            onValueChange={setRepeatOn}
-            trackColor={{ true: theme.colors.primary, false: theme.colors.border }}
-            testID="switch-repeat"
-          />
-        </View>
-        {repeatOn && (
-          <View style={styles.recurWeeksBlock} testID="recur-weeks-block">
-            <Text style={styles.label}>Number of weeks (incl. this one)</Text>
-            <View style={styles.weekChipsRow}>
-              {[2, 4, 8, 12, 26].map((n) => (
-                <TouchableOpacity
-                  key={n}
-                  style={[styles.weekChip, parseInt(repeatWeeks, 10) === n && styles.weekChipActive]}
-                  onPress={() => setRepeatWeeks(String(n))}
-                  testID={`recur-chip-${n}`}
-                >
-                  <Text style={[styles.weekChipText, parseInt(repeatWeeks, 10) === n && styles.weekChipTextActive]}>
-                    {n}w
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <TextInput
-              style={[styles.input, { marginTop: 8 }]}
-              value={repeatWeeks}
-              onChangeText={(v) => setRepeatWeeks(v.replace(/[^0-9]/g, '').slice(0, 2))}
-              keyboardType="numeric"
-              placeholder="4"
-              placeholderTextColor={theme.colors.textMuted}
-              testID="input-recur-weeks"
-            />
-          </View>
-        )}
-
-        <TouchableOpacity style={styles.submitBtn} onPress={handleAdd} testID="btn-submit-lesson">
-          <Text style={styles.submitBtnText}>
-            {repeatOn ? `Save ${Math.max(2, Math.min(26, parseInt(repeatWeeks, 10) || 4))} lessons` : 'Save Lesson'}
-          </Text>
-        </TouchableOpacity>
-      </BottomSheet>
+      {/* Add Lesson Sheet — extracted to its own module to keep this screen lean. */}
+      <AddLessonSheet
+        visible={addOpen}
+        onClose={() => setAddOpen(false)}
+        students={students}
+        lessons={lessons}
+        availBlocks={availBlocks}
+        pro={pro}
+        onCreated={handleLessonCreated}
+      />
 
       {/* Lesson Tools Sheet */}
       <LessonToolsSheet
@@ -808,257 +428,8 @@ export default function LessonDiaryScreen() {
         block={editingBlock}
         initialDate={selectedKey}
         onClose={() => setUnavailOpen(false)}
-        onSaved={() => { /* bump() already refreshes the hook */ }}
+        onSaved={() => { /* hook auto-refreshes via bump() */ }}
       />
     </SafeAreaView>
   );
 }
-
-function FaultBadge({ label, value, colour }: { label: string; value: number; colour: string }) {
-  return (
-    <View style={[styles.faultCard, { borderColor: colour }]}>
-      <Text style={[styles.faultValue, { color: colour }]}>{value}</Text>
-      <Text style={styles.faultLabel}>{label}</Text>
-    </View>
-  );
-}
-
-const CELL_W = 100;
-const TIME_W = 50;
-const CELL_H = 60;
-
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: theme.colors.background },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12 },
-  iconBtn: { padding: 8, borderRadius: 8 },
-  title: { ...theme.font.h2 },
-  toggleRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, paddingBottom: 4 },
-  toggleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: theme.colors.primary,
-    backgroundColor: theme.colors.surface,
-  },
-  toggleBtnActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  toggleText: { color: theme.colors.primary, fontWeight: '700', fontSize: 13 },
-  toggleTextActive: { color: '#fff' },
-  weekNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, paddingVertical: 8 },
-  weekArrow: { padding: 8, borderRadius: 8, backgroundColor: theme.colors.primaryLight },
-  weekLabel: { ...theme.font.h3 },
-  todayHint: { fontSize: 11, color: theme.colors.textMuted, marginTop: 2 },
-  scroll: { paddingHorizontal: 12, paddingBottom: 96 },
-  grid: { backgroundColor: theme.colors.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' },
-  gridRow: { flexDirection: 'row' },
-  headerCell: { backgroundColor: theme.colors.primaryLight, borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingVertical: 8 },
-  hourLabelCell: {
-    height: HOUR_HEIGHT,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingTop: 2,
-    borderRightWidth: 1,
-    borderRightColor: theme.colors.border,
-  },
-  timeText: { fontSize: 11, color: theme.colors.textMuted, fontWeight: '500' },
-  hourSlot: {
-    height: HOUR_HEIGHT,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  // ---------- Day view ----------
-  dayGrid: { backgroundColor: theme.colors.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' },
-  dayGridHeader: { flexDirection: 'row', backgroundColor: theme.colors.primaryLight, borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingVertical: 10 },
-  dayHeaderCol: { flex: 1, alignItems: 'center' },
-  dayLessonCol: { flex: 1, position: 'relative' },
-  lessonBlockDay: {
-    position: 'absolute',
-    left: 4,
-    right: 4,
-    backgroundColor: theme.colors.primary,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    overflow: 'hidden',
-    // Keep lesson blocks above the hour grid lines so taps always land on them.
-    zIndex: 2,
-    elevation: 2,
-  },
-  navQuickBtn: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 3,
-    elevation: 3,
-  },
-  navQuickBtnWeek: {
-    position: 'absolute',
-    top: 2,
-    right: 2,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 3,
-    elevation: 3,
-  },
-  lessonBlockTimeBig: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  lessonBlockNameFull: { color: '#fff', fontSize: 15, fontWeight: '700', marginTop: 2 },
-  lessonBlockTopic: { color: 'rgba(255,255,255,0.85)', fontSize: 12, marginTop: 2 },
-  // ---------- Week view ----------
-  dayHeaderCellWeek: {
-    width: CELL_W,
-    alignItems: 'center',
-    paddingVertical: 8,
-    borderRightWidth: 1,
-    borderRightColor: theme.colors.border,
-  },
-  weekDayCol: {
-    width: CELL_W,
-    borderRightWidth: 1,
-    borderRightColor: theme.colors.border,
-    position: 'relative',
-  },
-  lessonBlockWeek: {
-    position: 'absolute',
-    left: 2,
-    right: 2,
-    backgroundColor: theme.colors.primary,
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    overflow: 'hidden',
-  },
-  lessonBlockNameWeek: { color: '#fff', fontSize: 11, fontWeight: '700', marginTop: 2 },
-  lessonBlockWarn: { backgroundColor: theme.colors.faultDriving },
-  // Unavailability bands — diagonal stripes & grey background
-  unavailBand: {
-    position: 'absolute',
-    left: 4,
-    right: 4,
-    backgroundColor: 'rgba(148,163,184,0.25)',
-    borderLeftWidth: 4,
-    borderLeftColor: '#94A3B8',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    justifyContent: 'center',
-    zIndex: 0,
-  },
-  unavailBandText: { fontSize: 11, fontWeight: '700', color: '#475569' },
-  unavailBandWeek: {
-    position: 'absolute',
-    left: 2,
-    right: 2,
-    backgroundColor: 'rgba(148,163,184,0.30)',
-    borderLeftWidth: 3,
-    borderLeftColor: '#94A3B8',
-    borderRadius: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 0,
-  },
-  unavailBandTextWeek: { fontSize: 10, color: '#475569' },
-  // Recurrence section in the Add Lesson sheet
-  recurRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 6,
-    marginTop: 4,
-  },
-  recurHint: { fontSize: 11, color: theme.colors.textMuted, marginTop: 2, lineHeight: 16 },
-  recurWeeksBlock: { marginTop: 4 },
-  weekChipsRow: { flexDirection: 'row', gap: 6, marginTop: 2 },
-  weekChip: {
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14,
-    borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.background,
-  },
-  weekChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  weekChipText: { fontSize: 13, fontWeight: '700', color: theme.colors.text },
-  weekChipTextActive: { color: '#fff' },
-  // Greyed-out + strikethrough state for Cancelled lessons. Kept on the diary
-  // (rather than filtered out) so instructors can see what was originally booked.
-  lessonBlockCancelled: {
-    backgroundColor: '#E5E7EB',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    opacity: 0.85,
-  },
-  lessonTextCancelled: {
-    color: '#6B7280',
-    textDecorationLine: 'line-through',
-    textDecorationStyle: 'solid',
-  },
-  cancelledTag: {
-    position: 'absolute',
-    top: 4,
-    right: 6,
-    backgroundColor: '#9CA3AF',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  cancelledTagText: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 0.4 },
-  warnDot: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: theme.colors.faultSerious,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dayName: { fontWeight: '600', color: theme.colors.text, fontSize: 12 },
-  dayNum: { fontSize: 16, fontWeight: '700', color: theme.colors.primary },
-  // ---------- Shared / Form ----------
-  travelInfoBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: theme.colors.primaryLight,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginTop: -6,
-    marginBottom: 12,
-  },
-  travelInfoText: { color: theme.colors.primary, fontSize: 12, fontWeight: '600', flex: 1 },
-  lessonBlockTime: { color: '#fff', fontSize: 10, fontWeight: '600' },
-  label: { ...theme.font.caption, fontWeight: '600', marginBottom: 6, color: theme.colors.text },
-  input: {
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
-    paddingHorizontal: 14,
-    height: 48,
-    marginBottom: 12,
-    backgroundColor: theme.colors.background,
-  },
-  chip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, borderWidth: 1, borderColor: theme.colors.border, marginRight: 8 },
-  chipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  chipText: { fontSize: 14, color: theme.colors.text },
-  chipTextActive: { color: '#fff', fontWeight: '600' },
-  submitBtn: { backgroundColor: theme.colors.primary, height: 52, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
-  submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  detailName: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
-  detailTopic: { fontSize: 15, color: theme.colors.textMuted },
-  notes: { fontSize: 14, color: theme.colors.text, lineHeight: 20 },
-  faultsRow: { flexDirection: 'row', gap: 10 },
-  faultCard: { flex: 1, borderRadius: 12, borderWidth: 2, padding: 12, alignItems: 'center' },
-  faultValue: { fontSize: 22, fontWeight: '700' },
-  faultLabel: { fontSize: 12, color: theme.colors.textMuted },
-});

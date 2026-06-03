@@ -282,10 +282,12 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     }
 
     // Schedule reminders for the first occurrence (Pro only).
-    if (pro && firstCreated) {
-      const student = getStudent(studentId);
-      if (student) scheduleLessonReminders(firstCreated as any, student as any).catch(() => {});
-    }
+    // NOTE: Student-side server-pushed reminders (48h / 25h / 1h) are now handled
+    // by the backend scheduler in `dispatch_lesson_reminders()`. We intentionally
+    // do NOT schedule local instructor reminders here — per spec, only students
+    // receive lesson reminder push notifications.
+    void pro; // kept for future use; no-op for now
+    void firstCreated;
 
     // Summary toast — only when recurring, to avoid noise on a single save.
     if (wasRecurring) {

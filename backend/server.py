@@ -12,6 +12,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 import uuid
 import stripe
+from lesson_reminders import start_lesson_reminder_scheduler, stop_lesson_reminder_scheduler
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -677,11 +678,15 @@ async def startup_event():
         name="adi_number_1",
     )
     await seed_demo_users()
+    # Kick off the lesson-reminder scheduler — fires push notifications to
+    # students 48 h, 25 h, and 1 h before each lesson.
+    start_lesson_reminder_scheduler()
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     client.close()
+    stop_lesson_reminder_scheduler()
 
 
 # ============================================================================

@@ -13,7 +13,10 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Scan fuel and maintenance receipts",
         "NSPhotoLibraryUsageDescription": "Attach receipt photos to expenses",
-        "NSContactsUsageDescription": "Import student names and phone numbers"
+        "NSContactsUsageDescription": "Import student names and phone numbers",
+        "NSLocationWhenInUseUsageDescription": "Record driving lesson routes via GPS",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Track routes when the phone is locked",
+        "UIBackgroundModes": ["location"]
       }
     },
     "android": {
@@ -25,7 +28,10 @@
       "permissions": [
         "CAMERA",
         "READ_MEDIA_IMAGES",
-        "READ_CONTACTS"
+        "READ_CONTACTS",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION"
       ]
     },
     "androidStatusBar": {
@@ -50,7 +56,18 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Record driving lesson routes via GPS",
+          "locationAlwaysAndWhenInUsePermission": "Track lessons when the phone is locked",
+          "locationAlwaysPermission": "Track lessons when the phone is locked",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

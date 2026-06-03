@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
   ChevronLeft, ChevronRight, Plus, ArrowLeft, AlertTriangle,
-  Calendar, CalendarDays, Ban, Navigation as NavIcon,
+  Calendar, CalendarDays, Ban, Navigation as NavIcon, Route as RouteIcon,
 } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { Lesson } from '../src/mockDb';
@@ -143,6 +143,14 @@ export default function LessonDiaryScreen() {
         </TouchableOpacity>
         <Text style={styles.title}>Lesson Diary</Text>
         <View style={{ flexDirection: 'row', gap: 4 }}>
+          <TouchableOpacity
+            onPress={() => router.push('/route-recorder-screen' as any)}
+            testID="btn-route-recorder"
+            style={styles.iconBtn}
+            accessibilityLabel="Record lesson route"
+          >
+            <RouteIcon size={22} color={theme.colors.primary} />
+          </TouchableOpacity>
           <TouchableOpacity onPress={openUnavailNew} testID="btn-add-unavailability" style={styles.iconBtn} accessibilityLabel="Add unavailability">
             <Ban size={22} color={theme.colors.danger} />
           </TouchableOpacity>

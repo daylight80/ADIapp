@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, Camera, ImagePlus, Plus, Trash2, Download, Receipt as ReceiptIcon } from 'lucide-react-native';
+import { ArrowLeft, Camera, ImagePlus, Plus, Trash2, Download, Receipt as ReceiptIcon, Archive } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -17,6 +17,7 @@ import {
   listReceipts, createReceipt, deleteReceipt, uploadReceiptImage,
   RECEIPT_CATEGORIES, ExpenseReceipt, ReceiptCategory,
 } from '../src/supabaseDb';
+import { exportReceiptsZip, type ZipProgress } from '../src/receiptsExport';
 
 const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || '';
 
@@ -43,6 +44,10 @@ export default function ReceiptsScreen() {
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [imageMime, setImageMime] = useState<string>('image/jpeg');
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+
+  // Archive (ZIP) export state
+  const [archiving, setArchiving] = useState(false);
+  const [archiveStatus, setArchiveStatus] = useState<string | null>(null);
   const [form, setForm] = useState<{
     vendor: string; occurred_at: string; amount_total: string;
     vat_amount: string; category: ReceiptCategory; notes: string;
@@ -240,6 +245,38 @@ export default function ReceiptsScreen() {
     }
   };
 
+  const exportZip = async () => {
+    const rows = filtered;
+    if (rows.length === 0) {
+      Alert.alert('Nothing to export', 'No receipts in the current view.');
+      return;
+    }
+    setArchiving(true);
+    setArchiveStatus('Preparing…');
+    try {
+      const result = await exportReceiptsZip(rows, (p: ZipProgress) => {
+        if (p.phase === 'downloading' && p.total) {
+          setArchiveStatus(`Downloading images (${p.current ?? 0}/${p.total})…`);
+        } else if (p.phase === 'zipping') {
+          setArchiveStatus('Compressing archive…');
+        } else if (p.phase === 'sharing') {
+          setArchiveStatus('Saving…');
+        }
+      });
+      if (result.warnings && result.warnings.length > 0) {
+        Alert.alert(
+          'Archive created with warnings',
+          `${result.fileName}\n\n${result.warnings.slice(0, 3).join('\n\n')}${result.warnings.length > 3 ? `\n\n…and ${result.warnings.length - 3} more.` : ''}`,
+        );
+      }
+    } catch (e: any) {
+      Alert.alert('Archive failed', e?.message || 'Could not build receipts archive.');
+    } finally {
+      setArchiving(false);
+      setArchiveStatus(null);
+    }
+  };
+
   const catLabel = (k: ReceiptCategory) =>
     RECEIPT_CATEGORIES.find((c) => c.key === k)?.label || k;
   const catEmoji = (k: ReceiptCategory) =>
@@ -252,10 +289,32 @@ export default function ReceiptsScreen() {
           <ArrowLeft size={22} color={theme.colors.text} />
         </TouchableOpacity>
         <Text style={styles.title}>Receipts</Text>
-        <TouchableOpacity onPress={exportCsv} style={styles.iconBtn} testID="btn-export-csv">
-          <Download size={20} color={theme.colors.primary} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 4 }}>
+          <TouchableOpacity
+            onPress={exportZip}
+            style={styles.iconBtn}
+            testID="btn-export-zip"
+            disabled={archiving}
+            accessibilityLabel="Export archive (ZIP with images)"
+          >
+            {archiving ? (
+              <ActivityIndicator size="small" color={theme.colors.primary} />
+            ) : (
+              <Archive size={20} color={theme.colors.primary} />
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity onPress={exportCsv} style={styles.iconBtn} testID="btn-export-csv" accessibilityLabel="Export CSV summary only">
+            <Download size={20} color={theme.colors.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {archiving && archiveStatus && (
+        <View style={styles.archiveBanner} testID="archive-status">
+          <ActivityIndicator size="small" color={theme.colors.primary} />
+          <Text style={styles.archiveBannerText}>{archiveStatus}</Text>
+        </View>
+      )}
 
       {/* Totals */}
       <View style={styles.totalsRow}>
@@ -467,6 +526,20 @@ const styles = StyleSheet.create({
   title: { ...theme.font.h2, flex: 1, textAlign: 'center' },
 
   totalsRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginBottom: 6 },
+  archiveBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginHorizontal: 16,
+    marginBottom: 6,
+    borderRadius: 8,
+    backgroundColor: theme.colors.primaryLight,
+    borderWidth: 1,
+    borderColor: theme.colors.primary + '33',
+  },
+  archiveBannerText: { color: theme.colors.primary, fontSize: 13, fontWeight: '600', flex: 1 },
   totalCard: { flex: 1, gap: 2, paddingVertical: 14 },
   totalLabel: { ...theme.font.caption, color: theme.colors.textMuted },
   totalValue: { fontSize: 20, fontWeight: '800', color: theme.colors.text },

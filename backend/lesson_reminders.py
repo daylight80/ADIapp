@@ -49,11 +49,12 @@ REMINDER_WINDOW_MIN = 5        # ± window around the target offset in minutes
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
 
 # Three target offsets (in minutes before lesson start) and their "kind" tags
-# stored in lesson_reminder_log to prevent duplicates.
+# stored in lesson_reminder_log to prevent duplicates. The title is the
+# user-facing notification heading; the body is composed in _build_message().
 REMINDER_OFFSETS = [
-    {"kind": "h48", "minutes": 48 * 60, "label": "Driving lesson in 2 days"},
-    {"kind": "h25", "minutes": 25 * 60, "label": "Driving lesson tomorrow"},
-    {"kind": "h1",  "minutes":      60, "label": "Driving lesson in 1 hour"},
+    {"kind": "h48", "minutes": 48 * 60, "label": "Lesson reminder"},
+    {"kind": "h25", "minutes": 25 * 60, "label": "Lesson tomorrow"},
+    {"kind": "h1",  "minutes":      60, "label": "Lesson in 1 hour"},
 ]
 
 _scheduler: Optional[AsyncIOScheduler] = None
@@ -176,24 +177,31 @@ def _format_lesson_time(start_iso: str) -> str:
         return start_iso
 
 
+def _format_day_and_time(start_iso: str) -> tuple[str, str]:
+    """Return ('Thursday', '14:00') style components for richer copy."""
+    try:
+        dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+        return dt.strftime("%A"), dt.strftime("%H:%M")
+    except Exception:
+        return "your scheduled day", start_iso
+
+
 def _build_message(lesson: Dict[str, Any], kind: str, label: str) -> Dict[str, str]:
-    """Compose the title + body for a given lesson and reminder kind."""
+    """Compose the title + body for a given lesson and reminder kind.
+
+    Copy approved by the product owner (British English):
+      48h: "Reminder: You have a driving lesson on {Weekday} at {HH:MM}."
+      25h: "Lesson tomorrow at {HH:MM} with {Instructor}."
+      1h:  "Your lesson starts in 1 hour. See you soon!"
+    """
     instructor_name = (lesson.get("instructors") or {}).get("full_name") or "your instructor"
-    when_str = _format_lesson_time(lesson.get("start_time") or "")
-    topic = (lesson.get("topic") or "").strip()
-    pickup = (lesson.get("pickup_address") or "").strip()
-    parts: List[str] = [f"{when_str} with {instructor_name}"]
+    day_name, hhmm = _format_day_and_time(lesson.get("start_time") or "")
     if kind == "h1":
-        # 1-hour reminder is the most actionable — favour pickup details.
-        if pickup:
-            parts.append(f"Be ready at {pickup}.")
-        else:
-            parts.append("Be ready outside.")
+        body = "Your lesson starts in 1 hour. See you soon!"
     elif kind == "h25":
-        parts.append(topic or "Lesson tomorrow.")
+        body = f"Lesson tomorrow at {hhmm} with {instructor_name}."
     else:
-        parts.append(topic or "See you soon.")
-    body = " ".join(p for p in parts if p)
+        body = f"Reminder: You have a driving lesson on {day_name} at {hhmm}."
     return {"title": label, "body": body}
 
 

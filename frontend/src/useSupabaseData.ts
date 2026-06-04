@@ -113,6 +113,26 @@ export async function removeStudent(id: string) {
   return ok;
 }
 
+// ---------------------------------------------------------------------------
+// Lifecycle status + hard-delete via the FastAPI v2 endpoints. The /v2 routes
+// enforce tenant isolation server-side (see `_ensure_owns_student` in
+// `server.py`). Both helpers bump the global cache so every listening hook
+// refetches immediately.
+// ---------------------------------------------------------------------------
+
+import { updateStudentStatus, deleteStudentHard, type LifecycleStatus } from './studentLifecycle';
+
+export async function setStudentStatusAsync(id: string, status: LifecycleStatus): Promise<LifecycleStatus> {
+  const confirmed = await updateStudentStatus(id, status);
+  bump();
+  return confirmed;
+}
+
+export async function removeStudentViaApi(id: string): Promise<void> {
+  await deleteStudentHard(id);
+  bump();
+}
+
 export async function ensureDemoStudentsSeeded() {
   const r = await db.seedDemoStudentsIfEmpty();
   if (r.created > 0) bump();

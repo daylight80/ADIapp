@@ -29,7 +29,7 @@ import { api } from '../src/api';
 
 type FilterChip = 'All' | StudentStatus;
 
-const FILTERS: FilterChip[] = ['All', 'Active', 'Test Ready', 'New', 'Passed'];
+const FILTERS: FilterChip[] = ['All', 'Active', 'Test Ready', 'New', 'Passed', 'Inactive', 'Waitlist'];
 
 export default function StudentCrmScreen() {
   const router = useRouter();
@@ -76,6 +76,9 @@ export default function StudentCrmScreen() {
       Active: students.filter((s) => s.status === 'Active').length,
       'Test Ready': students.filter((s) => s.status === 'Test Ready').length,
       New: students.filter((s) => s.status === 'New').length,
+      Passed: students.filter((s) => s.status === 'Passed').length,
+      Inactive: students.filter((s) => s.status === 'Inactive').length,
+      Waitlist: students.filter((s) => s.status === 'Waitlist').length,
     };
   }, [students]);
 

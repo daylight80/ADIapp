@@ -1496,6 +1496,123 @@ async def v2_reassign_students(
     return ReassignStudentsResponse(moved=moved, skipped=skipped, errors=errors[:10])
 
 
+# ---------------------------------------------------------------------------
+# Student lifecycle status + hard delete
+# ---------------------------------------------------------------------------
+
+# Allowed status values must mirror the DB check constraint defined in
+# /app/supabase/migrations/018_student_lifecycle_statuses.sql.
+_ALLOWED_STUDENT_STATUSES = {"New", "Active", "Test Ready", "Passed", "Inactive", "Waitlist"}
+
+
+class StudentStatusPatch(BaseModel):
+    status: str
+
+
+class StudentMutationResponse(BaseModel):
+    ok: bool
+    student_id: str
+    status: Optional[str] = None
+    detail: Optional[str] = None
+
+
+async def _ensure_owns_student(sb_user: dict, student_id: str) -> dict:
+    """Tenant guard — fetch the student, verify it belongs to either:
+      * the owner's school (owners can manage every student in their school), or
+      * the calling instructor (instructors can only manage their own assigned students).
+
+    Returns the student row on success; raises 403/404 otherwise.
+    """
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(
+            f"{_sb_rest_base}/students",
+            headers=_sb_headers(),
+            params={"select": "id,school_id,instructor_id", "id": f"eq.{student_id}", "limit": "1"},
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase read failed: {r.text[:120]}")
+    rows = r.json() or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Student not found")
+    row = rows[0]
+
+    # Owners pass when the student's school matches their owned school.
+    if await _is_school_owner(sb_user):
+        if row.get("school_id") == sb_user["school"]["id"]:
+            return row
+        raise HTTPException(status_code=403, detail="Student does not belong to your school")
+
+    # Otherwise check instructor identity (sub-instructor or solo-instructor).
+    inst_id = sb_user.get("instructor", {}).get("id")
+    if inst_id and row.get("instructor_id") == inst_id:
+        return row
+    raise HTTPException(status_code=403, detail="You may only manage your own assigned students")
+
+
+@api_router.patch("/v2/students/{student_id}/status", response_model=StudentMutationResponse)
+async def v2_update_student_status(
+    student_id: str,
+    body: StudentStatusPatch,
+    sb_user: dict = Depends(get_current_supabase_user),
+):
+    """Transition a student between the lifecycle statuses.
+
+    Allowed values: 'New' | 'Active' | 'Test Ready' | 'Passed' | 'Inactive' | 'Waitlist'.
+    The endpoint enforces tenant isolation — instructors may only mutate students
+    assigned to them; owners may mutate any student in their school. The DB check
+    constraint provides defence-in-depth against invalid values.
+    """
+    new_status = (body.status or "").strip()
+    if new_status not in _ALLOWED_STUDENT_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status. Must be one of: {sorted(_ALLOWED_STUDENT_STATUSES)}",
+        )
+    await _ensure_owns_student(sb_user, student_id)
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.patch(
+            f"{_sb_rest_base}/students",
+            params={"id": f"eq.{student_id}"},
+            headers={**_sb_headers(), "Content-Type": "application/json", "Prefer": "return=representation"},
+            json={"status": new_status},
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Update failed: {r.text[:200]}")
+    rows = r.json() or []
+    return StudentMutationResponse(
+        ok=True,
+        student_id=student_id,
+        status=(rows[0]["status"] if rows else new_status),
+        detail="Status updated",
+    )
+
+
+@api_router.delete("/v2/students/{student_id}", response_model=StudentMutationResponse)
+async def v2_delete_student(
+    student_id: str,
+    sb_user: dict = Depends(get_current_supabase_user),
+):
+    """Permanently delete a student record.
+
+    All dependent rows (lessons, DVSA tracking, test outcomes, packages,
+    wallet ledger, waiting-list entries, lesson history) are cascade-deleted
+    by the FK constraints defined in migrations 001/002/007/015. This is a
+    HARD delete — the operation cannot be reversed by the application.
+    """
+    await _ensure_owns_student(sb_user, student_id)
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        r = await client.delete(
+            f"{_sb_rest_base}/students",
+            params={"id": f"eq.{student_id}"},
+            headers=_sb_headers(),
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Delete failed: {r.text[:200]}")
+    return StudentMutationResponse(ok=True, student_id=student_id, detail="Student deleted")
+
+
 class TodayLessonRow(BaseModel):
     lesson_id: str
     instructor_id: str

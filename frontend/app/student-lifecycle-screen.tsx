@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown, Pencil, Trash2, Trophy, CircleX, Plus } from 'lucide-react-native';
+import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown, Pencil, Trash2, Trophy, CircleX, Plus, UserCheck, UserX, UserPlus, AlertTriangle } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb } from '../src/mockDb';
 import {
@@ -14,6 +14,8 @@ import {
   useCompetencies,
   useTestOutcomesForStudent,
   removeTestOutcome,
+  setStudentStatusAsync,
+  removeStudentViaApi,
 } from '../src/useSupabaseData';
 import { Card, ProgressBar, StatusBadge, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
@@ -42,6 +44,8 @@ export default function StudentLifecycleScreen() {
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [busyInvoice, setBusyInvoice] = useState(false);
   const [testOutcomeOpen, setTestOutcomeOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const id = (params.id as string) || '';
   const { student: sbStudent, loading: studentLoading } = useStudent(id);
   // Fall back to mockDb until lessons + competencies are migrated in the next slice.
@@ -136,20 +140,45 @@ export default function StudentLifecycleScreen() {
   };
 
   const handleDelete = () => {
+    setDeleteConfirmOpen(true);
+  };
+
+  const performHardDelete = async () => {
+    setDeleting(true);
+    try {
+      await removeStudentViaApi(student.id);
+      setDeleteConfirmOpen(false);
+      // Tiny delay so the sheet closes cleanly before navigation.
+      setTimeout(() => router.back(), 80);
+    } catch (e: any) {
+      setDeleting(false);
+      Alert.alert('Delete failed', e?.response?.data?.detail || e?.message || 'Could not delete student');
+    }
+  };
+
+  /**
+   * Lifecycle transitions — Deactivate / Reactivate / Move to Waitlist.
+   *
+   * We optimistically reflect the change in local state so the UI updates
+   * the moment the user taps; on failure we surface a polite alert and the
+   * cache invalidation on success keeps everything in sync.
+   */
+  const handleSetLifecycleStatus = (next: 'Active' | 'Inactive' | 'Waitlist', verb: string) => {
     confirmAndRun(
-      'Delete student?',
-      `This will permanently remove ${student.name} and all their lessons from your records. This cannot be undone.`,
-      'Delete',
+      `${verb} ${student.name}?`,
+      next === 'Inactive'
+        ? `${student.name} will be marked as inactive. Their lessons and records are preserved — you can reactivate them later.`
+        : next === 'Waitlist'
+          ? `${student.name} will be moved to the waiting list. They will appear under the Waitlist tab on the Students screen.`
+          : `${student.name} will be reactivated and returned to your active list.`,
+      verb,
       async () => {
         try {
-          await removeStudent(student.id);
+          await setStudentStatusAsync(student.id, next);
         } catch (e: any) {
-          Alert.alert('Delete failed', e?.message || 'Could not delete student');
-          return;
+          Alert.alert('Update failed', e?.response?.data?.detail || e?.message || 'Could not update status');
         }
-        router.back();
       },
-      true,
     );
   };
 
@@ -258,13 +287,54 @@ export default function StudentLifecycleScreen() {
                 testID="btn-passed-student"
               >
                 <Trophy size={16} color={'#fff'} />
-                <Text style={[styles.actionText, { color: '#fff' }]}>{student.status === 'Passed' ? 'Passed' : 'Passed'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.actionBtn, styles.actionDelete]} onPress={handleDelete} testID="btn-delete-student">
-                <Trash2 size={16} color={theme.colors.danger} />
-                <Text style={[styles.actionText, { color: theme.colors.danger }]}>Delete</Text>
+                <Text style={[styles.actionText, { color: '#fff' }]}>Passed</Text>
               </TouchableOpacity>
             </View>
+
+            {/* ---- Lifecycle status management ---- */}
+            <Card style={styles.lifecycleCard} testID="card-lifecycle">
+              <View style={styles.lifecycleHeaderRow}>
+                <Text style={styles.cardTitle}>Lifecycle status</Text>
+                <StatusBadge status={student.status as any} />
+              </View>
+              <Text style={styles.lifecycleHint}>
+                Pause a student without losing their records, or move them onto the waiting list until a slot becomes available.
+              </Text>
+              <View style={styles.lifecycleBtnRow}>
+                {student.status === 'Inactive' || student.status === 'Waitlist' ? (
+                  <TouchableOpacity
+                    style={[styles.lifecycleBtn, styles.lifecycleBtnPrimary]}
+                    onPress={() => handleSetLifecycleStatus('Active', 'Reactivate')}
+                    testID="btn-lifecycle-reactivate"
+                    accessibilityLabel="Reactivate student"
+                  >
+                    <UserCheck size={16} color="#fff" />
+                    <Text style={styles.lifecycleBtnTextPrimary}>Reactivate student</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.lifecycleBtn, styles.lifecycleBtnNeutral]}
+                    onPress={() => handleSetLifecycleStatus('Inactive', 'Deactivate')}
+                    testID="btn-lifecycle-deactivate"
+                    accessibilityLabel="Deactivate student"
+                  >
+                    <UserX size={16} color={theme.colors.text} />
+                    <Text style={styles.lifecycleBtnText}>Deactivate</Text>
+                  </TouchableOpacity>
+                )}
+                {student.status !== 'Waitlist' && (
+                  <TouchableOpacity
+                    style={[styles.lifecycleBtn, styles.lifecycleBtnNeutral]}
+                    onPress={() => handleSetLifecycleStatus('Waitlist', 'Move')}
+                    testID="btn-lifecycle-waitlist"
+                    accessibilityLabel="Move student to waiting list"
+                  >
+                    <UserPlus size={16} color={theme.colors.text} />
+                    <Text style={styles.lifecycleBtnText}>Move to waitlist</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </Card>
 
             <View style={styles.statsRow}>
               <StatCard label="Lessons" value={student.lessons_count.toString()} />
@@ -359,6 +429,26 @@ export default function StudentLifecycleScreen() {
               {testOutcomes.length > 0 && (
                 <Text style={[styles.empty, { fontStyle: 'italic' }]}>Long-press a row to delete.</Text>
               )}
+            </Card>
+
+            {/* ---- Danger zone ---- */}
+            <Card style={styles.dangerCard} testID="card-danger-zone">
+              <View style={styles.dangerHeaderRow}>
+                <AlertTriangle size={18} color={theme.colors.danger} />
+                <Text style={styles.dangerTitle}>Danger zone</Text>
+              </View>
+              <Text style={styles.dangerHint}>
+                Deleting {student.name} permanently removes every lesson, competency record and test outcome attached to them. This cannot be undone.
+              </Text>
+              <TouchableOpacity
+                style={styles.dangerBtn}
+                onPress={handleDelete}
+                testID="btn-delete-student"
+                accessibilityLabel="Delete student"
+              >
+                <Trash2 size={16} color="#fff" />
+                <Text style={styles.dangerBtnText}>Delete student permanently</Text>
+              </TouchableOpacity>
             </Card>
           </View>
         )}
@@ -524,6 +614,49 @@ export default function StudentLifecycleScreen() {
           onClose={() => setTestOutcomeOpen(false)}
         />
       )}
+
+      {/* Delete confirmation bottom sheet — permanent action with bold UK-English warning */}
+      <BottomSheet
+        visible={deleteConfirmOpen}
+        onClose={() => !deleting && setDeleteConfirmOpen(false)}
+        title="Delete student?"
+        testID="sheet-delete-student"
+      >
+        <View style={{ gap: 12 }}>
+          <View style={styles.deleteWarnIcon}>
+            <AlertTriangle size={32} color={theme.colors.danger} />
+          </View>
+          <Text style={styles.deleteHeadline}>
+            This permanently deletes {student.name}
+          </Text>
+          <Text style={styles.deleteBody}>
+            All of their lessons, competency tracking and test outcomes will be removed. This cannot be undone.
+          </Text>
+          <Text style={styles.deleteBodyBold}>
+            Consider deactivating them instead if you might work with them again in future.
+          </Text>
+          <TouchableOpacity
+            style={[styles.deleteConfirmBtn, deleting && { opacity: 0.6 }]}
+            onPress={performHardDelete}
+            disabled={deleting}
+            testID="btn-confirm-delete"
+            accessibilityLabel="Permanently delete student"
+          >
+            <Trash2 size={18} color="#fff" />
+            <Text style={styles.deleteConfirmBtnText}>
+              {deleting ? 'Deleting…' : 'Yes, delete permanently'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.deleteCancelBtn}
+            onPress={() => !deleting && setDeleteConfirmOpen(false)}
+            disabled={deleting}
+            testID="btn-cancel-delete"
+          >
+            <Text style={styles.deleteCancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </BottomSheet>
     </SafeAreaView>
   );
 }
@@ -601,7 +734,56 @@ const styles = StyleSheet.create({
   invoiceBtnLocked: { backgroundColor: theme.colors.accent },
   invoiceBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   actionRow: { flexDirection: 'row', gap: 8 },
-  actionBtn: {
+  // ---- Lifecycle card (Deactivate / Reactivate / Waitlist) ----
+  lifecycleCard: { padding: 14, gap: 10, marginTop: 6 },
+  lifecycleHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  lifecycleHint: { fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 },
+  lifecycleBtnRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  lifecycleBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingHorizontal: 14, minHeight: 44, borderRadius: 999, borderWidth: 1,
+    flexGrow: 1, flexBasis: '46%',
+  },
+  lifecycleBtnPrimary: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  lifecycleBtnNeutral: { backgroundColor: theme.colors.background, borderColor: theme.colors.border },
+  lifecycleBtnText: { fontSize: 13, fontWeight: '700', color: theme.colors.text },
+  lifecycleBtnTextPrimary: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1 },
+  statusBadgeText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.3 },
+  // ---- Danger zone ----
+  dangerCard: {
+    padding: 14, gap: 12, marginTop: 16,
+    borderWidth: 1, borderColor: theme.colors.danger + '55', backgroundColor: theme.colors.danger + '08',
+  },
+  dangerHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  dangerTitle: { fontSize: 14, fontWeight: '800', color: theme.colors.danger, letterSpacing: 0.3, textTransform: 'uppercase' },
+  dangerHint: { fontSize: 13, color: theme.colors.text, lineHeight: 18 },
+  dangerBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    minHeight: 48, paddingHorizontal: 16, borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.danger,
+  },
+  dangerBtnText: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  // ---- Delete confirm sheet ----
+  deleteWarnIcon: {
+    width: 64, height: 64, borderRadius: 32, alignSelf: 'center',
+    backgroundColor: theme.colors.danger + '15',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  deleteHeadline: { fontSize: 18, fontWeight: '800', color: theme.colors.text, textAlign: 'center' },
+  deleteBody: { fontSize: 14, color: theme.colors.text, textAlign: 'center', lineHeight: 20 },
+  deleteBodyBold: { fontSize: 13, color: theme.colors.textMuted, textAlign: 'center', fontStyle: 'italic', lineHeight: 18 },
+  deleteConfirmBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    minHeight: 52, paddingHorizontal: 16, borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.danger, marginTop: 4,
+  },
+  deleteConfirmBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  deleteCancelBtn: {
+    alignItems: 'center', justifyContent: 'center',
+    minHeight: 44, borderRadius: theme.radius.md,
+  },
+  deleteCancelText: { color: theme.colors.text, fontSize: 14, fontWeight: '700' },  actionBtn: {
     flex: 1,
     height: 44,
     borderRadius: 12,

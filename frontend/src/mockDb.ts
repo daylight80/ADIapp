@@ -31,7 +31,7 @@
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-export type StudentStatus = 'New' | 'Active' | 'Test Ready' | 'Passed';
+export type StudentStatus = 'New' | 'Active' | 'Test Ready' | 'Passed' | 'Inactive' | 'Waitlist';
 
 export type Student = {
   id: string;

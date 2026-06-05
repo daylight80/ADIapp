@@ -30,6 +30,7 @@ export type Student = {
   avatar?: string | null;
   joined_at: string;
   provisional_licence: string;
+  notes?: string | null;
 };
 
 // Row → app object (renames full_name → name, casts numerics)
@@ -52,6 +53,7 @@ const fromRow = (r: any): Student => ({
   avatar: r.avatar ?? null,
   joined_at: r.joined_at ?? r.created_at ?? new Date().toISOString(),
   provisional_licence: r.provisional_licence ?? '',
+  notes: r.notes ?? null,
 });
 
 // ---------------------------------------------------------------------------
@@ -251,6 +253,7 @@ export type UpdateStudentInput = Partial<{
   status: StudentStatus;
   progress: number;
   next_lesson: string | null;
+  notes: string | null;
 }>;
 
 export async function updateStudent(id: string, patch: UpdateStudentInput): Promise<Student | undefined> {
@@ -265,6 +268,7 @@ export async function updateStudent(id: string, patch: UpdateStudentInput): Prom
   if (patch.status !== undefined) dbPatch.status = patch.status;
   if (patch.progress !== undefined) dbPatch.progress = patch.progress;
   if (patch.next_lesson !== undefined) dbPatch.next_lesson = patch.next_lesson;
+  if (patch.notes !== undefined) dbPatch.notes = patch.notes;
 
   const { data, error } = await supabase
     .from('students')

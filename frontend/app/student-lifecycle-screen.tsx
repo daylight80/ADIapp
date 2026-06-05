@@ -74,6 +74,26 @@ export default function StudentLifecycleScreen() {
   const [aHourlyRate, setAHourlyRate] = useState(String(student.hourly_rate));
   const [aTestDate, setATestDate] = useState(student.test_date ? student.test_date.slice(0, 10) : '');
 
+  // Instructor notes editor sheet
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesDraft, setNotesDraft] = useState<string>((student as any).notes || '');
+  const [savingNotes, setSavingNotes] = useState(false);
+  const openNotesEditor = () => {
+    setNotesDraft((student as any).notes || '');
+    setNotesOpen(true);
+  };
+  const saveNotes = async () => {
+    setSavingNotes(true);
+    try {
+      await patchStudent(student.id, { notes: notesDraft.trim() ? notesDraft.trim() : null });
+      setNotesOpen(false);
+    } catch (e: any) {
+      Alert.alert('Save failed', e?.message || 'Could not save notes');
+    } finally {
+      setSavingNotes(false);
+    }
+  };
+
   const openAmend = () => {
     setAName(student.name);
     setAEmail(student.email);
@@ -359,11 +379,27 @@ export default function StudentLifecycleScreen() {
             </Card>
 
             <Card>
-              <Text style={styles.cardTitle}>Instructor notes</Text>
-              <Text style={styles.notes}>
-                {student.name.split(' ')[0]} continues to make strong progress. Focus on independent
-                driving for the next two lessons and review manoeuvres before the test.
-              </Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <Text style={styles.cardTitle}>Instructor notes</Text>
+                <TouchableOpacity
+                  onPress={openNotesEditor}
+                  style={styles.notesEditBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel="Edit instructor notes"
+                  testID="btn-edit-notes"
+                >
+                  <Pencil size={16} color={theme.colors.accent} />
+                </TouchableOpacity>
+              </View>
+              {((student as any).notes && String((student as any).notes).trim()) ? (
+                <Text style={styles.notes}>{(student as any).notes}</Text>
+              ) : (
+                <TouchableOpacity onPress={openNotesEditor} activeOpacity={0.7}>
+                  <Text style={[styles.notes, { color: theme.colors.textMuted, fontStyle: 'italic' }]}>
+                    No notes yet. Tap the pencil to add your first lesson note for {student.name.split(' ')[0]}.
+                  </Text>
+                </TouchableOpacity>
+              )}
             </Card>
 
             <Card style={{ gap: 10 }} testID="card-test-outcomes">
@@ -657,6 +693,53 @@ export default function StudentLifecycleScreen() {
           </TouchableOpacity>
         </View>
       </BottomSheet>
+
+      {/* Instructor notes editor */}
+      <BottomSheet
+        visible={notesOpen}
+        onClose={() => !savingNotes && setNotesOpen(false)}
+        title="Instructor notes"
+        testID="sheet-edit-notes"
+      >
+        <View style={{ gap: 12 }}>
+          <Text style={[styles.fieldLabel, { marginTop: 0 }]}>
+            Lesson notes for {student.name.split(' ')[0]}
+          </Text>
+          <TextInput
+            style={styles.notesInput}
+            value={notesDraft}
+            onChangeText={setNotesDraft}
+            placeholder={`Add private notes about ${student.name.split(' ')[0]}'s progress, areas to focus on, manoeuvres to practise…`}
+            placeholderTextColor={theme.colors.textMuted}
+            multiline
+            numberOfLines={8}
+            textAlignVertical="top"
+            autoFocus
+            testID="input-notes"
+          />
+          <Text style={styles.notesHint}>
+            {notesDraft.length}/2000 characters · Only you can see these notes.
+          </Text>
+          <TouchableOpacity
+            style={[styles.saveBtn, savingNotes && { opacity: 0.6 }]}
+            onPress={saveNotes}
+            disabled={savingNotes}
+            testID="btn-save-notes"
+          >
+            {savingNotes
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={styles.saveBtnText}>Save notes</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.cancelBtn}
+            onPress={() => !savingNotes && setNotesOpen(false)}
+            disabled={savingNotes}
+            testID="btn-cancel-notes"
+          >
+            <Text style={styles.cancelBtnText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </BottomSheet>
     </SafeAreaView>
   );
 }
@@ -713,6 +796,20 @@ const styles = StyleSheet.create({
   readyRow: { gap: 8 },
   readyPct: { fontWeight: '700', color: theme.colors.primary },
   notes: { color: theme.colors.text, lineHeight: 20, fontSize: 14 },
+  notesEditBtn: {
+    width: 32, height: 32, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: theme.colors.primaryLight,
+  },
+  notesInput: {
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1, borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
+    padding: 12, paddingTop: 12,
+    color: theme.colors.text, fontSize: 15, lineHeight: 22,
+    minHeight: 160,
+  },
+  notesHint: { color: theme.colors.textMuted, fontSize: 12 },
   lessonDate: { fontSize: 13, color: theme.colors.textMuted, marginBottom: 2 },
   lessonTopic: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
   compName: { fontSize: 15, fontWeight: '600', color: theme.colors.text, flex: 1 },

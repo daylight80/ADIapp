@@ -36,6 +36,29 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'earnings', label: 'Earnings' },
 ];
 
+// Human-friendly British-English relative time. Falls back to an absolute
+// date once we're more than a week out, so "Updated 14 Jun 2026, 09:30"
+// always wins for very old notes.
+function formatRelativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return '';
+  const diffSec = Math.round((Date.now() - then) / 1000);
+  if (diffSec < 30) return 'just now';
+  if (diffSec < 60) return `${diffSec} seconds ago`;
+  const diffMin = Math.round(diffSec / 60);
+  if (diffMin === 1) return '1 minute ago';
+  if (diffMin < 60) return `${diffMin} minutes ago`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr === 1) return '1 hour ago';
+  if (diffHr < 24) return `${diffHr} hours ago`;
+  const diffDay = Math.round(diffHr / 24);
+  if (diffDay === 1) return 'yesterday';
+  if (diffDay < 7) return `${diffDay} days ago`;
+  return new Date(iso).toLocaleDateString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
 export default function StudentLifecycleScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -392,7 +415,14 @@ export default function StudentLifecycleScreen() {
                 </TouchableOpacity>
               </View>
               {((student as any).notes && String((student as any).notes).trim()) ? (
-                <Text style={styles.notes}>{(student as any).notes}</Text>
+                <>
+                  <Text style={styles.notes}>{(student as any).notes}</Text>
+                  {(student as any).notes_updated_at ? (
+                    <Text style={styles.notesTimestamp} testID="text-notes-updated">
+                      Updated {formatRelativeTime((student as any).notes_updated_at)}
+                    </Text>
+                  ) : null}
+                </>
               ) : (
                 <TouchableOpacity onPress={openNotesEditor} activeOpacity={0.7}>
                   <Text style={[styles.notes, { color: theme.colors.textMuted, fontStyle: 'italic' }]}>
@@ -810,6 +840,12 @@ const styles = StyleSheet.create({
     minHeight: 160,
   },
   notesHint: { color: theme.colors.textMuted, fontSize: 12 },
+  notesTimestamp: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
   lessonDate: { fontSize: 13, color: theme.colors.textMuted, marginBottom: 2 },
   lessonTopic: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
   compName: { fontSize: 15, fontWeight: '600', color: theme.colors.text, flex: 1 },

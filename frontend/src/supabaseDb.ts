@@ -31,6 +31,7 @@ export type Student = {
   joined_at: string;
   provisional_licence: string;
   notes?: string | null;
+  notes_updated_at?: string | null;
 };
 
 // Row → app object (renames full_name → name, casts numerics)
@@ -54,6 +55,7 @@ const fromRow = (r: any): Student => ({
   joined_at: r.joined_at ?? r.created_at ?? new Date().toISOString(),
   provisional_licence: r.provisional_licence ?? '',
   notes: r.notes ?? null,
+  notes_updated_at: r.notes_updated_at ?? null,
 });
 
 // ---------------------------------------------------------------------------

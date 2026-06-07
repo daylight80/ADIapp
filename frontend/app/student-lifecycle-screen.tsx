@@ -419,7 +419,9 @@ export default function StudentLifecycleScreen() {
                   <Text style={styles.notes}>{(student as any).notes}</Text>
                   {(student as any).notes_updated_at ? (
                     <Text style={styles.notesTimestamp} testID="text-notes-updated">
-                      Updated {formatRelativeTime((student as any).notes_updated_at)}
+                      {(student as any).notes_updated_by_name
+                        ? `Updated by ${(student as any).notes_updated_by_name}, ${formatRelativeTime((student as any).notes_updated_at)}`
+                        : `Updated ${formatRelativeTime((student as any).notes_updated_at)}`}
                     </Text>
                   ) : null}
                 </>

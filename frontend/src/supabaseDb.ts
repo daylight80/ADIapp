@@ -32,6 +32,8 @@ export type Student = {
   provisional_licence: string;
   notes?: string | null;
   notes_updated_at?: string | null;
+  notes_updated_by?: string | null;
+  notes_updated_by_name?: string | null;
 };
 
 // Row → app object (renames full_name → name, casts numerics)
@@ -56,6 +58,8 @@ const fromRow = (r: any): Student => ({
   provisional_licence: r.provisional_licence ?? '',
   notes: r.notes ?? null,
   notes_updated_at: r.notes_updated_at ?? null,
+  notes_updated_by: r.notes_updated_by ?? null,
+  notes_updated_by_name: r.notes_updated_by_name ?? null,
 });
 
 // ---------------------------------------------------------------------------

@@ -51,6 +51,7 @@ export default function StudentCrmScreen() {
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
   const [postcode, setPostcode] = useState('');
+  const [provisionalLicence, setProvisionalLicence] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
 
   const [reloadKey, setReloadKey] = useState(0);
@@ -106,6 +107,17 @@ export default function StudentCrmScreen() {
       setFormError('Please enter a phone number');
       return;
     }
+    // UK provisional licence numbers are 16 characters (letters + digits).
+    // We strip spaces before checking length so "SMITH9 11206 23A6L 79" is OK.
+    const licence = provisionalLicence.replace(/\s+/g, '').toUpperCase();
+    if (!licence) {
+      setFormError('Please enter the provisional licence number');
+      return;
+    }
+    if (licence.length !== 16) {
+      setFormError('Provisional licence number must be 16 characters');
+      return;
+    }
     // Enforce limit (defensive — FAB also gates)
     if (!canAddStudent(user?.subscription_status, students.length)) {
       setAddOpen(false);
@@ -125,7 +137,7 @@ export default function StudentCrmScreen() {
         phone: studentPhone,
         address: address.trim(),
         postcode: postcode.trim().toUpperCase(),
-        provisional_licence: 'PENDING',
+        provisional_licence: licence,
       });
 
       // Trigger Supabase Auth invite email (Supabase's built-in email provider).
@@ -162,6 +174,7 @@ export default function StudentCrmScreen() {
       setPhone('');
       setAddress('');
       setPostcode('');
+      setProvisionalLicence('');
       setReloadKey((k) => k + 1);
       setAddOpen(false);
 
@@ -409,6 +422,24 @@ export default function StudentCrmScreen() {
           testID="input-student-postcode"
         />
 
+        <Text style={styles.label}>
+          Provisional licence number <Text style={{ color: theme.colors.danger }}>*</Text>
+        </Text>
+        <TextInput
+          style={styles.input}
+          value={provisionalLicence}
+          onChangeText={(v) => setProvisionalLicence(v.toUpperCase())}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          maxLength={20}
+          placeholder="SMITH911206 23A6L 79"
+          placeholderTextColor={theme.colors.textMuted}
+          testID="input-student-licence"
+        />
+        <Text style={styles.helperText}>
+          16-character DVLA driver number on the front of the pink licence (DD1).
+        </Text>
+
         {formError && <Text style={styles.error}>{formError}</Text>}
 
         <TouchableOpacity
@@ -558,6 +589,7 @@ const styles = StyleSheet.create({
   },
   tierText: { color: theme.colors.text, fontSize: 13, flex: 1 },
   label: { ...theme.font.caption, fontWeight: '600', marginBottom: 6, color: theme.colors.text },
+  helperText: { ...theme.font.caption, color: theme.colors.textMuted, marginTop: -4, marginBottom: 4 },
   input: {
     borderWidth: 1,
     borderColor: theme.colors.border,

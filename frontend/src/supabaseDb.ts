@@ -260,6 +260,7 @@ export type UpdateStudentInput = Partial<{
   progress: number;
   next_lesson: string | null;
   notes: string | null;
+  provisional_licence: string;
 }>;
 
 export async function updateStudent(id: string, patch: UpdateStudentInput): Promise<Student | undefined> {
@@ -275,6 +276,7 @@ export async function updateStudent(id: string, patch: UpdateStudentInput): Prom
   if (patch.progress !== undefined) dbPatch.progress = patch.progress;
   if (patch.next_lesson !== undefined) dbPatch.next_lesson = patch.next_lesson;
   if (patch.notes !== undefined) dbPatch.notes = patch.notes;
+  if (patch.provisional_licence !== undefined) dbPatch.provisional_licence = patch.provisional_licence.toUpperCase().replace(/\s+/g, '');
 
   const { data, error } = await supabase
     .from('students')

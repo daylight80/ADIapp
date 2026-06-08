@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown, Pencil, Trash2, Trophy, CircleX, Plus, UserCheck, UserX, UserPlus, AlertTriangle } from 'lucide-react-native';
+import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown, Pencil, Trash2, Trophy, CircleX, Plus, UserCheck, UserX, UserPlus, AlertTriangle, CreditCard } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb } from '../src/mockDb';
 import {
@@ -96,6 +96,7 @@ export default function StudentLifecycleScreen() {
   const [aPostcode, setAPostcode] = useState(student.postcode);
   const [aHourlyRate, setAHourlyRate] = useState(String(student.hourly_rate));
   const [aTestDate, setATestDate] = useState(student.test_date ? student.test_date.slice(0, 10) : '');
+  const [aLicence, setALicence] = useState(student.provisional_licence || '');
 
   // Instructor notes editor sheet
   const [notesOpen, setNotesOpen] = useState(false);
@@ -125,6 +126,7 @@ export default function StudentLifecycleScreen() {
     setAPostcode(student.postcode);
     setAHourlyRate(String(student.hourly_rate));
     setATestDate(student.test_date ? student.test_date.slice(0, 10) : '');
+    setALicence(student.provisional_licence || '');
     setAmendOpen(true);
   };
 
@@ -132,6 +134,15 @@ export default function StudentLifecycleScreen() {
     const rate = parseInt(aHourlyRate, 10);
     if (!aName.trim()) {
       Alert.alert('Name required', 'Please enter the student\u2019s full name.');
+      return;
+    }
+    const licence = aLicence.replace(/\s+/g, '').toUpperCase();
+    if (!licence) {
+      Alert.alert('Licence required', 'Please enter the provisional licence number.');
+      return;
+    }
+    if (licence !== 'PENDING' && licence.length !== 16) {
+      Alert.alert('Invalid licence', 'Provisional licence number must be 16 characters.');
       return;
     }
     try {
@@ -143,6 +154,7 @@ export default function StudentLifecycleScreen() {
         postcode: aPostcode.trim().toUpperCase(),
         hourly_rate: Number.isFinite(rate) && rate > 0 ? rate : student.hourly_rate,
         test_date: aTestDate ? new Date(aTestDate).toISOString() : null,
+        provisional_licence: licence,
       });
     } catch (e: any) {
       Alert.alert('Save failed', e?.message || 'Could not save changes');
@@ -304,6 +316,20 @@ export default function StudentLifecycleScreen() {
               <View style={styles.contactList}>
                 <ContactRow icon={<Mail size={16} color={theme.colors.textMuted} />} text={student.email} />
                 <ContactRow icon={<Phone size={16} color={theme.colors.textMuted} />} text={student.phone} />
+                <View style={styles.contactRow}>
+                  <CreditCard size={16} color={theme.colors.textMuted} />
+                  {student.provisional_licence && student.provisional_licence !== 'PENDING' ? (
+                    <Text style={[styles.contactText, { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', letterSpacing: 0.5 }]}>
+                      {student.provisional_licence}
+                    </Text>
+                  ) : (
+                    <TouchableOpacity onPress={openAmend} activeOpacity={0.7} testID="link-add-licence">
+                      <Text style={[styles.contactText, { color: theme.colors.danger, fontStyle: 'italic' }]}>
+                        Provisional licence number — tap Amend to add
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
                 <View style={styles.contactRow}>
                   <MapPin size={16} color={theme.colors.textMuted} />
                   <Text style={[styles.contactText, { flex: 1 }]} numberOfLines={2}>
@@ -653,6 +679,24 @@ export default function StudentLifecycleScreen() {
 
           <Text style={styles.fieldLabel}>Postcode</Text>
           <TextInput style={styles.input} value={aPostcode} onChangeText={setAPostcode} autoCapitalize="characters" placeholder="e.g. SW1A 1AA" placeholderTextColor={theme.colors.textMuted} testID="amend-postcode" />
+
+          <Text style={styles.fieldLabel}>
+            Provisional licence number <Text style={{ color: theme.colors.danger }}>*</Text>
+          </Text>
+          <TextInput
+            style={styles.input}
+            value={aLicence}
+            onChangeText={(v) => setALicence(v.toUpperCase())}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={20}
+            placeholder="SMITH911206 23A6L 79"
+            placeholderTextColor={theme.colors.textMuted}
+            testID="amend-licence"
+          />
+          <Text style={{ ...theme.font.caption, color: theme.colors.textMuted, marginTop: -8, marginBottom: 8 }}>
+            16-character DVLA driver number from the front of the pink licence (DD1).
+          </Text>
 
           <View style={{ flexDirection: 'row', gap: 12 }}>
             <View style={{ flex: 1 }}>

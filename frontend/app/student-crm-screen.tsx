@@ -9,10 +9,11 @@ import {
   FlatList,
   RefreshControl,
   Animated,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Search, Plus, ArrowLeft, Mail, Phone, MapPin, CalendarDays, Check, Crown, Send, Copy } from 'lucide-react-native';
+import { Search, Plus, ArrowLeft, Mail, Phone, MapPin, CalendarDays, Check, Crown, Send, Copy, BookUser, PenLine, Smartphone } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb, StudentStatus } from '../src/mockDb';
 import { useStudents, createStudent, ensureDemoStudentsSeeded } from '../src/useSupabaseData';
@@ -26,6 +27,7 @@ import { PaywallModal } from '../src/PaywallModal';
 import { fireInstantNotification } from '../src/notifications';
 import { openSmsComposer, copyToClipboard } from '../src/tools';
 import { api } from '../src/api';
+import { ContactsImportSheet } from '../src/ContactsImportSheet';
 
 type FilterChip = 'All' | StudentStatus;
 
@@ -38,6 +40,8 @@ export default function StudentCrmScreen() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterChip>('All');
   const [addOpen, setAddOpen] = useState(false);
+  const [methodPickerOpen, setMethodPickerOpen] = useState(false);
+  const [contactsImportOpen, setContactsImportOpen] = useState(false);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [snack, setSnack] = useState<string | null>(null);
@@ -214,7 +218,18 @@ export default function StudentCrmScreen() {
       setPaywallOpen(true);
       return;
     }
-    setAddOpen(true);
+    setMethodPickerOpen(true);
+  };
+
+  const chooseManualEntry = () => {
+    setMethodPickerOpen(false);
+    // Small delay so the picker has time to dismiss before the form slides up.
+    setTimeout(() => setAddOpen(true), 220);
+  };
+
+  const chooseContactsImport = () => {
+    setMethodPickerOpen(false);
+    setTimeout(() => setContactsImportOpen(true), 220);
   };
 
   const copyInviteLink = () => {
@@ -372,8 +387,84 @@ export default function StudentCrmScreen() {
         </View>
       )}
 
+      {/* Method picker — shown when the FAB is tapped. Lets the instructor
+          choose between importing from Contacts or typing details manually. */}
+      <BottomSheet
+        visible={methodPickerOpen}
+        onClose={() => setMethodPickerOpen(false)}
+        title="Add new student"
+        testID="sheet-add-method-picker"
+      >
+        <Text style={styles.hint}>
+          How would you like to add this student?
+        </Text>
+
+        {Platform.OS !== 'web' ? (
+          <TouchableOpacity
+            style={styles.methodCard}
+            onPress={chooseContactsImport}
+            testID="btn-method-contacts"
+            activeOpacity={0.85}
+          >
+            <View style={styles.methodIconWrap}>
+              <BookUser size={24} color={theme.colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.methodTitle}>Import from address book</Text>
+              <Text style={styles.methodSub}>
+                Pick from your phone Contacts. Quickest for several students at once.
+              </Text>
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <View style={[styles.methodCard, styles.methodCardDisabled]}>
+            <View style={styles.methodIconWrap}>
+              <Smartphone size={24} color={theme.colors.textMuted} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.methodTitle, { color: theme.colors.textMuted }]}>
+                Import from address book
+              </Text>
+              <Text style={styles.methodSub}>
+                Open ADI Pro on your phone to import directly from your contacts.
+              </Text>
+            </View>
+          </View>
+        )}
+
+        <TouchableOpacity
+          style={styles.methodCard}
+          onPress={chooseManualEntry}
+          testID="btn-method-manual"
+          activeOpacity={0.85}
+        >
+          <View style={styles.methodIconWrap}>
+            <PenLine size={24} color={theme.colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.methodTitle}>Enter details manually</Text>
+            <Text style={styles.methodSub}>
+              Type the student&apos;s name, contact details and licence number.
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </BottomSheet>
+
+      {/* Bulk contacts import sheet — opens after the picker if the
+          instructor chose "Import from address book". */}
+      <ContactsImportSheet
+        visible={contactsImportOpen}
+        onClose={() => setContactsImportOpen(false)}
+        onImported={(count) => {
+          if (count > 0) {
+            showSnack(`${count} student${count === 1 ? '' : 's'} imported from Contacts`);
+            setReloadKey((k) => k + 1);
+          }
+        }}
+      />
+
       <BottomSheet visible={addOpen} onClose={() => setAddOpen(false)} title="Invite New Student" testID="sheet-add-student">
-        <Text style={styles.hint}>We'll generate a private invite link you can copy or send by SMS.</Text>
+        <Text style={styles.hint}>We&apos;ll generate a private invite link you can copy or send by SMS.</Text>
 
         <Text style={styles.label}>Full name</Text>
         <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="e.g. Charlotte Smith" placeholderTextColor={theme.colors.textMuted} testID="input-student-name" />
@@ -481,7 +572,7 @@ export default function StudentCrmScreen() {
               </View>
             )}
             <Text style={styles.hint}>
-              You can also share this back-up link with {inviteRecipient.name}. They'll set their own password and join your roster.
+              You can also share this back-up link with {inviteRecipient.name}. They&apos;ll set their own password and join your roster.
             </Text>
             <View style={styles.linkBox} testID="invite-link-value">
               <Text style={styles.linkText} numberOfLines={2}>{inviteLink}</Text>
@@ -590,6 +681,25 @@ const styles = StyleSheet.create({
   tierText: { color: theme.colors.text, fontSize: 13, flex: 1 },
   label: { ...theme.font.caption, fontWeight: '600', marginBottom: 6, color: theme.colors.text },
   helperText: { ...theme.font.caption, color: theme.colors.textMuted, marginTop: -4, marginBottom: 4 },
+  methodCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    marginTop: 12,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+  },
+  methodCardDisabled: { opacity: 0.6 },
+  methodIconWrap: {
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: theme.colors.primaryLight,
+  },
+  methodTitle: { ...theme.font.body, fontWeight: '700', color: theme.colors.text, marginBottom: 2 },
+  methodSub: { ...theme.font.caption, color: theme.colors.textMuted, lineHeight: 17 },
   input: {
     borderWidth: 1,
     borderColor: theme.colors.border,

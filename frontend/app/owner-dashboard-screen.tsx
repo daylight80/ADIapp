@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
   Trophy, Users, CalendarDays, PoundSterling, TrendingUp, Plus, Mail, LogOut,
-  ChevronRight, Crown, ArrowUpDown, Receipt, Award, CircleX,
+  ChevronRight, Crown, ArrowUpDown, Receipt, Award, CircleX, AlertTriangle, UserPlus,
 } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { Card, Badge } from '../src/ui';
@@ -200,11 +200,13 @@ export default function OwnerDashboardScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         testID="owner-dashboard-scroll"
       >
-        {/* Header */}
-        <View style={styles.headerRow}>
+        {/* ============================================================
+            HEADER — school name + instructor seat count
+            ============================================================ */}
+        <View style={styles.headerBlock}>
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Crown size={18} color={theme.colors.accent} />
+              <Crown size={14} color={theme.colors.accent} />
               <Text style={styles.headerEyebrow}>School Owner</Text>
               {leaderboard?.tier && (
                 <View style={[styles.tierPill, leaderboard.tier === 'franchise' ? styles.tierPillFranchise : styles.tierPillStarter]}>
@@ -217,15 +219,39 @@ export default function OwnerDashboardScreen() {
             </Text>
             <Text style={styles.headerSub}>
               {monthLabel}
-              {leaderboard ? (
-                ` · ${leaderboard.seat_count}/${leaderboard.seat_limit ?? '∞'} instructor seat${(leaderboard.seat_limit ?? 0) === 1 ? '' : 's'}`
-              ) : ''}
+              {leaderboard
+                ? ` · ${leaderboard.seat_count}/${leaderboard.seat_limit ?? '∞'} instructor seat${(leaderboard.seat_limit ?? 0) === 1 ? '' : 's'}`
+                : ''}
             </Text>
           </View>
           <TouchableOpacity onPress={signOut} style={styles.iconBtn} testID="btn-signout">
             <LogOut size={20} color={theme.colors.textMuted} />
           </TouchableOpacity>
         </View>
+
+        {/* ============================================================
+            ALERT BANNER — system warnings (seat-limit, etc.)
+            Only renders when there is an actionable warning.
+            ============================================================ */}
+        {leaderboard && !leaderboard.can_add_instructor && (
+          <TouchableOpacity
+            style={styles.alertBanner}
+            onPress={() => setInviteOpen(true)}
+            activeOpacity={0.85}
+            testID="alert-seat-limit"
+          >
+            <View style={styles.alertIconWrap}>
+              <AlertTriangle size={16} color={theme.colors.warning} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.alertTitle}>Seat limit reached</Text>
+              <Text style={styles.alertSub}>
+                Upgrade to add another instructor.
+              </Text>
+            </View>
+            <ChevronRight size={18} color={theme.colors.textMuted} />
+          </TouchableOpacity>
+        )}
 
         {error ? (
           <Card style={{ marginHorizontal: 16, borderColor: theme.colors.danger, borderWidth: 1 }}>
@@ -236,13 +262,13 @@ export default function OwnerDashboardScreen() {
         {/* School-wide KPIs */}
         <View style={styles.kpiGrid}>
           <KPI label="Active students" value={String(leaderboard?.totals.students_active ?? 0)}
-               icon={<Users size={20} color={theme.colors.primary} />} bg={theme.colors.primaryLight} />
+               icon={<Users size={16} color={theme.colors.primary} />} tone={theme.colors.primaryLight} />
           <KPI label="Lessons (mo)" value={String(leaderboard?.totals.lessons_month ?? 0)}
-               icon={<CalendarDays size={20} color={theme.colors.info} />} bg="#E0F2FE" />
+               icon={<CalendarDays size={16} color={theme.colors.info} />} tone="#E0F2FE" />
           <KPI label="Revenue (mo)" value={`£${(leaderboard?.totals.revenue_month ?? 0).toFixed(0)}`}
-               icon={<PoundSterling size={20} color={theme.colors.success} />} bg="#D1FAE5" />
+               icon={<PoundSterling size={16} color={theme.colors.success} />} tone="#D1FAE5" />
           <KPI label="Pass rate" value={`${leaderboard?.totals.pass_rate ?? 0}%`}
-               icon={<TrendingUp size={20} color={theme.colors.accent} />} bg="#FFF7ED" />
+               icon={<TrendingUp size={16} color={theme.colors.accent} />} tone="#FFF7ED" />
         </View>
 
         {/* ------- Test Performance card ---------------------------------- */}
@@ -257,12 +283,17 @@ export default function OwnerDashboardScreen() {
         </View>
         <Card style={styles.perfCard} testID="card-test-performance">
           {testKpis.total === 0 ? (
-            <View style={styles.perfEmpty}>
-              <Award size={36} color={theme.colors.textMuted} />
-              <Text style={styles.perfEmptyTitle}>No practical tests logged yet</Text>
-              <Text style={styles.perfEmptySub}>
-                Pop into a student's profile and tap "Add test outcome" after their next practical test to start tracking your school's pass rate.
+            <View style={styles.perfEmptyCompact} testID="empty-test-performance">
+              <Text style={styles.perfEmptyCompactText}>
+                No practical tests logged yet. Tap a student to record their first result.
               </Text>
+              <TouchableOpacity
+                style={styles.compactBtn}
+                onPress={() => router.push('/student-crm-screen')}
+                testID="btn-empty-go-students"
+              >
+                <Text style={styles.compactBtnText}>Open Students</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <>
@@ -313,34 +344,54 @@ export default function OwnerDashboardScreen() {
           )}
         </Card>
 
-        {/* Owner quick actions */}
+        {/* ============================================================
+            QUICK ACTIONS — Students is the primary action, others outline.
+            "Invite instructor" has moved into the alert banner / header.
+            ============================================================ */}
         <View style={styles.qaRow}>
           <TouchableOpacity
-            style={[styles.qa, { backgroundColor: leaderboard?.can_add_instructor ? theme.colors.primary : theme.colors.textMuted }]}
-            onPress={() => setInviteOpen(true)} testID="qa-invite-instructor"
+            style={[styles.qa, styles.qaPrimary]}
+            onPress={() => router.push('/student-crm-screen')}
+            testID="qa-students"
+            activeOpacity={0.85}
           >
-            <Mail size={18} color="#fff" />
-            <Text style={styles.qaText}>
-              {leaderboard?.can_add_instructor ? 'Invite instructor' : 'Seat limit reached'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.qa, { backgroundColor: theme.colors.accent }]}
-                            onPress={() => router.push('/student-crm-screen')} testID="qa-students">
             <Users size={18} color="#fff" />
-            <Text style={styles.qaText}>Students</Text>
+            <Text style={styles.qaPrimaryText}>Students</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.qa, { backgroundColor: '#0EA5E9' }]}
-                            onPress={() => router.push('/receipts-screen' as any)} testID="qa-receipts">
-            <Receipt size={18} color="#fff" />
-            <Text style={styles.qaText}>Receipts</Text>
+          <TouchableOpacity
+            style={[styles.qa, styles.qaSecondary]}
+            onPress={() => router.push('/receipts-screen' as any)}
+            testID="qa-receipts"
+            activeOpacity={0.85}
+          >
+            <Receipt size={18} color={theme.colors.text} />
+            <Text style={styles.qaSecondaryText}>Receipts</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.qa, { backgroundColor: '#8B5CF6' }]}
-                            onPress={() => router.push('/manage-assignments-screen' as any)}
-                            testID="qa-assignments">
-            <ArrowUpDown size={18} color="#fff" />
-            <Text style={styles.qaText}>Assignments</Text>
+          <TouchableOpacity
+            style={[styles.qa, styles.qaSecondary]}
+            onPress={() => router.push('/manage-assignments-screen' as any)}
+            testID="qa-assignments"
+            activeOpacity={0.85}
+          >
+            <ArrowUpDown size={18} color={theme.colors.text} />
+            <Text style={styles.qaSecondaryText}>Assignments</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Inline "Invite instructor" CTA — only when there's seat capacity
+            and the alert banner is therefore hidden. Keeps the action
+            discoverable without the noisy multi-coloured tile row. */}
+        {leaderboard?.can_add_instructor && (
+          <TouchableOpacity
+            style={styles.inviteCta}
+            onPress={() => setInviteOpen(true)}
+            testID="qa-invite-instructor"
+            activeOpacity={0.85}
+          >
+            <UserPlus size={16} color={theme.colors.primary} />
+            <Text style={styles.inviteCtaText}>Invite instructor</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Per-instructor leaderboard */}
         <View style={styles.sectionHeader}>
@@ -352,9 +403,17 @@ export default function OwnerDashboardScreen() {
         </View>
 
         {sortedRows.length === 0 ? (
-          <Card style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>No instructors yet</Text>
-            <Text style={styles.emptySub}>Tap "Invite instructor" to add your first colleague.</Text>
+          <Card style={styles.emptyCardCompact}>
+            <Text style={styles.emptyCompactText}>
+              No instructors yet. Add your first colleague to start growing.
+            </Text>
+            <TouchableOpacity
+              style={styles.compactBtn}
+              onPress={() => setInviteOpen(true)}
+              testID="btn-empty-invite-instructor"
+            >
+              <Text style={styles.compactBtnText}>Invite</Text>
+            </TouchableOpacity>
           </Card>
         ) : (
           sortedRows.map((r, i) => (
@@ -394,9 +453,17 @@ export default function OwnerDashboardScreen() {
         </View>
 
         {today.length === 0 ? (
-          <Card style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Nothing scheduled today</Text>
-            <Text style={styles.emptySub}>The whole school has a quiet day. Use the time for admin tasks.</Text>
+          <Card style={styles.emptyCardCompact}>
+            <Text style={styles.emptyCompactText}>
+              Nothing scheduled today across the school.
+            </Text>
+            <TouchableOpacity
+              style={styles.compactBtn}
+              onPress={() => router.push('/lesson-diary-screen')}
+              testID="btn-empty-go-diary"
+            >
+              <Text style={styles.compactBtnText}>Open diary</Text>
+            </TouchableOpacity>
           </Card>
         ) : (
           today.map((t) => (
@@ -455,7 +522,7 @@ export default function OwnerDashboardScreen() {
         ) : (
           <>
             <Text style={styles.sheetIntro}>
-              We'll email a Supabase Auth invite. They'll set their own password and join your school automatically.
+              We&apos;ll email a Supabase Auth invite. They&apos;ll set their own password and join your school automatically.
             </Text>
             <Text style={styles.label}>Email address</Text>
             <TextInput
@@ -505,12 +572,14 @@ export default function OwnerDashboardScreen() {
   );
 }
 
-function KPI({ label, value, icon, bg }: { label: string; value: string; icon: React.ReactNode; bg: string }) {
+function KPI({ label, value, icon, tone }: { label: string; value: string; icon: React.ReactNode; tone: string }) {
   return (
-    <View style={[styles.kpi, { backgroundColor: bg }]} testID={`kpi-${label.replace(/\s+/g, '-').toLowerCase()}`}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+    <View style={styles.kpi} testID={`kpi-${label.replace(/\s+/g, '-').toLowerCase()}`}>
+      <View style={styles.kpiHeader}>
+        <View style={[styles.kpiIconBadge, { backgroundColor: tone }]}>
+          {icon}
+        </View>
         <Text style={styles.kpiLabel} numberOfLines={1}>{label}</Text>
-        {icon}
       </View>
       <Text style={styles.kpiValue}>{value}</Text>
     </View>
@@ -571,47 +640,107 @@ function SortPicker({ value, onChange }: { value: SortKey; onChange: (v: SortKey
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme.colors.background },
   scroll: { paddingBottom: 32 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 6, paddingBottom: 12, gap: 12 },
+
+  // ----- Header --------------------------------------------------------------
+  headerBlock: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14, gap: 12,
+  },
   iconBtn: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
   headerEyebrow: { fontSize: 11, fontWeight: '800', color: theme.colors.accent, letterSpacing: 0.6, textTransform: 'uppercase' },
   tierPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
   tierPillStarter: { backgroundColor: theme.colors.textMuted },
   tierPillFranchise: { backgroundColor: theme.colors.success },
   tierPillText: { fontSize: 10, fontWeight: '800', color: '#fff', letterSpacing: 0.4 },
-  headerTitle: { ...theme.font.h2, marginTop: 2 },
+  headerTitle: { ...theme.font.h2, marginTop: 4 },
   headerSub: { fontSize: 13, color: theme.colors.textMuted, marginTop: 2 },
 
-  kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16, marginBottom: 12 },
-  kpi: { width: '47%', minHeight: 80, borderRadius: 14, padding: 12, gap: 8 },
-  kpiLabel: { fontSize: 12, color: theme.colors.textMuted, fontWeight: '600' },
-  kpiValue: { fontSize: 22, fontWeight: '800', color: theme.colors.text },
+  // ----- Alert banner (system warnings) -------------------------------------
+  alertBanner: {
+    marginHorizontal: 16, marginBottom: 14,
+    padding: 12, borderRadius: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#FEF3C7', // warm amber tint
+    borderWidth: 1, borderColor: '#FDE68A',
+  },
+  alertIconWrap: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: '#FFFBEB',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  alertTitle: { fontSize: 14, fontWeight: '700', color: '#92400E' },
+  alertSub: { fontSize: 12, color: '#92400E', opacity: 0.85, marginTop: 1 },
 
-  qaRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginBottom: 16 },
-  qa: { flex: 1, height: 50, borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  qaText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  // ----- KPI cards (white, generous padding, icon-badge aligned to label) ---
+  kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16, marginBottom: 14 },
+  kpi: {
+    width: '47%',
+    backgroundColor: theme.colors.surface,
+    borderRadius: 14,
+    padding: 16,
+    gap: 12,
+    borderWidth: 1, borderColor: theme.colors.border,
+  },
+  kpiHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  kpiIconBadge: {
+    width: 28, height: 28, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  kpiLabel: { fontSize: 12, color: theme.colors.textMuted, fontWeight: '600', flex: 1 },
+  kpiValue: { fontSize: 24, fontWeight: '800', color: theme.colors.text, lineHeight: 28 },
 
+  // ----- Quick actions (1 primary + 2 outline) ------------------------------
+  qaRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginBottom: 10 },
+  qa: {
+    flex: 1, height: 48, borderRadius: 12,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+  },
+  qaPrimary: { backgroundColor: theme.colors.accent },
+  qaPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  qaSecondary: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
+  qaSecondaryText: { color: theme.colors.text, fontWeight: '600', fontSize: 13 },
+  qaText: { color: '#fff', fontWeight: '700', fontSize: 13 }, // kept for backwards-compat (unused)
+  inviteCta: {
+    marginHorizontal: 16, marginBottom: 14,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    height: 40, borderRadius: 10,
+    backgroundColor: theme.colors.primaryLight,
+    borderWidth: 1, borderColor: theme.colors.primary + '33',
+  },
+  inviteCtaText: { color: theme.colors.primary, fontWeight: '700', fontSize: 13 },
+
+  // ----- Section headers, sort chip -----------------------------------------
   sectionHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginTop: 8, marginBottom: 8 },
   sectionTitle: { fontSize: 16, fontWeight: '800', color: theme.colors.text },
   sectionSub: { fontSize: 12, color: theme.colors.textMuted },
-
   sortChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
   sortChipText: { fontSize: 12, fontWeight: '700', color: theme.colors.text },
 
+  // ----- Leaderboard cards --------------------------------------------------
   lbCard: { marginHorizontal: 16, marginBottom: 10, gap: 10 },
   lbHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   lbRank: { fontSize: 14, fontWeight: '800', color: theme.colors.textMuted, width: 26 },
   lbName: { fontSize: 15, fontWeight: '700', color: theme.colors.text, flexShrink: 1 },
-  lbSub: { fontSize: 11, color: theme.colors.textMuted, marginTop: 2 },
+  // ADI number — bumped from #64748B (4.6:1) to #475569 (7.2:1) for WCAG AAA on white
+  lbSub: { fontSize: 11, color: '#475569', marginTop: 2, fontWeight: '600' },
   lbRevenue: { fontSize: 16, fontWeight: '800', color: theme.colors.primary },
   lbStats: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: 8 },
   statValue: { fontSize: 14, fontWeight: '800', color: theme.colors.text },
   statLabel: { fontSize: 11, color: theme.colors.textMuted, marginTop: 2 },
   linkText: { color: theme.colors.primary, fontSize: 13, fontWeight: '700' },
-  // ---- Test performance card ----
+
+  // ----- Test performance card ----------------------------------------------
   perfCard: { marginHorizontal: 16, marginBottom: 12, padding: 16, gap: 12 },
-  perfEmpty: { alignItems: 'center', paddingVertical: 16, gap: 6 },
+  perfEmpty: { alignItems: 'center', paddingVertical: 16, gap: 6 }, // (legacy, unused)
   perfEmptyTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text, marginTop: 6 },
   perfEmptySub: { fontSize: 12, color: theme.colors.textMuted, textAlign: 'center', lineHeight: 17 },
+  perfEmptyCompact: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 4,
+  },
+  perfEmptyCompactText: {
+    flex: 1, fontSize: 13, color: theme.colors.text, lineHeight: 18,
+  },
   perfTopRow: { flexDirection: 'row', gap: 12, alignItems: 'stretch' },
   perfBigNumberBox: {
     backgroundColor: theme.colors.primaryLight,
@@ -656,9 +785,24 @@ const styles = StyleSheet.create({
   todayStudent: { fontSize: 14, fontWeight: '700', color: theme.colors.text },
   todaySub: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
 
-  emptyCard: { marginHorizontal: 16, marginBottom: 10, alignItems: 'center', paddingVertical: 24, gap: 4 },
+  // ----- Empty-state cards (compact: single sentence + inline button) -------
+  emptyCard: { marginHorizontal: 16, marginBottom: 10, alignItems: 'center', paddingVertical: 24, gap: 4 }, // legacy
   emptyTitle: { fontSize: 14, fontWeight: '700', color: theme.colors.text },
   emptySub: { fontSize: 12, color: theme.colors.textMuted, textAlign: 'center', paddingHorizontal: 16 },
+  emptyCardCompact: {
+    marginHorizontal: 16, marginBottom: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 14, paddingHorizontal: 16,
+  },
+  emptyCompactText: {
+    flex: 1, fontSize: 13, color: theme.colors.text, lineHeight: 18,
+  },
+  compactBtn: {
+    paddingHorizontal: 14, height: 34,
+    borderRadius: 999, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: theme.colors.accent,
+  },
+  compactBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
 
   // Sheet
   sheetIntro: { fontSize: 13, color: theme.colors.textMuted, marginBottom: 8, lineHeight: 18 },

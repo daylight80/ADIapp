@@ -12,11 +12,12 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { Search, Plus, ArrowLeft, Mail, Phone, MapPin, CalendarDays, Check, Crown, Send, Copy, BookUser, PenLine, Smartphone } from 'lucide-react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { Search, Plus, ArrowLeft, Mail, Phone, MapPin, CalendarDays, Check, Crown, Send, Copy, BookUser, PenLine, Smartphone, X } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb, StudentStatus } from '../src/mockDb';
 import { useStudents, createStudent, ensureDemoStudentsSeeded } from '../src/useSupabaseData';
+import { listStudentBalances } from '../src/supabaseDb';
 import { explainLimitError } from '../src/tiers';
 import { Card, ProgressBar, StatusBadge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
@@ -35,10 +36,40 @@ const FILTERS: FilterChip[] = ['All', 'Active', 'Test Ready', 'New', 'Passed', '
 
 export default function StudentCrmScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ filter?: string }>();
   const { user } = useAuth();
   const pro = isPro(user?.subscription_status);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterChip>('All');
+
+  // -----------------------------------------------------------------------
+  // Arrears filter — toggled on when the screen is opened via the
+  // dashboard's "Students in arrears" tile (?filter=arrears). When active
+  // we hide every student whose outstanding balance is ≤ £0. The chip at
+  // the top of the list shows an explicit "Arrears Active" pill the user
+  // can dismiss to return to the full roster.
+  // -----------------------------------------------------------------------
+  const [arrearsActive, setArrearsActive] = useState(false);
+  const [balances, setBalances] = useState<Record<string, number>>({});
+  // Apply on initial mount only — toggling the chip later sets state directly.
+  React.useEffect(() => {
+    if (params?.filter === 'arrears') setArrearsActive(true);
+  }, [params?.filter]);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await listStudentBalances();
+        if (cancelled) return;
+        const map: Record<string, number> = {};
+        for (const r of rows) map[r.student_id] = r.outstanding_gbp;
+        setBalances(map);
+      } catch {
+        // best-effort — leave map empty so all students render as £0
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [addOpen, setAddOpen] = useState(false);
   const [methodPickerOpen, setMethodPickerOpen] = useState(false);
   const [contactsImportOpen, setContactsImportOpen] = useState(false);
@@ -72,9 +103,10 @@ export default function StudentCrmScreen() {
       const q = search.toLowerCase();
       const matchQ = !q || s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q);
       const matchF = filter === 'All' || s.status === filter;
-      return matchQ && matchF;
+      const matchArrears = !arrearsActive || (balances[s.id] ?? 0) > 0;
+      return matchQ && matchF && matchArrears;
     });
-  }, [students, search, filter]);
+  }, [students, search, filter, arrearsActive, balances]);
 
   const counts = useMemo(() => {
     return {
@@ -268,6 +300,24 @@ export default function StudentCrmScreen() {
         </View>
       </View>
 
+      {/* Arrears chip — only shown while the arrears filter is active.
+          Tapping the ✕ clears the filter and returns the full roster. */}
+      {arrearsActive && (
+        <View style={styles.arrearsChipRow}>
+          <View style={styles.arrearsChip} testID="chip-arrears-active">
+            <Text style={styles.arrearsChipText}>Arrears Active</Text>
+            <TouchableOpacity
+              onPress={() => setArrearsActive(false)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              testID="btn-clear-arrears"
+              accessibilityLabel="Clear arrears filter"
+            >
+              <X size={14} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
         {FILTERS.map((f) => {
           const count = f === 'All' ? students.length : counts[f as Exclude<FilterChip, 'All'>];
@@ -352,9 +402,28 @@ export default function StudentCrmScreen() {
           </TouchableOpacity>
         )}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>No students match your filters.</Text>
-          </View>
+          arrearsActive ? (
+            <View style={styles.arrearsEmpty} testID="empty-arrears-up-to-date">
+              <View style={styles.arrearsEmptyBadge}>
+                <Check size={20} color={theme.colors.success} />
+              </View>
+              <Text style={styles.arrearsEmptyTitle}>All up to date</Text>
+              <Text style={styles.arrearsEmptySub}>
+                Every pupil&apos;s payments are currently up to date. Great work!
+              </Text>
+              <TouchableOpacity
+                style={styles.arrearsEmptyBtn}
+                onPress={() => setArrearsActive(false)}
+                testID="btn-empty-clear-arrears"
+              >
+                <Text style={styles.arrearsEmptyBtnText}>Show full roster</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>No students match your filters.</Text>
+            </View>
+          )
         }
       />
 
@@ -618,6 +687,40 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     alignItems: 'center', // prevent chips from stretching vertically inside the row
   },
+
+  // ----- Arrears filter chip + empty state ---------------------------------
+  arrearsChipRow: {
+    paddingHorizontal: 16, paddingTop: 8,
+    flexDirection: 'row',
+  },
+  arrearsChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingLeft: 12, paddingRight: 8,
+    height: 32, borderRadius: 16,
+    backgroundColor: theme.colors.danger,
+  },
+  arrearsChipText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  arrearsEmpty: {
+    alignItems: 'center', paddingVertical: 48, paddingHorizontal: 32,
+    gap: 12,
+  },
+  arrearsEmptyBadge: {
+    width: 56, height: 56, borderRadius: 28,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#D1FAE5',
+  },
+  arrearsEmptyTitle: { fontSize: 18, fontWeight: '800', color: theme.colors.text },
+  arrearsEmptySub: {
+    fontSize: 14, color: theme.colors.textMuted, textAlign: 'center', lineHeight: 20,
+  },
+  arrearsEmptyBtn: {
+    marginTop: 4,
+    paddingHorizontal: 16, height: 40, borderRadius: 999,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1, borderColor: theme.colors.border,
+  },
+  arrearsEmptyBtnText: { fontWeight: '700', color: theme.colors.text, fontSize: 13 },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',

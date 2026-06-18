@@ -19,6 +19,7 @@ import { useAuth } from '../src/AuthContext';
 import { supabase } from '../src/supabaseClient';
 import {
   listTestOutcomesForSchool, computeTestKpis, type TestOutcome,
+  getArrearsSummary,
 } from '../src/supabaseDb';
 
 /**
@@ -81,6 +82,7 @@ export default function OwnerDashboardScreen() {
   const [leaderboard, setLeaderboard] = useState<Leaderboard | null>(null);
   const [today, setToday] = useState<TodayLesson[]>([]);
   const [testOutcomes, setTestOutcomes] = useState<TestOutcome[]>([]);
+  const [arrears, setArrears] = useState<{ count: number; total_gbp: number }>({ count: 0, total_gbp: 0 });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -149,6 +151,19 @@ export default function OwnerDashboardScreen() {
           // eslint-disable-next-line no-console
           console.warn('[owner] listTestOutcomesForSchool failed', e);
           setTestOutcomes([]);
+        }
+
+        // Arrears summary — count + total £ owed across the school. Backed by
+        // Migration 022 view `students_with_balance`. Non-fatal if the view
+        // isn't applied yet — the tile then shows "0 owing" and the user can
+        // still navigate to the Students screen normally.
+        try {
+          const summary = await getArrearsSummary();
+          setArrears(summary);
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn('[owner] getArrearsSummary failed', e);
+          setArrears({ count: 0, total_gbp: 0 });
         }
       }
     } catch (e: any) {
@@ -330,6 +345,32 @@ export default function OwnerDashboardScreen() {
           <KPI label="Pass rate" value={`${leaderboard?.totals.pass_rate ?? 0}%`}
                icon={<TrendingUp size={16} color={theme.colors.accent} />} tone="#FFF7ED" />
         </View>
+
+        {/* ============================================================
+            ARREARS TILE — taps through to a filtered Students list
+            showing only pupils with outstanding payments.
+            ============================================================ */}
+        <TouchableOpacity
+          style={[styles.arrearsTile, arrears.count > 0 && styles.arrearsTileActive]}
+          onPress={() => router.push({ pathname: '/student-crm-screen', params: { filter: 'arrears' } } as any)}
+          activeOpacity={0.85}
+          testID="tile-students-in-arrears"
+          accessibilityRole="button"
+          accessibilityLabel={`Students in arrears, ${arrears.count} students owing ${maskRevenue(`£${arrears.total_gbp}`, isRevenueHidden)}`}
+        >
+          <View style={[styles.arrearsIconWrap, arrears.count > 0 && { backgroundColor: '#FEF2F2' }]}>
+            <AlertTriangle size={18} color={arrears.count > 0 ? theme.colors.danger : theme.colors.textMuted} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.arrearsTitle}>Students in arrears</Text>
+            <Text style={styles.arrearsSub}>
+              {arrears.count === 0
+                ? 'All pupil payments are up to date.'
+                : `${arrears.count} pupil${arrears.count === 1 ? '' : 's'} owing ${maskRevenue(`£${arrears.total_gbp}`, isRevenueHidden)}`}
+            </Text>
+          </View>
+          <ChevronRight size={18} color={theme.colors.textMuted} />
+        </TouchableOpacity>
 
         {/* ------- Test Performance card ---------------------------------- */}
         <View style={styles.sectionHeader}>
@@ -749,6 +790,26 @@ const styles = StyleSheet.create({
   },
   kpiLabel: { fontSize: 12, color: theme.colors.textMuted, fontWeight: '600', flex: 1 },
   kpiValue: { fontSize: 24, fontWeight: '800', color: theme.colors.text, lineHeight: 28 },
+
+  // ----- Arrears tile (full-width, taps through to filtered Students list) ----
+  arrearsTile: {
+    marginHorizontal: 16, marginBottom: 14,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    padding: 14, borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1, borderColor: theme.colors.border,
+  },
+  arrearsTileActive: {
+    backgroundColor: '#FFFBFB',
+    borderColor: '#FECACA',
+  },
+  arrearsIconWrap: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: theme.colors.background,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  arrearsTitle: { fontSize: 14, fontWeight: '700', color: theme.colors.text },
+  arrearsSub: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
 
   // Privacy Mode toggle — small visible 28×28 button on the 8pt grid, but
   // the touch target is expanded to 52×52 via hitSlop above (well over the

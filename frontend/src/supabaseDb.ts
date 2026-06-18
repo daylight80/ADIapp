@@ -75,6 +75,52 @@ export async function listStudents(): Promise<Student[]> {
   return (data || []).map(fromRow);
 }
 
+// ===========================================================================
+// ARREARS — net outstanding balance per student
+// Backed by Migration 022 view `students_with_balance`.
+//   outstanding_gbp > 0  → student owes money
+//   outstanding_gbp ≤ 0  → up to date or in credit
+// Returns a Map<student_id, outstanding_gbp> for cheap lookups when
+// hydrating the Students CRM list and the dashboard tile.
+// ===========================================================================
+export type StudentBalance = {
+  student_id: string;
+  outstanding_gbp: number;
+};
+
+export async function listStudentBalances(): Promise<StudentBalance[]> {
+  const { data, error } = await supabase
+    .from('students_with_balance')
+    .select('student_id,outstanding_gbp');
+  if (error) {
+    // Don't crash callers if Migration 022 isn't applied yet — just return [].
+    // eslint-disable-next-line no-console
+    console.warn('[arrears] listStudentBalances failed:', error.message);
+    return [];
+  }
+  return (data || []).map((r: any) => ({
+    student_id: r.student_id,
+    outstanding_gbp: Number(r.outstanding_gbp ?? 0),
+  }));
+}
+
+/**
+ * Convenience summariser for the dashboard tile.
+ * Returns { count, total_gbp } across all students with outstanding > £0.
+ */
+export async function getArrearsSummary(): Promise<{ count: number; total_gbp: number }> {
+  const rows = await listStudentBalances();
+  let count = 0;
+  let total = 0;
+  for (const r of rows) {
+    if (r.outstanding_gbp > 0) {
+      count += 1;
+      total += r.outstanding_gbp;
+    }
+  }
+  return { count, total_gbp: Math.round(total) };
+}
+
 export async function getStudent(id: string): Promise<Student | undefined> {
   const { data, error } = await supabase
     .from('students')

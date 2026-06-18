@@ -8,8 +8,11 @@ import { useRouter } from 'expo-router';
 import {
   Trophy, Users, CalendarDays, PoundSterling, TrendingUp, Plus, Mail, LogOut,
   ChevronRight, Crown, ArrowUpDown, Receipt, Award, CircleX, AlertTriangle, UserPlus,
+  Eye, EyeOff,
 } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme } from '../src/theme';
+
 import { Card, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { useAuth } from '../src/AuthContext';
@@ -17,6 +20,21 @@ import { supabase } from '../src/supabaseClient';
 import {
   listTestOutcomesForSchool, computeTestKpis, type TestOutcome,
 } from '../src/supabaseDb';
+
+/**
+ * AsyncStorage key used to persist the instructor's Privacy Mode preference
+ * for masking revenue figures on the dashboard. Stored as '1' / '0'.
+ * Namespaced with the `adi_pro_` prefix to avoid clashing with other apps.
+ */
+const REVENUE_PRIVACY_KEY = 'adi_pro_revenue_privacy_mode';
+
+/** Stand-in shown when Privacy Mode is on. Renders as e.g. `£•••`. */
+const REVENUE_MASK = '£•••';
+
+/** Return either the masked placeholder or the original revenue string. */
+function maskRevenue(value: string, hidden: boolean): string {
+  return hidden ? REVENUE_MASK : value;
+}
 
 const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || '';
 
@@ -72,6 +90,32 @@ export default function OwnerDashboardScreen() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [inviteForm, setInviteForm] = useState({ email: '', full_name: '', adi_number: '' });
+
+  // ---------------------------------------------------------------------------
+  // Privacy Mode — masks financial earnings on the dashboard so an instructor
+  // can show the screen to a student in the tuition vehicle without revealing
+  // sensitive revenue figures. Persisted per-device via AsyncStorage so the
+  // preference survives app restarts.
+  // ---------------------------------------------------------------------------
+  const [isRevenueHidden, setIsRevenueHidden] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(REVENUE_PRIVACY_KEY);
+        if (stored === '1') setIsRevenueHidden(true);
+      } catch {
+        // best-effort — silently ignore storage read failures
+      }
+    })();
+  }, []);
+  const toggleRevenuePrivacy = useCallback(() => {
+    setIsRevenueHidden((prev) => {
+      const next = !prev;
+      // Fire-and-forget — UI updates immediately; persistence happens in bg.
+      AsyncStorage.setItem(REVENUE_PRIVACY_KEY, next ? '1' : '0').catch(() => {});
+      return next;
+    });
+  }, []);
 
   const fetchAll = useCallback(async () => {
     setError(null);
@@ -265,8 +309,24 @@ export default function OwnerDashboardScreen() {
                icon={<Users size={16} color={theme.colors.primary} />} tone={theme.colors.primaryLight} />
           <KPI label="Lessons (mo)" value={String(leaderboard?.totals.lessons_month ?? 0)}
                icon={<CalendarDays size={16} color={theme.colors.info} />} tone="#E0F2FE" />
-          <KPI label="Revenue (mo)" value={`£${(leaderboard?.totals.revenue_month ?? 0).toFixed(0)}`}
-               icon={<PoundSterling size={16} color={theme.colors.success} />} tone="#D1FAE5" />
+          <KPI label="Revenue (mo)" value={maskRevenue(`£${(leaderboard?.totals.revenue_month ?? 0).toFixed(0)}`, isRevenueHidden)}
+               icon={<PoundSterling size={16} color={theme.colors.success} />} tone="#D1FAE5"
+               headerAccessory={
+                 <TouchableOpacity
+                   onPress={toggleRevenuePrivacy}
+                   style={styles.privacyToggle}
+                   hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                   accessibilityRole="button"
+                   accessibilityLabel={isRevenueHidden ? 'Show revenue figures' : 'Hide revenue figures'}
+                   accessibilityState={{ selected: isRevenueHidden }}
+                   testID="btn-toggle-revenue-privacy"
+                 >
+                   {isRevenueHidden
+                     ? <EyeOff size={16} color={theme.colors.textMuted} />
+                     : <Eye size={16} color={theme.colors.textMuted} />}
+                 </TouchableOpacity>
+               }
+          />
           <KPI label="Pass rate" value={`${leaderboard?.totals.pass_rate ?? 0}%`}
                icon={<TrendingUp size={16} color={theme.colors.accent} />} tone="#FFF7ED" />
         </View>
@@ -432,7 +492,7 @@ export default function OwnerDashboardScreen() {
                   </View>
                   {r.adi_number ? <Text style={styles.lbSub}>ADI #{r.adi_number}</Text> : null}
                 </View>
-                <Text style={styles.lbRevenue}>£{r.revenue_month.toFixed(0)}</Text>
+                <Text style={styles.lbRevenue}>{maskRevenue(`£${r.revenue_month.toFixed(0)}`, isRevenueHidden)}</Text>
               </View>
               <View style={styles.lbStats}>
                 <Stat label="Lessons" value={String(r.lessons_month)} />
@@ -572,7 +632,7 @@ export default function OwnerDashboardScreen() {
   );
 }
 
-function KPI({ label, value, icon, tone }: { label: string; value: string; icon: React.ReactNode; tone: string }) {
+function KPI({ label, value, icon, tone, headerAccessory }: { label: string; value: string; icon: React.ReactNode; tone: string; headerAccessory?: React.ReactNode }) {
   return (
     <View style={styles.kpi} testID={`kpi-${label.replace(/\s+/g, '-').toLowerCase()}`}>
       <View style={styles.kpiHeader}>
@@ -580,6 +640,7 @@ function KPI({ label, value, icon, tone }: { label: string; value: string; icon:
           {icon}
         </View>
         <Text style={styles.kpiLabel} numberOfLines={1}>{label}</Text>
+        {headerAccessory}
       </View>
       <Text style={styles.kpiValue}>{value}</Text>
     </View>
@@ -688,6 +749,15 @@ const styles = StyleSheet.create({
   },
   kpiLabel: { fontSize: 12, color: theme.colors.textMuted, fontWeight: '600', flex: 1 },
   kpiValue: { fontSize: 24, fontWeight: '800', color: theme.colors.text, lineHeight: 28 },
+
+  // Privacy Mode toggle — small visible 28×28 button on the 8pt grid, but
+  // the touch target is expanded to 52×52 via hitSlop above (well over the
+  // 44 px minimum) so it's easy to tap while driving with a learner.
+  privacyToggle: {
+    width: 28, height: 28, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: theme.colors.background,
+  },
 
   // ----- Quick actions (1 primary + 2 outline) ------------------------------
   qaRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginBottom: 10 },

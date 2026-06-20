@@ -139,7 +139,8 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     } catch { /* fall through — no overlap check, but allow save */ }
 
     // For each occurrence, check (a) unavailability overlap, (b) clash.
-    type Plan = { date: string; reason?: 'unavailable' | 'clash' };
+    type ClashInfo = { name: string; start: string; end: string };
+    type Plan = { date: string; reason?: 'unavailable' | 'clash'; clash?: ClashInfo };
     const plan: Plan[] = [];
     for (const d of targetDates) {
       try {
@@ -179,22 +180,15 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
             }
           }
           if (clashed) {
-            // For SINGLE lesson: keep the existing soft-warn UX.
+            // For SINGLE lesson: previously we asked `window.confirm("Save
+            // anyway?")` here. That browser-native modal is suppressed by some
+            // embedded WebViews / tunnelled previews, returning false silently
+            // — which made the Save button appear broken even when the slot
+            // was perfectly fine. The instructor explicitly tapped Save, so
+            // we now save the lesson immediately and just remember the clash
+            // so the parent can surface a non-blocking snackbar afterwards.
             if (!repeatOn) {
-              const msg = `This slot clashes with ${clashName}'s lesson (${clashStart}–${clashEnd}). Save anyway?`;
-              const proceed = await (async (): Promise<boolean> => {
-                if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
-                  return window.confirm(msg);
-                }
-                return await new Promise((resolve) => {
-                  Alert.alert('Lesson clash', msg, [
-                    { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-                    { text: 'Save anyway', style: 'destructive', onPress: () => resolve(true) },
-                  ]);
-                });
-              })();
-              if (!proceed) return;
-              plan.push({ date: d });
+              plan.push({ date: d, clash: { name: clashName, start: clashStart, end: clashEnd } });
               continue;
             }
             // For RECURRING: silently skip the clashing occurrence.
@@ -241,6 +235,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     // -------- Bulk create -------------------------------------------------
     let created = 0;
     let firstCreated: any = null;
+    let firstError: any = null;
     for (const p of toCreate) {
       try {
         const row = await createLesson({
@@ -255,10 +250,28 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
         });
         if (!firstCreated) firstCreated = row;
         created += 1;
-      } catch (e) {
+      } catch (e: any) {
+        if (!firstError) firstError = e;
         // eslint-disable-next-line no-console
         console.warn('[diary] addLesson failed', e);
       }
+    }
+
+    // If nothing was created AND we had things to create, the insert(s) all
+    // failed. Surface the underlying error loudly so the instructor doesn't
+    // think the lesson silently saved when it didn't.
+    if (created === 0 && toCreate.length > 0) {
+      const detail = firstError?.message
+        || firstError?.response?.data?.detail
+        || 'Lesson could not be saved. Please try again.';
+      // Alert is preferred here (sole user-visible error path); fall back to
+      // window.alert in case Alert is not polyfilled.
+      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+        window.alert(`Could not create lesson: ${detail}`);
+      } else {
+        Alert.alert('Could not create lesson', detail);
+      }
+      return; // keep the sheet open so the instructor can adjust and retry
     }
 
     // -------- Wrap up -----------------------------------------------------

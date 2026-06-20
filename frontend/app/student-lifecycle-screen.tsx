@@ -163,12 +163,17 @@ export default function StudentLifecycleScreen() {
     setAmendOpen(false);
   };
 
+  /**
+   * Cross-platform confirmation helper.
+   *
+   * We previously used `window.confirm()` on web here, but that native browser
+   * modal is suppressed by some embedded WebViews and tunnelled previews,
+   * which made the Reactivate / Deactivate / Waitlist buttons appear "broken"
+   * even though the backend was wired correctly. `Alert.alert` is properly
+   * polyfilled by React Native Web and surfaces consistently across iOS,
+   * Android, web preview, and Expo Go.
+   */
   const confirmAndRun = (title: string, message: string, confirmLabel: string, onConfirm: () => void, destructive = false) => {
-    if (Platform.OS === 'web') {
-      // eslint-disable-next-line no-alert
-      if (typeof window !== 'undefined' && window.confirm(`${title}\n\n${message}`)) onConfirm();
-      return;
-    }
     Alert.alert(title, message, [
       { text: 'Cancel', style: 'cancel' },
       { text: confirmLabel, style: destructive ? 'destructive' : 'default', onPress: onConfirm },
@@ -214,26 +219,38 @@ export default function StudentLifecycleScreen() {
   /**
    * Lifecycle transitions — Deactivate / Reactivate / Move to Waitlist.
    *
+   * Reactivate is treated as a "tap-once" non-destructive action — there's
+   * no confirmation modal because the button is already labelled
+   * "Reactivate student" and the change is fully reversible. Deactivate and
+   * Move-to-waitlist still confirm because they remove the student from the
+   * active roster, which could surprise an instructor who fat-fingered.
+   *
    * We optimistically reflect the change in local state so the UI updates
    * the moment the user taps; on failure we surface a polite alert and the
    * cache invalidation on success keeps everything in sync.
    */
+  const runStatusChange = async (next: 'Active' | 'Inactive' | 'Waitlist') => {
+    try {
+      await setStudentStatusAsync(student.id, next);
+    } catch (e: any) {
+      Alert.alert('Update failed', e?.response?.data?.detail || e?.message || 'Could not update status');
+    }
+  };
+
   const handleSetLifecycleStatus = (next: 'Active' | 'Inactive' | 'Waitlist', verb: string) => {
+    // Reactivate is non-destructive and a single explicit tap is enough —
+    // skip the confirmation step entirely to make the button feel responsive.
+    if (next === 'Active') {
+      runStatusChange(next);
+      return;
+    }
     confirmAndRun(
       `${verb} ${student.name}?`,
       next === 'Inactive'
         ? `${student.name} will be marked as inactive. Their lessons and records are preserved — you can reactivate them later.`
-        : next === 'Waitlist'
-          ? `${student.name} will be moved to the waiting list. They will appear under the Waitlist tab on the Students screen.`
-          : `${student.name} will be reactivated and returned to your active list.`,
+        : `${student.name} will be moved to the waiting list. They will appear under the Waitlist tab on the Students screen.`,
       verb,
-      async () => {
-        try {
-          await setStudentStatusAsync(student.id, next);
-        } catch (e: any) {
-          Alert.alert('Update failed', e?.response?.data?.detail || e?.message || 'Could not update status');
-        }
-      },
+      () => runStatusChange(next),
     );
   };
 

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -219,39 +219,55 @@ export default function StudentLifecycleScreen() {
   /**
    * Lifecycle transitions — Deactivate / Reactivate / Move to Waitlist.
    *
-   * Reactivate is treated as a "tap-once" non-destructive action — there's
-   * no confirmation modal because the button is already labelled
-   * "Reactivate student" and the change is fully reversible. Deactivate and
-   * Move-to-waitlist still confirm because they remove the student from the
-   * active roster, which could surprise an instructor who fat-fingered.
-   *
-   * We optimistically reflect the change in local state so the UI updates
-   * the moment the user taps; on failure we surface a polite alert and the
-   * cache invalidation on success keeps everything in sync.
+   * No confirmation modal: native browser dialogs (`window.confirm`,
+   * `window.alert`) are silently suppressed by some embedded WebViews and
+   * tunnelled preview hosts, which makes the buttons appear broken. Instead
+   * we apply the change instantly and show a non-blocking "Undo" snackbar
+   * that lets the instructor revert with a single tap. This is both more
+   * responsive AND safer than a confirm dialog that can be blocked.
    */
-  const runStatusChange = async (next: 'Active' | 'Inactive' | 'Waitlist') => {
+  const [snack, setSnack] = useState<{
+    message: string;
+    undoTo: 'Active' | 'Inactive' | 'Waitlist' | null;
+  } | null>(null);
+  const snackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showSnack = (message: string, undoTo: 'Active' | 'Inactive' | 'Waitlist' | null) => {
+    if (snackTimeoutRef.current) clearTimeout(snackTimeoutRef.current);
+    setSnack({ message, undoTo });
+    snackTimeoutRef.current = setTimeout(() => setSnack(null), 5000);
+  };
+
+  const runStatusChange = async (next: 'Active' | 'Inactive' | 'Waitlist', previous?: typeof student.status) => {
     try {
       await setStudentStatusAsync(student.id, next);
+      // Only offer Undo when we actually have a previous status to revert to,
+      // and skip Undo for Reactivate (no friction needed for a positive action).
+      if (previous && next !== 'Active') {
+        showSnack(
+          next === 'Inactive'
+            ? `${student.name} marked as inactive.`
+            : `${student.name} moved to the waiting list.`,
+          previous as any,
+        );
+      } else if (next === 'Active') {
+        showSnack(`${student.name} reactivated.`, null);
+      }
     } catch (e: any) {
       Alert.alert('Update failed', e?.response?.data?.detail || e?.message || 'Could not update status');
     }
   };
 
-  const handleSetLifecycleStatus = (next: 'Active' | 'Inactive' | 'Waitlist', verb: string) => {
-    // Reactivate is non-destructive and a single explicit tap is enough —
-    // skip the confirmation step entirely to make the button feel responsive.
-    if (next === 'Active') {
-      runStatusChange(next);
-      return;
-    }
-    confirmAndRun(
-      `${verb} ${student.name}?`,
-      next === 'Inactive'
-        ? `${student.name} will be marked as inactive. Their lessons and records are preserved — you can reactivate them later.`
-        : `${student.name} will be moved to the waiting list. They will appear under the Waitlist tab on the Students screen.`,
-      verb,
-      () => runStatusChange(next),
-    );
+  const handleSetLifecycleStatus = (next: 'Active' | 'Inactive' | 'Waitlist') => {
+    runStatusChange(next, student.status as any);
+  };
+
+  const handleUndoLifecycle = () => {
+    if (!snack?.undoTo) return;
+    const target = snack.undoTo;
+    setSnack(null);
+    if (snackTimeoutRef.current) clearTimeout(snackTimeoutRef.current);
+    runStatusChange(target);
   };
 
   const totalEarnings = lessons.reduce((sum, l) => sum + (l.amount_paid || 0), 0);
@@ -390,7 +406,7 @@ export default function StudentLifecycleScreen() {
                 {student.status === 'Inactive' || student.status === 'Waitlist' ? (
                   <TouchableOpacity
                     style={[styles.lifecycleBtn, styles.lifecycleBtnPrimary]}
-                    onPress={() => handleSetLifecycleStatus('Active', 'Reactivate')}
+                    onPress={() => handleSetLifecycleStatus('Active')}
                     testID="btn-lifecycle-reactivate"
                     accessibilityLabel="Reactivate student"
                   >
@@ -400,7 +416,7 @@ export default function StudentLifecycleScreen() {
                 ) : (
                   <TouchableOpacity
                     style={[styles.lifecycleBtn, styles.lifecycleBtnNeutral]}
-                    onPress={() => handleSetLifecycleStatus('Inactive', 'Deactivate')}
+                    onPress={() => handleSetLifecycleStatus('Inactive')}
                     testID="btn-lifecycle-deactivate"
                     accessibilityLabel="Deactivate student"
                   >
@@ -411,7 +427,7 @@ export default function StudentLifecycleScreen() {
                 {student.status !== 'Waitlist' && (
                   <TouchableOpacity
                     style={[styles.lifecycleBtn, styles.lifecycleBtnNeutral]}
-                    onPress={() => handleSetLifecycleStatus('Waitlist', 'Move')}
+                    onPress={() => handleSetLifecycleStatus('Waitlist')}
                     testID="btn-lifecycle-waitlist"
                     accessibilityLabel="Move student to waiting list"
                   >
@@ -833,6 +849,25 @@ export default function StudentLifecycleScreen() {
           </TouchableOpacity>
         </View>
       </BottomSheet>
+
+      {/* ============================================================
+          Snackbar — non-blocking confirmation for lifecycle changes
+          with optional Undo. Auto-hides after 5 seconds.
+          ============================================================ */}
+      {snack && (
+        <View style={styles.snackbar} testID="lifecycle-snackbar">
+          <Text style={styles.snackbarText} numberOfLines={2}>{snack.message}</Text>
+          {snack.undoTo && (
+            <TouchableOpacity
+              onPress={handleUndoLifecycle}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              testID="btn-undo-lifecycle"
+            >
+              <Text style={styles.snackbarUndo}>UNDO</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -903,6 +938,20 @@ const styles = StyleSheet.create({
     minHeight: 160,
   },
   notesHint: { color: theme.colors.textMuted, fontSize: 12 },
+
+  // ----- Lifecycle snackbar -----------------------------------------------
+  snackbar: {
+    position: 'absolute',
+    left: 16, right: 16, bottom: 24,
+    backgroundColor: '#0F172A',
+    borderRadius: 8,
+    paddingVertical: 14, paddingHorizontal: 16,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 }, elevation: 8,
+  },
+  snackbarText: { flex: 1, color: '#fff', fontSize: 14, fontWeight: '500' },
+  snackbarUndo: { color: theme.colors.accent, fontWeight: '800', fontSize: 13, letterSpacing: 0.5 },
   notesTimestamp: {
     color: theme.colors.textMuted,
     fontSize: 12,

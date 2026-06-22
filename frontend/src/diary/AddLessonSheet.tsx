@@ -110,7 +110,18 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
   );
 
   const handleAdd = async () => {
-    if (!studentId || !date || !topic) return;
+    // Topic is intentionally optional — many instructors decide the topic
+    // on the day based on the student's mood/progress. Student and date are
+    // required, and we now surface a visible error rather than silently
+    // returning (the previous behaviour made the Save button feel broken).
+    if (!studentId) {
+      Alert.alert('Choose a student', 'Please pick which student this lesson is for.');
+      return;
+    }
+    if (!date) {
+      Alert.alert('Pick a date', 'Please choose the lesson date (YYYY-MM-DD).');
+      return;
+    }
 
     // Build the list of target dates. Single lesson → [date]. Recurring →
     // date + N-1 subsequent weeks on the same weekday.

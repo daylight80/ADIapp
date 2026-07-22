@@ -931,6 +931,10 @@ export async function listCompetencies(studentId: string): Promise<Competency[]>
 }
 
 export async function seedCompetenciesIfEmpty(studentId: string): Promise<number> {
+  // Guard against mockDb sentinel IDs (won't cast to UUID at PostgREST).
+  if (!studentId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(studentId)) {
+    return 0;
+  }
   const existing = await listCompetencies(studentId);
   if (existing.length > 0) return 0;
   const rows = DVSA_SYLLABUS.map((c) => ({
@@ -942,7 +946,16 @@ export async function seedCompetenciesIfEmpty(studentId: string): Promise<number
     progress: 0,
   }));
   const { error } = await supabase.from('dvsa_syllabus_tracking').insert(rows);
-  if (error) throw error;
+  if (error) {
+    // Non-fatal — RLS may reject when the caller isn't the assigned instructor
+    // (e.g. owner viewing another instructor's student). The student's
+    // competency grid gracefully shows the DVSA baseline via `listCompetencies`
+    // fallback and any writes will still work when performed by the correct
+    // actor. Log softly rather than crash-propagating.
+    // eslint-disable-next-line no-console
+    console.debug('[competencies] seed skipped:', error.message);
+    return 0;
+  }
   return rows.length;
 }
 

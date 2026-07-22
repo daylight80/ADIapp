@@ -16,8 +16,11 @@
         "NSContactsUsageDescription": "Import student names and phone numbers",
         "NSLocationWhenInUseUsageDescription": "Record driving lesson routes via GPS",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Track routes when the phone is locked",
-        "UIBackgroundModes": ["location"]
-      }
+        "UIBackgroundModes": [
+          "location"
+        ]
+      },
+      "bundleIdentifier": "com.emergent.dvsalessonhub.wqxs9n"
     },
     "android": {
       "adaptiveIcon": {
@@ -32,7 +35,8 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION"
-      ]
+      ],
+      "package": "app.emergent.adpro"
     },
     "androidStatusBar": {
       "backgroundColor": "#000000",

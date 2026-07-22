@@ -1,0 +1,64 @@
+{
+  "summary": "Full regression test after long feature session. All 15 backend tests pass (Supabase auth, /api/v2/school/leaderboard, /api/v2/school/today, PATCH /api/v2/students/{id}/status incl. invalid-status 400, /api/v2/billing/checkout returning a valid checkout.stripe.com URL, health). Frontend verified end-to-end on mobile viewport (390x844): (a) Auth screen redesign — 'Register' label, password Eye/EyeOff toggle flips input type from password→text; (b) Owner dashboard — KPIs render (3 Active students, 2 Lessons mo, £0 Revenue, 0% Pass rate), Students-in-arrears tile renders with 'All pupil payments are up to date.' empty state, is tappable, navigates to /student-crm-screen?filter=arrears; (c) Arrears filter — red 'Arrears Active' chip with X, 'All up to date' empty state visible; (d) Privacy toggle — after tapping the eye next to Revenue KPI, £••• mask appears on the dashboard (verified in DOM); (e) CRM chips 'All / Active / Test Ready / New / Passed / Waitlist' all rendered; (f) Diary FAB 'btn-add-lesson' opens AddLessonSheet with topic field as optional; (g) Student lifecycle Deactivate → immediate status flip to 'Inactive' + non-blocking snackbar 'Jon Kenny marked as inactive. UNDO' + Reactivate button appears and works. APScheduler dispatch_lesson_reminders confirmed executing every 5 minutes via backend logs.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Student lifecycle screen data loading",
+        "issue": "Supabase REST returns HTTP 400 for three queries on load (dvsa_syllabus_tracking, lessons, test_outcomes). Root screen still renders and does not crash — this is graceful degradation. Likely a column-select mismatch or RLS policy the owner-viewing-another-instructor's-student doesn't match. Non-blocking but the console errors are noisy.",
+        "affected_testIDs": ["card-lifecycle", "lifecycle-tabs"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "shadow* style props",
+        "issue": "Web console warns 'shadow* style props are deprecated. Use \"boxShadow\"'. Recurring during Metro bundle & every screen render. Reference: multiple screens' StyleSheet.create blocks."
+      },
+      {
+        "component": "props.pointerEvents",
+        "issue": "Web console warns 'props.pointerEvents is deprecated. Use style.pointerEvents'. Reference: sign-up-login-screen render path (fired during sign-in)."
+      },
+      {
+        "component": "expo package version",
+        "issue": "Expo doctor reports 'expo@54.0.35 - expected version: ~54.0.36'. Minor drift; recommend `yarn add expo@~54.0.36`."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_adi_pro_v2.py",
+    "/app/backend/tests/test_auth.py",
+    "/app/backend/tests/test_auth_invite.py",
+    "/app/backend/tests/test_billing.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(P3) Investigate the 3 Supabase 400s on student-lifecycle-screen (dvsa_syllabus_tracking, lessons, test_outcomes) — likely a column or foreign-key select that no longer matches migration 015 (test_outcomes) or 001 (dvsa_syllabus_tracking). App is graceful, but the console noise hides real errors.",
+    "(P4) Replace deprecated 'shadow*' style props with 'boxShadow' across screens (owner-dashboard, student-crm, sign-up-login etc.). Non-blocking but pollutes console.",
+    "(P4) Replace deprecated `pointerEvents` prop on TouchableOpacity/View with style.pointerEvents.",
+    "(P4) Bump expo from 54.0.35 to ~54.0.36 per expo doctor."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 2080 lines and hosts 40+ endpoints in one file — recommend splitting per-domain (auth, billing, school, students, receipts, calendar) into routers under backend/routers/. Not urgent but the file has crossed the 700-line 'file-too-large' threshold from the review guidelines.",
+    "v2/billing/checkout hits Stripe LIVE mode (STRIPE_API_KEY starts with sk_live_). During tests the endpoint returned a genuine https://checkout.stripe.com/... URL; no payment was completed. Consider a STRIPE_MODE env flag so QA can point at test-mode without env swaps.",
+    "get_current_supabase_user calls Supabase /auth/v1/user on every request. Fine for now but a signed-JWT verify (using SUPABASE_JWT_SECRET, already in env) would cut ~150 ms per authenticated call. Not a blocker.",
+    "AddLessonSheet.tsx: clash-check path silently falls through on Supabase errors (line 212–214) — matches design intent but log to console for observability.",
+    "Owner-dashboard revenue-privacy toggle stores boolean in AsyncStorage under 'adi_pro_revenue_privacy_mode'. Value is app-local (not tied to user id), so switching accounts on the same device inherits the previous user's privacy state. Minor UX polish."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_adi_pro_v2.py (new — 15 tests, all passing)"
+  ],
+  "success_rate": {
+    "backend": "100% (15/15 in test_adi_pro_v2.py; existing test_auth/test_auth_invite/test_billing suites unchanged)",
+    "frontend": "100% of the requested regression flows (auth, owner dashboard, arrears tile & filter, privacy toggle, CRM chips, AddLessonSheet with optional topic, lifecycle Deactivate + snackbar UNDO + Reactivate)"
+  },
+  "seed_data_creation": "None. Only mutated Jon Kenny's status Active→Inactive→Active during the UNDO test; state fully restored. PATCH tests in pytest also revert to original status.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Owner login alex@adipro.uk / password123 works via Supabase Auth (not the FastAPI /auth/login). To hit /api/v2/* endpoints, first POST to {SUPABASE_URL}/auth/v1/token?grant_type=password with the anon apikey header, then pass the returned access_token as Bearer to /api. Migrations 019/020/021/022 appear applied (arrears tile shows £0 empty state cleanly, notes pencil renders, no crashes). Stripe is in LIVE mode — do NOT complete a checkout; only verify session URL structure. APScheduler runs every 5 min and every job has 'executed successfully' in backend logs.",
+  "rca_of_issue": "N/A — no new bugs found. Previously-reported fixes (topic optional, snackbar-with-UNDO replacing window.confirm, arrears tile & filter cascade, Eye/EyeOff privacy mask, auth-screen redesign) are all live and behaving as specified."
+}

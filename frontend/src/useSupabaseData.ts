@@ -6,6 +6,14 @@ import { useCallback, useEffect, useState } from 'react';
 import * as db from './supabaseDb';
 import { supabase } from './supabaseClient';
 
+/**
+ * UUID v4 regex used to guard Supabase queries against mockDb sentinel IDs
+ * (e.g. `"s4"`, `"s1"`) that would otherwise trigger HTTP 400 responses at
+ * PostgREST because `student_id=eq.s4` is not a valid UUID cast. Being strict
+ * on the format keeps the browser console clean and cuts pointless traffic.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // ---------------------------------------------------------------------------
 // Tiny invalidation hub. After a write (add/update/delete/passed) we bump the
 // counter so every useStudents/useStudent subscriber refetches.
@@ -174,7 +182,12 @@ export function useLessonsForStudent(studentId: string | undefined) {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    if (!studentId) {
+    // Skip when the id is missing OR is a mockDb sentinel like "s4" — the
+    // Supabase REST endpoint rejects non-UUID student_id filters with an
+    // HTTP 400, which pollutes the browser console for no benefit. UUID v4
+    // is 36 chars including hyphens; the sentinel check is deliberately
+    // conservative so genuine UUIDs always pass through.
+    if (!studentId || !UUID_RE.test(studentId)) {
       setLessons([]);
       setLoading(false);
       return;
@@ -552,7 +565,7 @@ export function useTestOutcomesForStudent(studentId?: string | null) {
   const [rows, setRows] = useState<db.TestOutcome[]>([]);
   const [loading, setLoading] = useState(false);
   useEffect(() => {
-    if (!studentId) { setRows([]); return; }
+    if (!studentId || !UUID_RE.test(studentId)) { setRows([]); return; }
     let cancelled = false;
     setLoading(true);
     db.listTestOutcomesForStudent(studentId)

@@ -917,6 +917,10 @@ const competencyFromRow = (r: any): Competency => {
 };
 
 export async function listCompetencies(studentId: string): Promise<Competency[]> {
+  // Skip mockDb sentinel IDs to avoid pointless HTTP 400s on Supabase.
+  if (!studentId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(studentId)) {
+    return [];
+  }
   const { data, error } = await supabase
     .from('dvsa_syllabus_tracking')
     .select('*')

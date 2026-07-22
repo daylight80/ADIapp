@@ -1,0 +1,51 @@
+{
+  "summary": "Targeted regression on Alex owner (alex@adipro.uk / password123) after the UUID-guard fix in useSupabaseData.ts + supabaseDb.ts. ALL 6 requested regression items PASS on mobile viewport (390x844). Specifically: (1) opened Jamie Williams' lifecycle screen via /student-lifecycle-screen?id=a26d8e54-2822-46e6-9325-e3ab4882b3ab and captured every Supabase 4xx via requestfinished — the previously-reported 400s from `lessons` and `test_outcomes` are GONE ✓ ; (2) Deactivate → status flips to Inactive + non-blocking snackbar with UNDO ✓; Reactivate → Active + Deactivate button reappears ✓; Move to waitlist → status flips to Waitlist + 'Jamie Williams moved to the waiting list. UNDO' snackbar ✓; (3) Instructor notes pencil (btn-edit-notes) opens BottomSheet with TextInput testID=input-notes; edited notes, saved via btn-save-notes, verified change reflected in DOM, then restored original 'theory test' value; (4) Add lesson flow — /lesson-diary-screen loads Day/Week diary, FAB btn-add-lesson opens AddLessonSheet with Student pills (Ali Banan / Jon Kenny / Jamie Williams), Date, Start/End, Topic input, Travel buffer, Repeat weekly toggle, Save Lesson button. Topic is intentionally optional per code comment L113-116 (only studentId + date are validated); (5) Owner dashboard KPIs render (3 Active, 2 Lessons, £0 Revenue, 0% Pass rate); Arrears tile taps into /student-crm-screen?filter=arrears with red 'Arrears Active' chip and 'All up to date' empty state; privacy eye toggle masks Revenue as £••• in the DOM; (6) Auth screen — Sign In / Register tabs both render, Register form shows Full name + Email + Password + DVSA ADI number fields, password Eye toggle flips input type password→text→password on click. ONE remaining console 400 detected but it is a DIFFERENT issue from the mockDb one — see integration_issues below.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Student lifecycle screen — dvsa_syllabus_tracking auto-seed on first visit",
+        "issue": "One remaining HTTP 400 from Supabase when opening Jamie's lifecycle screen. Captured URL: POST https://otqokumouwrwyylpruqt.supabase.co/rest/v1/dvsa_syllabus_tracking?columns=%22student_id%22%2C%22manoeuvre%22%2C%22category_key%22%2C%22category_name%22%2C%22competency_level%... — the `?columns=` querystring is PostgREST's INSERT syntax, so this is NOT a SELECT that a UUID guard would catch. Root cause: /app/frontend/src/supabaseDb.ts line 933 `seedCompetenciesIfEmpty(studentId)` runs whenever listCompetencies returns 0 rows (which is now the normal case for Jamie because the SELECT succeeds with an empty list). The INSERT of 20 DVSA_SYLLABUS rows then fails — most likely an RLS policy (owner Alex inserting on behalf of student Jamie) or a column mismatch on the dvsa_syllabus_tracking table. Non-blocking: the app renders correctly, Competency tab shows the seeded-empty state gracefully. NOT introduced by the UUID guard fix — it was previously hidden behind the earlier 400 on the SELECT. Reference: /app/frontend/src/supabaseDb.ts:933-947, /app/frontend/src/useSupabaseData.ts:281-300.",
+        "affected_testIDs": ["tab-competency-content", "card-lifecycle"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "shadow* style props",
+        "issue": "Console still warns 'shadow* style props are deprecated. Use \"boxShadow\"' during Metro bundle and every screen render. Carried over from iteration 5. Non-blocking."
+      },
+      {
+        "component": "expo-notifications on web",
+        "issue": "Console warning '[expo-notifications] Listening to push token changes is not yet fully supported on web'. Cosmetic only."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_5.json",
+    "/app/backend/tests/test_adi_pro_v2.py"
+  ],
+  "action_items": [
+    "(P3) Guard the INSERT path too: in /app/frontend/src/supabaseDb.ts:933 (seedCompetenciesIfEmpty) either (a) verify the caller has RLS insert privilege by moving the seed into a Postgres trigger, or (b) wrap the insert in try/catch and swallow the RLS 40x with a console.debug so it stops polluting the browser console. Alternatively, run the seed once server-side when a student is created rather than on every lifecycle screen open.",
+    "(P4) Confirm dvsa_syllabus_tracking RLS policy allows owner-role instructors (Alex) to INSERT rows for their school's students — currently the policy appears to deny it.",
+    "(P4) Carry over from iteration 5: replace deprecated 'shadow*' style props with 'boxShadow' across screens."
+  ],
+  "critical_code_review_comments": [
+    "seedCompetenciesIfEmpty() side-effects on every lifecycle screen render is a design smell — it silently ignores insert failures via the `if (error) throw error` bubbling into useCompetencies' try/finally, but the browser console still logs the raw fetch 400. Consider moving syllabus seeding to a Postgres trigger on students insert, or into the /api/v2/students POST handler on the FastAPI side, so the client never sees the 400.",
+    "The three UUID_RE guards (useSupabaseData.ts:190, useSupabaseData.ts:568, supabaseDb.ts:921) are correct and effective — verified: lessons and test_outcomes 400s are gone. Nicely scoped fix."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "not re-tested this iteration (previous iteration 15/15 pass — testing_type was frontend only)",
+    "frontend": "100% of the 6 requested regression flows (lifecycle 400s fixed, Deactivate/Reactivate/Waitlist + UNDO, notes pencil save, Add lesson sheet with optional topic, dashboard KPIs + arrears tile + privacy toggle, auth Sign In/Register tabs + password Eye toggle)"
+  },
+  "seed_data_creation": "None. Only mutated Jamie Williams' status Active→Inactive→Active→Waitlist→Active during the lifecycle test, then restored. Notes were briefly modified with a timestamp marker then restored to the original 'theory test' value.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The recent UUID guards work for SELECT queries (lessons + test_outcomes 400s eliminated ✓). The lingering console 400 is on the dvsa_syllabus_tracking INSERT in seedCompetenciesIfEmpty (supabaseDb.ts:933) — this is a separate issue about RLS or column mismatch on the INSERT path, not the mockDb sentinel ID problem. App renders and functions correctly despite the console noise. Owner login alex@adipro.uk / password123 continues to redirect to /owner-dashboard-screen. Lesson diary route is /lesson-diary-screen (NOT /diary-screen). All key testIDs present: btn-edit-notes, input-notes, btn-save-notes, btn-lifecycle-deactivate, btn-lifecycle-reactivate, btn-lifecycle-waitlist, btn-add-lesson, sheet-edit-notes, lifecycle-snackbar.",
+  "rca_of_issue": "For the remaining dvsa_syllabus_tracking 400 (not part of the current fix scope): useCompetencies hook always calls seedCompetenciesIfEmpty() after listCompetencies() returns []. When Jamie has no prior syllabus rows, the seed function INSERTs 20 DVSA syllabus rows keyed on Jamie's UUID. That INSERT is being rejected by PostgREST with 400. Given student_id is a valid UUID (verified via URL param) and Jamie belongs to Alex's school (Alex is signed-in owner), the most likely cause is the dvsa_syllabus_tracking table's RLS policy not permitting the owner role to insert on behalf of a student, OR a required NOT NULL column (like a check constraint on competency_level enum, or the school_id/instructor_id FK) missing from the payload built at supabaseDb.ts:936-944. Mitigation: catch and console.debug the error so it doesn't pollute the console, and/or move the seed into a Postgres AFTER INSERT trigger on the students table."
+}

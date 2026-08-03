@@ -937,6 +937,33 @@ export async function seedCompetenciesIfEmpty(studentId: string): Promise<number
   }
   const existing = await listCompetencies(studentId);
   if (existing.length > 0) return 0;
+
+  // Precheck ownership BEFORE attempting the INSERT. RLS on
+  // `dvsa_syllabus_tracking` only permits writes when the caller is the
+  // student's assigned instructor. If the caller isn't (e.g. an owner
+  // browsing another instructor's roster, or a student viewing their own
+  // profile), skip silently rather than firing a network request that
+  // PostgREST will reject with a noisy HTTP 400. The competencies grid
+  // still renders the DVSA baseline via `listCompetencies` fallback.
+  try {
+    const [studentRes, identity] = await Promise.all([
+      supabase
+        .from('students')
+        .select('instructor_id')
+        .eq('id', studentId)
+        .maybeSingle(),
+      currentInstructorIdentity(),
+    ]);
+    const assignedInstructorId = (studentRes.data as { instructor_id?: string } | null)?.instructor_id;
+    if (!assignedInstructorId || assignedInstructorId !== identity.instructor_id) {
+      return 0;
+    }
+  } catch {
+    // Not signed in, no instructor profile, or the student row is unreadable.
+    // Either way, we can't seed — bail silently.
+    return 0;
+  }
+
   const rows = DVSA_SYLLABUS.map((c) => ({
     student_id: studentId,
     manoeuvre: c.name,
@@ -947,13 +974,7 @@ export async function seedCompetenciesIfEmpty(studentId: string): Promise<number
   }));
   const { error } = await supabase.from('dvsa_syllabus_tracking').insert(rows);
   if (error) {
-    // Non-fatal — RLS may reject when the caller isn't the assigned instructor
-    // (e.g. owner viewing another instructor's student). The student's
-    // competency grid gracefully shows the DVSA baseline via `listCompetencies`
-    // fallback and any writes will still work when performed by the correct
-    // actor. Log softly rather than crash-propagating.
-    // eslint-disable-next-line no-console
-    console.debug('[competencies] seed skipped:', error.message);
+    // Should be rare now that we've prechecked ownership — swallow silently.
     return 0;
   }
   return rows.length;

@@ -115,10 +115,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     gap: 10,
     // Subtle gradient-feel — slight shadow for elevation.
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
+    boxShadow: '0px 6px 12px rgba(0, 0, 0, 0.18)',
     elevation: 4,
   },
   iconWrap: {
@@ -146,10 +143,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F97316',   // Orange-500 — per spec "prominent orange button"
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#9A3412',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
+    boxShadow: '0px 4px 8px rgba(154, 52, 18, 0.35)',
     elevation: 3,
   },
   primaryBtnText: { color: '#fff', fontWeight: '800', fontSize: 15, letterSpacing: 0.2 },

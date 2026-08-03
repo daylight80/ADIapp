@@ -211,7 +211,7 @@ export default function LessonDiaryScreen() {
                 ))}
               </View>
               <View style={[styles.dayLessonCol, { height: TOTAL_HEIGHT }]}>
-                <View style={StyleSheet.absoluteFill} pointerEvents="none">
+                <View style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}>
                   {HOURS.slice(0, -1).map((h) => (
                     <View key={h} style={styles.hourSlot} />
                   ))}
@@ -332,7 +332,7 @@ export default function LessonDiaryScreen() {
                     .filter((x) => !!x.p) as { b: AvailabilityBlock; p: { top: number; height: number } }[];
                   return (
                     <View key={di} style={[styles.weekDayCol, { height: TOTAL_HEIGHT }]}>
-                      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+                      <View style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}>
                         {HOURS.slice(0, -1).map((h) => (
                           <View key={h} style={styles.hourSlot} />
                         ))}

@@ -421,12 +421,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 8,
     padding: 24,
-    // Soft, diffused drop shadow for elevation. iOS uses shadow*; Android
-    // honours `elevation`; web honours boxShadow (set by Expo runtime).
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.08,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 8 },
+    // Soft, diffused drop shadow for elevation. Uses `boxShadow` string
+    // (RN new arch cross-platform), backed by `elevation` on Android.
+    boxShadow: '0px 8px 24px rgba(15, 23, 42, 0.08)',
     elevation: 4,
   },
   cardTablet: { width: 480, maxWidth: '100%' },
@@ -459,10 +456,7 @@ const styles = StyleSheet.create({
   // Crisp white background + subtle shadow on the active tab.
   tabActive: {
     backgroundColor: '#FFFFFF',
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
+    boxShadow: '0px 1px 4px rgba(15, 23, 42, 0.08)',
     elevation: 2,
   },
   tabText: { ...theme.font.body, color: PLACEHOLDER_COLOUR, fontWeight: '600', fontSize: 14 },
@@ -499,10 +493,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
     alignItems: 'center', justifyContent: 'center',
     marginTop: 24,
-    shadowColor: theme.colors.primary,
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
+    boxShadow: `0px 4px 12px ${theme.colors.primary}2E`,
     elevation: 3,
   },
   btnDisabled: { opacity: 0.6 },

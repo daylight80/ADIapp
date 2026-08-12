@@ -8,7 +8,7 @@ import { mockDb, instructorProfile } from '../src/mockDb';
 import { Card, Badge, StatusBadge } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
 import { useRouter } from 'expo-router';
-import { isPro } from '../src/proPlan';
+import { isPaidTier } from '../src/tiers';
 import { copyToClipboard } from '../src/tools';
 import { useInstructorProfile, updatePreferredNavApp } from '../src/useSupabaseData';
 import type { NavApp } from '../src/supabaseDb';
@@ -22,7 +22,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const role = user?.role || 'student';
   const student = user?.email ? mockDb.getStudentByEmail(user.email) : undefined;
-  const pro = isPro(user?.subscription_status);
+  const pro = isPaidTier(user?.tier);
   const [adi, setAdi] = useState(instructorProfile.adi_number);
 
   // Preferred navigation app for the diary's one-tap 🧭 button.
@@ -274,7 +274,7 @@ export default function ProfileScreen() {
             testID="btn-pricing"
           >
             <Crown size={18} color="#fff" />
-            <Text style={styles.proCtaText}>{pro ? 'Manage Pro plan' : 'Upgrade to Pro'}</Text>
+            <Text style={styles.proCtaText}>{pro ? 'Manage subscription' : 'Upgrade plan'}</Text>
           </TouchableOpacity>
         )}
 

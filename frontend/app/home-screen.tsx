@@ -28,11 +28,10 @@ import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { mockDb } from '../src/mockDb';
 import { isCurrentUserSchoolOwner } from '../src/supabaseDb';
-import { Card } from '../src/ui';
+import { Card, LockedFeature } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
 import { SimpleBarChart } from '../src/SimpleBarChart';
-import { isPro, FREE_STUDENT_LIMIT, PRO_PRICE_GBP } from '../src/proPlan';
-import { isPaidTier } from '../src/tiers';
+import { isPaidTier, tierById } from '../src/tiers';
 import { ContactsImportBanner } from '../src/ContactsImportBanner';
 import { useInstructorTestOutcomes } from '../src/useSupabaseData';
 import { computeTestKpis } from '../src/supabaseDb';
@@ -112,8 +111,8 @@ export default function InstructorHomeScreen() {
             or once the instructor has ≥3 students. */}
         <ContactsImportBanner studentCount={kpis.total} isInstructor={true} />
 
-        {/* Upgrade banner (Free tier only) */}
-        {!isPro(user?.subscription_status) && (
+        {/* Upgrade banner (Starter tier only) */}
+        {!isPaidTier(user?.tier) && (
           <TouchableOpacity
             style={styles.upgradeBanner}
             onPress={() => router.push('/pricing-screen')}
@@ -124,18 +123,18 @@ export default function InstructorHomeScreen() {
               <Crown size={20} color="#fff" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.upgradeTitle}>Upgrade to Pro</Text>
+              <Text style={styles.upgradeTitle}>Upgrade to {tierById('growth').name}</Text>
               <Text style={styles.upgradeSub}>
-                {kpis.total}/{FREE_STUDENT_LIMIT} students used · unlock unlimited + invoicing for £{PRO_PRICE_GBP}/mo
+                {kpis.total}/{tierById(user?.tier).student_limit} students used · unlock more students + invoicing from £{tierById('growth').price_gbp}/mo
               </Text>
             </View>
             <ChevronRight size={20} color="#fff" />
           </TouchableOpacity>
         )}
-        {isPro(user?.subscription_status) && (
+        {isPaidTier(user?.tier) && (
           <View style={styles.proBadgeBar} testID="pro-active-bar">
             <Crown size={16} color={theme.colors.accent} />
-            <Text style={styles.proBadgeText}>Pro plan active</Text>
+            <Text style={styles.proBadgeText}>{tierById(user?.tier).name} plan active</Text>
             <TouchableOpacity onPress={() => router.push('/pricing-screen')} testID="manage-billing">
               <Text style={styles.manageLink}>Manage</Text>
             </TouchableOpacity>
@@ -183,23 +182,12 @@ export default function InstructorHomeScreen() {
             </Card>
           </>
         ) : (
-          <TouchableOpacity
-            style={styles.lockedCard}
-            onPress={() => router.push('/pricing-screen')}
+          <LockedFeature
+            icon={<TrendingUp size={20} color={theme.colors.accent} />}
+            title="KPI dashboard locked"
+            subtitle="Track pass rate, active students, test-ready learners and MTD earnings — included from Growth tier (£14.99/mo)."
             testID="locked-kpi-card"
-            activeOpacity={0.85}
-          >
-            <View style={styles.lockedIconWrap}>
-              <TrendingUp size={22} color={theme.colors.accent} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.lockedTitle}>KPI dashboard locked</Text>
-              <Text style={styles.lockedSub}>
-                Track pass rate, active students, test-ready learners and MTD earnings — included from Growth tier (£14.99/mo).
-              </Text>
-            </View>
-            <ChevronRight size={18} color={theme.colors.accent} />
-          </TouchableOpacity>
+          />
         )}
 
         {/* Quick Actions */}
@@ -358,7 +346,6 @@ const styles = StyleSheet.create({
   qaStudents: { backgroundColor: theme.colors.accent },
   qaDiary: { backgroundColor: theme.colors.primary },
   qaReceipts: { backgroundColor: '#0EA5E9' },
-  lockedCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA', marginBottom: 12 },
   // Test Performance card (Growth+ only — DVSA test_outcomes aggregate)
   testPerfCard: { marginBottom: 12, gap: 10 },
   testPerfTitle: { fontSize: 14, fontWeight: '800', color: theme.colors.text },
@@ -373,9 +360,6 @@ const styles = StyleSheet.create({
   testPerfLabel: { fontSize: 11, fontWeight: '700', color: theme.colors.textMuted, letterSpacing: 0.4 },
   testPerfValue: { fontSize: 22, fontWeight: '800', color: theme.colors.text },
   testPerfMeta: { fontSize: 10, color: theme.colors.textMuted },
-  lockedIconWrap: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#FED7AA', alignItems: 'center', justifyContent: 'center' },
-  lockedTitle: { fontSize: 14, fontWeight: '800', color: theme.colors.text, marginBottom: 2 },
-  lockedSub: { fontSize: 12, color: theme.colors.textMuted, lineHeight: 16 },
   qaText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   mtdCard: { gap: 12 },
   cardTitle: { ...theme.font.h3 },

@@ -6,8 +6,10 @@ import { ArrowLeft, ChevronDown, ChevronUp, Check, Pencil } from 'lucide-react-n
 import { theme } from '../src/theme';
 import { mockDb } from '../src/mockDb';
 import { useCompetencies, updateCompetency } from '../src/useSupabaseData';
-import { Card, ProgressBar, Badge } from '../src/ui';
+import { Card, ProgressBar, Badge, LockedFeature } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
+import { useAuth } from '../src/AuthContext';
+import { isPaidTier } from '../src/tiers';
 
 type Tab = 'overview' | 'lessons' | 'skills';
 const TABS: { key: Tab; label: string }[] = [
@@ -23,6 +25,8 @@ export default function CompetencyDetailScreen() {
   const params = useLocalSearchParams();
   const studentId = (params.id as string) || '';
   const key = (params.key as string) || 'controls';
+  const { user } = useAuth();
+  const pro = isPaidTier(user?.tier);
 
   // Live competencies from Supabase, with a mockDb fallback for legacy student IDs.
   const { competencies: sbComps, loading: compLoading } = useCompetencies(studentId);
@@ -92,6 +96,29 @@ export default function CompetencyDetailScreen() {
   }
 
   if (!competency) return null;
+
+  // Defense in depth: both entry points into this screen (student home,
+  // instructor lifecycle) already gate access, but this screen is reachable
+  // by direct navigation/deep link too — so it must enforce the tier itself
+  // rather than trusting the caller.
+  if (!pro) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={[styles.header, { justifyContent: 'flex-start' }]}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="btn-back">
+            <ArrowLeft size={22} color={theme.colors.text} />
+          </TouchableOpacity>
+        </View>
+        <LockedFeature
+          variant="fullscreen"
+          title="Competency tracker locked"
+          subtitle="Included from Growth tier (£14.99/mo)."
+          onPress={() => router.replace('/pricing-screen')}
+          testID="btn-locked-upgrade"
+        />
+      </SafeAreaView>
+    );
+  }
 
   const milestoneIdx = Math.min(MILESTONES.length - 1, competency.level - 1);
 

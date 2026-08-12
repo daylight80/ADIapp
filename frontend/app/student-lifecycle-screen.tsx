@@ -17,11 +17,10 @@ import {
   setStudentStatusAsync,
   removeStudentViaApi,
 } from '../src/useSupabaseData';
-import { Card, ProgressBar, StatusBadge, Badge } from '../src/ui';
+import { Card, ProgressBar, StatusBadge, Badge, LockedFeature } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { SimpleBarChart } from '../src/SimpleBarChart';
 import { useAuth } from '../src/AuthContext';
-import { isPro } from '../src/proPlan';
 import { isPaidTier } from '../src/tiers';
 import { PaywallModal } from '../src/PaywallModal';
 import { buildInvoiceHtml, generateAndShareInvoicePdf } from '../src/invoice';
@@ -65,6 +64,7 @@ export default function StudentLifecycleScreen() {
   const { user } = useAuth();
   const pro = isPaidTier(user?.tier);
   const [paywallOpen, setPaywallOpen] = useState(false);
+  const [paywallReason, setPaywallReason] = useState<string | undefined>(undefined);
   const [busyInvoice, setBusyInvoice] = useState(false);
   const [testOutcomeOpen, setTestOutcomeOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -275,6 +275,7 @@ export default function StudentLifecycleScreen() {
 
   const handleDownloadInvoice = async () => {
     if (!pro) {
+      setPaywallReason('Invoice PDF download is a Pro feature. Upgrade to generate UK-compliant invoices in one tap.');
       setPaywallOpen(true);
       return;
     }
@@ -610,25 +611,40 @@ export default function StudentLifecycleScreen() {
 
         {tab === 'competency' && (
           <View style={{ gap: 10 }} testID="tab-competency-content">
-            {compLoading && competencies.length === 0 && (
-              <Card><ActivityIndicator size="small" color={theme.colors.primary} /></Card>
+            {!pro ? (
+              <LockedFeature
+                variant="card"
+                title="Competency tracker locked"
+                subtitle="Track progress against the DVSA syllabus — included from Growth tier (£14.99/mo). Tap to upgrade."
+                onPress={() => {
+                  setPaywallReason('Competency tracker is included from Growth tier (£14.99/mo). Upgrade to track DVSA syllabus progress.');
+                  setPaywallOpen(true);
+                }}
+                testID="locked-competency-tab"
+              />
+            ) : (
+              <>
+                {compLoading && competencies.length === 0 && (
+                  <Card><ActivityIndicator size="small" color={theme.colors.primary} /></Card>
+                )}
+                {competencies.map((c) => (
+                  <TouchableOpacity
+                    key={c.key}
+                    onPress={() => router.push({ pathname: '/competency-detail-screen', params: { id: student.id, key: c.key } })}
+                    testID={`competency-${c.key}`}
+                  >
+                    <Card style={{ gap: 8 }}>
+                      <View style={styles.row}>
+                        <Text style={styles.compName}>{c.name}</Text>
+                        <Badge label={`Level ${c.level}`} />
+                      </View>
+                      <ProgressBar progress={c.progress} />
+                      <Text style={styles.compMeta}>{c.progress}% complete</Text>
+                    </Card>
+                  </TouchableOpacity>
+                ))}
+              </>
             )}
-            {competencies.map((c) => (
-              <TouchableOpacity
-                key={c.key}
-                onPress={() => router.push({ pathname: '/competency-detail-screen', params: { id: student.id, key: c.key } })}
-                testID={`competency-${c.key}`}
-              >
-                <Card style={{ gap: 8 }}>
-                  <View style={styles.row}>
-                    <Text style={styles.compName}>{c.name}</Text>
-                    <Badge label={`Level ${c.level}`} />
-                  </View>
-                  <ProgressBar progress={c.progress} />
-                  <Text style={styles.compMeta}>{c.progress}% complete</Text>
-                </Card>
-              </TouchableOpacity>
-            ))}
           </View>
         )}
 
@@ -693,7 +709,7 @@ export default function StudentLifecycleScreen() {
       <PaywallModal
         visible={paywallOpen}
         onClose={() => setPaywallOpen(false)}
-        reason="Invoice PDF download is a Pro feature. Upgrade to generate UK-compliant invoices in one tap."
+        reason={paywallReason || 'This is a paid-tier feature. Upgrade to unlock it.'}
       />
 
       <BottomSheet visible={amendOpen} onClose={() => setAmendOpen(false)} title="Amend student" testID="sheet-amend-student">

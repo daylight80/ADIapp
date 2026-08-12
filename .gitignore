@@ -80,3 +80,8 @@ memory/test_credentials.md
 
 # Mobile development
 android-sdk/
+
+# Local env files and build caches (never commit — .env holds real secrets in production)
+frontend/.env
+frontend/.metro-cache/
+frontend/dist/

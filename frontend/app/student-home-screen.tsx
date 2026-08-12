@@ -6,6 +6,7 @@ import { Check, X, FileCheck, MessageCircle, ChevronRight, Award, Trophy, BookOp
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { mockDb, readiness, mockDb_ext } from '../src/mockDb';
+import { isPaidTier } from '../src/tiers';
 import { registerExpoPushToken } from '../src/notifications';
 import { getWaitingListStatus, setWaitingListStatus } from '../src/supabaseDb';
 import {
@@ -16,8 +17,9 @@ import {
   useStudentByAuthId,
   useStudentByEmail,
   useLessonsForStudent,
+  useMockTestAttempts,
 } from '../src/useSupabaseData';
-import { Card, ProgressBar, Badge } from '../src/ui';
+import { Card, ProgressBar, Badge, LockedFeature } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
 import { BottomSheet } from '../src/BottomSheet';
 
@@ -101,6 +103,10 @@ export default function StudentHomeScreen() {
   const met = readiness.criteria.filter((c) => c.met).length;
   const total = readiness.criteria.length;
   const pct = Math.round((met / total) * 100);
+
+  // -------- Mock test history (Supabase only — no mockDb equivalent) ---
+  const { attempts: mockTestAttempts } = useMockTestAttempts(supabaseStudent?.id);
+  const lastMockAttempt = mockTestAttempts[0];
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -227,33 +233,45 @@ export default function StudentHomeScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.mockTitle}>DL25 Mock Test</Text>
-              <Text style={styles.mockSub}>Practise with the official DVSA mark sheet format</Text>
+              <Text style={styles.mockSub}>
+                {lastMockAttempt
+                  ? `Last attempt: ${lastMockAttempt.passed ? 'PASS' : 'FAIL'} · ${new Date(lastMockAttempt.taken_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
+                  : 'Practise with the official DVSA mark sheet format'}
+              </Text>
             </View>
             <ChevronRight size={22} color="#fff" />
           </Card>
         </TouchableOpacity>
 
-        {/* DVSA Competency Tracker */}
+        {/* DVSA Competency Tracker — Growth tier and above */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>DVSA Competency Tracker</Text>
         </View>
-        <View style={styles.compGrid} testID="competency-grid">
-          {competencies.map((c) => (
-            <TouchableOpacity
-              key={c.key}
-              style={styles.compCard}
-              onPress={() => router.push({ pathname: '/competency-detail-screen', params: { id: student.id, key: c.key } })}
-              testID={`comp-${c.key}`}
-            >
-              <View style={styles.compTop}>
-                <Text style={styles.compName} numberOfLines={1}>{c.name}</Text>
-                <Badge label={`L${c.level}`} bg={theme.colors.primaryLight} color={theme.colors.primary} />
-              </View>
-              <ProgressBar progress={c.progress} height={6} />
-              <Text style={styles.compPct}>{c.progress}%</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        {isPaidTier(user?.tier) ? (
+          <View style={styles.compGrid} testID="competency-grid">
+            {competencies.map((c) => (
+              <TouchableOpacity
+                key={c.key}
+                style={styles.compCard}
+                onPress={() => router.push({ pathname: '/competency-detail-screen', params: { id: student.id, key: c.key } })}
+                testID={`comp-${c.key}`}
+              >
+                <View style={styles.compTop}>
+                  <Text style={styles.compName} numberOfLines={1}>{c.name}</Text>
+                  <Badge label={`L${c.level}`} bg={theme.colors.primaryLight} color={theme.colors.primary} />
+                </View>
+                <ProgressBar progress={c.progress} height={6} />
+                <Text style={styles.compPct}>{c.progress}%</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : (
+          <LockedFeature
+            title="Competency tracker locked"
+            subtitle="Track progress against the DVSA syllabus — included from Growth tier (£14.99/mo). Ask your instructor to upgrade."
+            testID="locked-competency-card"
+          />
+        )}
 
         {/* Lesson Feedback */}
         <Card style={{ gap: 10 }} testID="feedback-widget">

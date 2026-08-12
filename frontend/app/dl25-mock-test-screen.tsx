@@ -6,6 +6,9 @@ import { ArrowLeft, RotateCcw, Flag } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { DVSA_CATEGORIES_BASE } from '../src/mockDb';
 import { BottomNav } from '../src/BottomNav';
+import { useAuth } from '../src/AuthContext';
+import { useStudentByAuthId, useStudentByEmail } from '../src/useSupabaseData';
+import { addMockTestAttempt } from '../src/supabaseDb';
 
 type FaultType = 'driving' | 'serious' | 'dangerous';
 type Faults = Record<string, { driving: number; serious: number; dangerous: number }>;
@@ -20,7 +23,16 @@ const initialFaults = (): Faults => {
 
 export default function Dl25MockTestScreen() {
   const router = useRouter();
+  const { user } = useAuth();
+  // Resolve the learner row the same way theory-test-screen does: Supabase
+  // via auth uid → email → mockDb fallback (offline/no-linked-row demo).
+  const { student: sbStudentByAuth } = useStudentByAuthId(user?.id);
+  const { student: sbStudentByEmail } = useStudentByEmail(
+    !sbStudentByAuth ? user?.email : undefined,
+  );
+  const supabaseStudent = sbStudentByAuth || sbStudentByEmail;
   const [faults, setFaults] = useState<Faults>(initialFaults());
+  const [finishing, setFinishing] = useState(false);
 
   const addFault = (key: string, type: FaultType) => {
     setFaults((prev) => ({
@@ -45,9 +57,32 @@ export default function Dl25MockTestScreen() {
     { driving: 0, serious: 0, dangerous: 0 }
   );
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
     // DVSA pass criteria: <= 15 driving faults, 0 serious, 0 dangerous
     const passed = totals.driving <= 15 && totals.serious === 0 && totals.dangerous === 0;
+
+    if (supabaseStudent) {
+      setFinishing(true);
+      try {
+        await addMockTestAttempt({
+          student_id: supabaseStudent.id,
+          driving_faults: totals.driving,
+          serious_faults: totals.serious,
+          dangerous_faults: totals.dangerous,
+          passed,
+          category_breakdown: faults,
+        });
+      } catch (e: any) {
+        // Don't block the student from seeing their report if the save
+        // fails — but let them know it wasn't recorded this time.
+        Alert.alert('Could not save this attempt', e?.message || 'Your report will still show below.');
+      } finally {
+        setFinishing(false);
+      }
+    }
+    // No supabaseStudent (offline/demo) — nothing to persist against; the
+    // report screen still works from the route params below.
+
     router.push({
       pathname: '/dl25-report-screen',
       params: {
@@ -124,9 +159,14 @@ export default function Dl25MockTestScreen() {
       </ScrollView>
 
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.finishBtn} onPress={handleFinish} testID="btn-finish-test">
+        <TouchableOpacity
+          style={[styles.finishBtn, finishing && styles.finishBtnDisabled]}
+          onPress={handleFinish}
+          disabled={finishing}
+          testID="btn-finish-test"
+        >
           <Flag size={18} color="#fff" />
-          <Text style={styles.finishText}>Finish & View Report</Text>
+          <Text style={styles.finishText}>{finishing ? 'Saving…' : 'Finish & View Report'}</Text>
         </TouchableOpacity>
       </View>
 
@@ -222,4 +262,5 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   finishText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  finishBtnDisabled: { opacity: 0.6 },
 });

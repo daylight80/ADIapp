@@ -351,6 +351,23 @@ export async function createReflectiveLog(input: Parameters<typeof db.addReflect
   return row;
 }
 
+export function useMockTestAttempts(studentId: string | undefined) {
+  const version = useVersion();
+  const [attempts, setAttempts] = useState<db.MockTestAttempt[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!studentId) { setAttempts([]); setLoading(false); return; }
+    setLoading(true);
+    db.listMockTestAttempts(studentId)
+      .then(setAttempts)
+      .catch(() => setAttempts([]))
+      .finally(() => setLoading(false));
+  }, [studentId, version]);
+
+  return { attempts, loading };
+}
+
 export function useBadges(studentId: string | undefined) {
   const version = useVersion();
   const [badges, setBadges] = useState<db.Badge[]>([]);

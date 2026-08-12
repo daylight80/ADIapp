@@ -14,7 +14,7 @@ import {
 import { type AvailabilityBlock } from '../src/supabaseDb';
 import { BottomNav } from '../src/BottomNav';
 import { useAuth } from '../src/AuthContext';
-import { isPro } from '../src/proPlan';
+import { isPaidTier } from '../src/tiers';
 import { LessonToolsSheet } from '../src/LessonToolsSheet';
 import { UnavailabilityModal } from '../src/UnavailabilityModal';
 import { minutesBetween } from '../src/maps';
@@ -31,7 +31,7 @@ import { AddLessonSheet } from '../src/diary/AddLessonSheet';
 export default function LessonDiaryScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const pro = isPro(user?.subscription_status);
+  const pro = isPaidTier(user?.tier);
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return d;

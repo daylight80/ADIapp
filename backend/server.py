@@ -17,6 +17,20 @@ from lesson_reminders import start_lesson_reminder_scheduler, stop_lesson_remind
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
+# "development" enables convenience behaviour (demo account seeding, unsigned
+# Stripe webhook fallback) that must never run in production. Defaults to the
+# safer "production" so a missing env var fails closed, not open.
+ENVIRONMENT = os.environ.get("ENVIRONMENT", "production").lower()
+IS_DEV = ENVIRONMENT == "development"
+
+# Comma-separated list of allowed frontend origins, e.g.
+# "https://app.drivehubuk.com,https://drivehubuk.com". Falls back to
+# localhost only in development so CORS fails closed if unset in prod.
+_cors_env = os.environ.get("CORS_ORIGINS", "")
+CORS_ORIGINS = [o.strip() for o in _cors_env.split(",") if o.strip()]
+if not CORS_ORIGINS:
+    CORS_ORIGINS = ["http://localhost:3000", "http://localhost:8081"] if IS_DEV else []
+
 MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
 JWT_SECRET = os.environ["JWT_SECRET"]
@@ -591,14 +605,15 @@ async def travel_time(req: TravelTimeRequest, current_user: dict = Depends(get_c
 async def stripe_webhook_legacy(request: Request):
     """Deprecated. Kept only for the legacy MongoDB-auth flow. The new
     Supabase tier-aware handler is registered below as /api/billing/webhook."""
+    if not STRIPE_WEBHOOK_SECRET:
+        # Never fall back to trusting an unsigned payload — that lets anyone
+        # POST a fake "checkout.session.completed" event and grant themselves
+        # Pro for free. Fail closed instead.
+        raise HTTPException(status_code=500, detail="STRIPE_WEBHOOK_SECRET not configured")
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature", "")
     try:
-        if STRIPE_WEBHOOK_SECRET:
-            event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
-        else:
-            import json
-            event = json.loads(payload.decode("utf-8"))
+        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid webhook: {e}")
     event_type = event.get("type") if isinstance(event, dict) else event.type
@@ -677,7 +692,10 @@ async def startup_event():
         partialFilterExpression={"adi_number": {"$type": "string"}},
         name="adi_number_1",
     )
-    await seed_demo_users()
+    if IS_DEV:
+        await seed_demo_users()
+    else:
+        logger.info("ENVIRONMENT=%s — skipping demo account seeding", ENVIRONMENT)
     # Kick off the lesson-reminder scheduler — fires push notifications to
     # students 48 h, 25 h, and 1 h before each lesson.
     start_lesson_reminder_scheduler()
@@ -1419,6 +1437,93 @@ async def v2_school_leaderboard(sb_user: dict = Depends(get_current_supabase_use
     )
 
 
+class StudentAllocationRow(BaseModel):
+    instructor_id: str
+    full_name: str
+    student_count: int
+
+
+class StudentAllocationResponse(BaseModel):
+    school_id: str
+    from_date: str   # YYYY-MM-DD, inclusive
+    to_date: str      # YYYY-MM-DD, inclusive
+    total: int
+    rows: List[StudentAllocationRow]
+
+
+@api_router.get("/v2/school/student-allocations", response_model=StudentAllocationResponse)
+async def v2_school_student_allocations(
+    from_date: str,
+    to_date: str,
+    sb_user: dict = Depends(get_current_supabase_user),
+):
+    """Owner-only. For each instructor, how many students were first added to
+    them within the given date range (inclusive). Uses students.created_at as
+    the allocation date, since instructor_id has no separate assignment-history
+    log — a student's created_at IS the moment they were allocated to whichever
+    instructor they were created under."""
+    if not await _is_school_owner(sb_user):
+        raise HTTPException(status_code=403, detail="Only the school owner can view student allocations")
+    school = sb_user["school"]
+    school_id = school["id"]
+
+    try:
+        range_start = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        range_end_exclusive = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=1)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="from_date/to_date must be YYYY-MM-DD")
+    if range_end_exclusive <= range_start:
+        raise HTTPException(status_code=400, detail="to_date must be on or after from_date")
+
+    async with httpx.AsyncClient(timeout=15.0) as client_http:
+        ir = await client_http.get(
+            f"{_sb_rest_base}/instructors",
+            params={"school_id": f"eq.{school_id}", "select": "id,full_name"},
+            headers=_sb_headers(),
+        )
+        if ir.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Failed to load instructors: {ir.text[:200]}")
+        instructors = ir.json() or []
+
+        sr = await client_http.get(
+            f"{_sb_rest_base}/students",
+            params={
+                "school_id": f"eq.{school_id}",
+                "select": "id,instructor_id,created_at",
+                "created_at": f"gte.{range_start.isoformat()}",
+                "and": f"(created_at.lt.{range_end_exclusive.isoformat()})",
+            },
+            headers=_sb_headers(),
+        )
+        if sr.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Failed to load students: {sr.text[:200]}")
+        students = sr.json() or []
+
+    counts: dict = {}
+    for s in students:
+        iid = s.get("instructor_id")
+        if iid:
+            counts[iid] = counts.get(iid, 0) + 1
+
+    rows = [
+        StudentAllocationRow(
+            instructor_id=ins["id"],
+            full_name=ins.get("full_name") or "(unnamed)",
+            student_count=counts.get(ins["id"], 0),
+        )
+        for ins in instructors
+    ]
+    rows.sort(key=lambda r: r.student_count, reverse=True)
+
+    return StudentAllocationResponse(
+        school_id=school_id,
+        from_date=from_date,
+        to_date=to_date,
+        total=len(students),
+        rows=rows,
+    )
+
+
 class ReassignStudentsRequest(BaseModel):
     assignments: List[dict]   # [{"student_id": uuid, "new_instructor_id": uuid}]
 
@@ -2073,8 +2178,13 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+if not CORS_ORIGINS:
+    logger.warning(
+        "CORS_ORIGINS is empty — no browser origin will be able to call this "
+        "API with credentials. Set CORS_ORIGINS in the environment."
+    )
 

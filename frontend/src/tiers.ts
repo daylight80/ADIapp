@@ -27,10 +27,7 @@ export const TIERS: TierSpec[] = [
     instructor_limit: 1,
     blurb: 'For new instructors getting set up.',
     features: [
-      'Up to 5 active students',
       'Lesson diary, day & week views',
-      'DVSA competency tracker',
-      'KPI dashboard & PDF invoices',
     ],
   },
   {
@@ -43,6 +40,8 @@ export const TIERS: TierSpec[] = [
     features: [
       'Up to 15 active students',
       'Everything in Starter',
+      'DVSA competency tracker',
+      'KPI dashboard & PDF invoices',
       'Pro features: lesson reminders, push notifications',
       'Traffic-aware travel time auto-suggest',
     ],
@@ -73,7 +72,7 @@ export const TIERS: TierSpec[] = [
     features: [
       'Unlimited students across the fleet',
       'Unlimited instructors (£10 / seat after the first)',
-      'School owner dashboard with KPIs per instructor',
+      'Ranked instructor leaderboard, sortable by lessons, students, pass rate',
       'Multi-vehicle management & RHD compliance flag',
     ],
   },
@@ -88,6 +87,14 @@ export const tierById = (id: string | null | undefined): TierSpec =>
 // competency badges. Starter intentionally returns false.
 export function isPaidTier(tier: string | null | undefined): boolean {
   return tier === 'growth' || tier === 'pro' || tier === 'franchise';
+}
+
+// Tier-aware replacement for the old proPlan.ts binary canAddStudent — checks
+// the real per-tier limit (Starter 5, Growth 15, Pro/Franchise unlimited)
+// instead of a flat free/pro split.
+export function canAddStudent(tier: string | null | undefined, currentCount: number): boolean {
+  const limit = tierById(tier).student_limit;
+  return limit === null || currentCount < limit;
 }
 
 // ---------------------------------------------------------------------------

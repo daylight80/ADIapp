@@ -3,16 +3,20 @@ import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView } from 'rea
 import { useRouter } from 'expo-router';
 import { X, Check, Crown } from 'lucide-react-native';
 import { theme } from './theme';
-import { PRO_FEATURES, PRO_PRICE_GBP, FREE_STUDENT_LIMIT } from './proPlan';
+import { tierById, Tier } from './tiers';
 
 type Props = {
   visible: boolean;
   onClose: () => void;
   reason?: string;
+  // Which tier to promote — defaults to Growth, the cheapest paid tier, since
+  // that's the natural "upgrade from Starter" prompt for most locked features.
+  targetTier?: Tier;
 };
 
-export function PaywallModal({ visible, onClose, reason }: Props) {
+export function PaywallModal({ visible, onClose, reason, targetTier = 'growth' }: Props) {
   const router = useRouter();
+  const tier = tierById(targetTier);
 
   const goToPricing = () => {
     onClose();
@@ -31,19 +35,19 @@ export function PaywallModal({ visible, onClose, reason }: Props) {
             <Crown size={32} color="#fff" />
           </View>
 
-          <Text style={styles.title}>Upgrade to Pro</Text>
+          <Text style={styles.title}>Upgrade to {tier.name}</Text>
           <Text style={styles.subtitle}>
-            {reason || `Free tier is limited to ${FREE_STUDENT_LIMIT} students.`}
+            {reason || `Starter is limited to ${tierById('starter').student_limit} students.`}
           </Text>
 
           <View style={styles.priceRow}>
-            <Text style={styles.price}>£{PRO_PRICE_GBP}</Text>
+            <Text style={styles.price}>£{tier.price_gbp}</Text>
             <Text style={styles.priceUnit}>/month</Text>
           </View>
 
           <ScrollView style={{ maxHeight: 200, alignSelf: 'stretch' }}>
             <View style={styles.features}>
-              {PRO_FEATURES.map((f) => (
+              {tier.features.map((f) => (
                 <View key={f} style={styles.featureRow}>
                   <View style={styles.featureCheck}>
                     <Check size={12} color="#fff" />

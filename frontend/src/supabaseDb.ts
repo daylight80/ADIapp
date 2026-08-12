@@ -165,22 +165,34 @@ export type InstructorProfile = {
   full_name: string;
   adi_number: string | null;
   preferred_nav_app: NavApp;
+  tc_signed_at: string | null;
+  tc_signature_name: string | null;
 };
 
 // Returns the currently signed-in instructor's profile row. Gracefully
-// degrades if Migration 006 hasn't been applied yet (preferred_nav_app
-// defaults to 'google').
+// degrades if Migration 006 or 023 haven't been applied yet
+// (preferred_nav_app defaults to 'google'; tc fields default to null).
 export async function getInstructorProfile(): Promise<InstructorProfile | null> {
   const { data: sessionData } = await supabase.auth.getSession();
   const uid = sessionData.session?.user.id;
   if (!uid) return null;
-  // Try with preferred_nav_app first; fall back to a slimmer select if the
-  // column doesn't exist yet (pre-Migration-006).
+  // Try the full column set first; fall back a step at a time if older
+  // migrations haven't been applied yet.
   let { data, error } = await supabase
     .from('instructors')
-    .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app')
+    .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app, tc_signed_at, tc_signature_name')
     .eq('auth_user_id', uid)
     .maybeSingle();
+  if (error && /tc_signed_at|tc_signature_name/i.test(error.message || '')) {
+    const fallback = await supabase
+      .from('instructors')
+      .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app')
+      .eq('auth_user_id', uid)
+      .maybeSingle();
+    if (fallback.error) throw fallback.error;
+    data = fallback.data as any;
+    error = null;
+  }
   if (error && /preferred_nav_app/i.test(error.message || '')) {
     const fallback = await supabase
       .from('instructors')
@@ -200,7 +212,34 @@ export async function getInstructorProfile(): Promise<InstructorProfile | null> 
     full_name: data.full_name,
     adi_number: data.adi_number,
     preferred_nav_app: ((data as any).preferred_nav_app as NavApp) || 'google',
+    tc_signed_at: (data as any).tc_signed_at ?? null,
+    tc_signature_name: (data as any).tc_signature_name ?? null,
   };
+}
+
+// Persists the Pupil Agreement signature (name + server-generated timestamp)
+// on the signed-in instructor's row. This is a compliance/consent record, so
+// it must land in the database, not just in local component state.
+export async function signPupilAgreement(signatureName: string): Promise<{ tc_signed_at: string; tc_signature_name: string }> {
+  const trimmed = signatureName.trim();
+  if (trimmed.length < 3) {
+    throw new Error('Signature must be at least 3 characters.');
+  }
+  const { data: sessionData } = await supabase.auth.getSession();
+  const uid = sessionData.session?.user.id;
+  if (!uid) throw new Error('Not signed in');
+  const signedAt = new Date().toISOString();
+  const { error } = await supabase
+    .from('instructors')
+    .update({ tc_signed_at: signedAt, tc_signature_name: trimmed })
+    .eq('auth_user_id', uid);
+  if (error) {
+    if (/tc_signed_at|tc_signature_name/i.test(error.message || '')) {
+      throw new Error('Please apply Migration 023 first (tc_signed_at / tc_signature_name columns).');
+    }
+    throw error;
+  }
+  return { tc_signed_at: signedAt, tc_signature_name: trimmed };
 }
 
 export async function updateInstructorPreferredNavApp(app: NavApp): Promise<void> {
@@ -1916,4 +1955,67 @@ export function computeTestKpis(rows: TestOutcome[]): TestKpis {
     theoryPassRatePct: pct(tP, theory.length),
   };
 }
+
+// ===========================================================================
+// DL25 mock test attempts (Migration 024) — student self-practice, kept
+// deliberately separate from `test_outcomes` (real DVSA bookings) so it
+// never affects the school's official pass-rate KPI.
+// ===========================================================================
+
+export type MockTestCategoryBreakdown = Record<
+  string,
+  { driving: number; serious: number; dangerous: number }
+>;
+
+export type MockTestAttempt = {
+  id: string;
+  student_id: string;
+  taken_at: string;
+  driving_faults: number;
+  serious_faults: number;
+  dangerous_faults: number;
+  passed: boolean;
+  category_breakdown: MockTestCategoryBreakdown;
+  created_at: string;
+};
+
+function isMissingMockTestAttemptsTable(msg: string): boolean {
+  return /mock_test_attempts/i.test(msg) && /(does not exist|schema cache)/i.test(msg);
+}
+
+export async function addMockTestAttempt(input: {
+  student_id: string;
+  driving_faults: number;
+  serious_faults: number;
+  dangerous_faults: number;
+  passed: boolean;
+  category_breakdown: MockTestCategoryBreakdown;
+}): Promise<MockTestAttempt> {
+  const { data, error } = await supabase
+    .from('mock_test_attempts')
+    .insert(input)
+    .select('*')
+    .single();
+  if (error) {
+    if (isMissingMockTestAttemptsTable(error.message || '')) {
+      throw new Error('Please apply Migration 024 first (mock_test_attempts table).');
+    }
+    throw error;
+  }
+  return data as MockTestAttempt;
+}
+
+export async function listMockTestAttempts(studentId: string): Promise<MockTestAttempt[]> {
+  const { data, error } = await supabase
+    .from('mock_test_attempts')
+    .select('*')
+    .eq('student_id', studentId)
+    .order('taken_at', { ascending: false });
+  if (error) {
+    if (isMissingMockTestAttemptsTable(error.message || '')) return [];
+    throw error;
+  }
+  return (data || []) as MockTestAttempt[];
+}
+
 

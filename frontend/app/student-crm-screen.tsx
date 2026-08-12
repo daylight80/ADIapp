@@ -18,12 +18,11 @@ import { theme } from '../src/theme';
 import { mockDb, StudentStatus } from '../src/mockDb';
 import { useStudents, createStudent, ensureDemoStudentsSeeded } from '../src/useSupabaseData';
 import { listStudentBalances } from '../src/supabaseDb';
-import { explainLimitError } from '../src/tiers';
+import { explainLimitError, canAddStudent, isPaidTier, tierById } from '../src/tiers';
 import { Card, ProgressBar, StatusBadge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { BottomNav } from '../src/BottomNav';
 import { useAuth } from '../src/AuthContext';
-import { canAddStudent, isPro, FREE_STUDENT_LIMIT } from '../src/proPlan';
 import { PaywallModal } from '../src/PaywallModal';
 import { fireInstantNotification } from '../src/notifications';
 import { openSmsComposer, copyToClipboard } from '../src/tools';
@@ -38,7 +37,7 @@ export default function StudentCrmScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ filter?: string }>();
   const { user } = useAuth();
-  const pro = isPro(user?.subscription_status);
+  const pro = isPaidTier(user?.tier);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterChip>('All');
 
@@ -155,7 +154,7 @@ export default function StudentCrmScreen() {
       return;
     }
     // Enforce limit (defensive — FAB also gates)
-    if (!canAddStudent(user?.subscription_status, students.length)) {
+    if (!canAddStudent(user?.tier, students.length)) {
       setAddOpen(false);
       setPaywallOpen(true);
       return;
@@ -246,7 +245,7 @@ export default function StudentCrmScreen() {
   };
 
   const handleFabPress = () => {
-    if (!canAddStudent(user?.subscription_status, students.length)) {
+    if (!canAddStudent(user?.tier, students.length)) {
       setPaywallOpen(true);
       return;
     }
@@ -346,7 +345,7 @@ export default function StudentCrmScreen() {
         >
           <Crown size={16} color={theme.colors.accent} />
           <Text style={styles.tierText}>
-            {students.length}/{FREE_STUDENT_LIMIT} students used (Free) ·{' '}
+            {students.length}/{tierById(user?.tier).student_limit} students used ({tierById(user?.tier).name}) ·{' '}
             <Text style={{ fontWeight: '700', color: theme.colors.primary }}>Upgrade</Text>
           </Text>
         </TouchableOpacity>
@@ -429,11 +428,11 @@ export default function StudentCrmScreen() {
 
       {/* FAB */}
       <TouchableOpacity
-        style={[styles.fab, !canAddStudent(user?.subscription_status, students.length) && styles.fabLocked]}
+        style={[styles.fab, !canAddStudent(user?.tier, students.length) && styles.fabLocked]}
         onPress={handleFabPress}
         testID="fab-add-student"
       >
-        {!canAddStudent(user?.subscription_status, students.length) ? (
+        {!canAddStudent(user?.tier, students.length) ? (
           <Crown size={24} color="#fff" />
         ) : (
           <Plus size={26} color="#fff" />
@@ -445,7 +444,7 @@ export default function StudentCrmScreen() {
       <PaywallModal
         visible={paywallOpen}
         onClose={() => setPaywallOpen(false)}
-        reason={`Free tier is limited to ${FREE_STUDENT_LIMIT} students. You currently have ${students.length}.`}
+        reason={`${tierById(user?.tier).name} tier is limited to ${tierById(user?.tier).student_limit} students. You currently have ${students.length}.`}
       />
 
       {/* Snackbar */}

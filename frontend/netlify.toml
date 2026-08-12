@@ -1,0 +1,11 @@
+[build]
+  command = "npm install && npx expo export --platform web"
+  publish = "dist"
+
+# expo-router's static export already produces a real .html file per screen
+# (confirmed during testing — 27 screens, each pre-rendered). This redirect
+# is just a safety net for any path that doesn't match one of those files.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 404

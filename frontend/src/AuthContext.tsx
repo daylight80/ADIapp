@@ -72,7 +72,7 @@ async function loadProfile(session: Session): Promise<User> {
   // 2) Try student lookup (by email match — students don't have auth_user_id in the spec'd schema)
   const { data: student } = await supabase
     .from('students')
-    .select('id, full_name, school_id, instructor_id')
+    .select('id, full_name, school_id, instructor_id, driving_schools(id, business_name, subscription_status, tier)')
     .eq('email', email)
     .maybeSingle();
 
@@ -85,7 +85,13 @@ async function loadProfile(session: Session): Promise<User> {
       school_id: student.school_id,
       instructor_id: student.instructor_id,
       student_id: student.id,
-      subscription_status: 'free',
+      // Previously hardcoded to 'free' / tier omitted entirely — meant any
+      // isPaidTier(user?.tier) check on a student-facing screen would show
+      // "locked" regardless of what tier their instructor's school is
+      // actually on. Now resolved from the school the student belongs to,
+      // same as the instructor branch above.
+      subscription_status: (student as any).driving_schools?.subscription_status || 'free',
+      tier: (student as any).driving_schools?.tier || 'starter',
       created_at: authUser.created_at || new Date().toISOString(),
     };
   }

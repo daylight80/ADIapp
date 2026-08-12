@@ -18,6 +18,9 @@ export const theme = {
     info: '#0EA5E9',
     warning: '#F59E0B',
     danger: '#EF4444',
+    lockedBg: '#FFF7ED',
+    lockedBorder: '#FED7AA',
+    lockedIcon: '#FED7AA',
   },
   radius: {
     sm: 8,

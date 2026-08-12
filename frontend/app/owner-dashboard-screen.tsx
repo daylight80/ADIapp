@@ -8,13 +8,14 @@ import { useRouter } from 'expo-router';
 import {
   Trophy, Users, CalendarDays, PoundSterling, TrendingUp, Plus, Mail, LogOut,
   ChevronRight, Crown, ArrowUpDown, Receipt, Award, CircleX, AlertTriangle, UserPlus,
-  Eye, EyeOff,
+  Eye, EyeOff, ClipboardList,
 } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme } from '../src/theme';
 
 import { Card, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
+import { DateField } from '../src/DateTimeFields';
 import { useAuth } from '../src/AuthContext';
 import { supabase } from '../src/supabaseClient';
 import {
@@ -72,6 +73,18 @@ type TodayLesson = {
   topic: string | null;
   pickup_address: string | null;
 };
+type StudentAllocationRow = {
+  instructor_id: string;
+  full_name: string;
+  student_count: number;
+};
+type StudentAllocationResponse = {
+  school_id: string;
+  from_date: string;
+  to_date: string;
+  total: number;
+  rows: StudentAllocationRow[];
+};
 
 type SortKey = 'revenue_month' | 'lessons_month' | 'students_active' | 'pass_rate';
 
@@ -92,6 +105,42 @@ export default function OwnerDashboardScreen() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [inviteForm, setInviteForm] = useState({ email: '', full_name: '', adi_number: '' });
+
+  // ---------------------------------------------------------------------------
+  // Student allocations by date range — Franchise tier only. Counts students
+  // per instructor whose created_at (first-added date) falls in the range.
+  // ---------------------------------------------------------------------------
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const monthStartStr = `${todayStr.slice(0, 7)}-01`;
+  const [allocFrom, setAllocFrom] = useState(monthStartStr);
+  const [allocTo, setAllocTo] = useState(todayStr);
+  const [allocRows, setAllocRows] = useState<StudentAllocationRow[] | null>(null);
+  const [allocLoading, setAllocLoading] = useState(false);
+  const [allocError, setAllocError] = useState<string | null>(null);
+
+  const fetchAllocations = useCallback(async () => {
+    setAllocLoading(true);
+    setAllocError(null);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error('Not signed in');
+      const params = new URLSearchParams({ from_date: allocFrom, to_date: allocTo });
+      const r = await fetch(`${BACKEND}/api/v2/school/student-allocations?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) {
+        const errBody = await r.json().catch(() => ({}));
+        throw new Error(errBody?.detail || `Failed to load allocations (HTTP ${r.status})`);
+      }
+      const json = (await r.json()) as StudentAllocationResponse;
+      setAllocRows(json.rows);
+    } catch (e: any) {
+      setAllocError(e?.message || 'Could not load student allocations.');
+    } finally {
+      setAllocLoading(false);
+    }
+  }, [allocFrom, allocTo]);
 
   // ---------------------------------------------------------------------------
   // Privacy Mode — masks financial earnings on the dashboard so an instructor
@@ -176,6 +225,16 @@ export default function OwnerDashboardScreen() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
   const onRefresh = () => { setRefreshing(true); fetchAll(); };
+
+  // Load the default date range once we know this school is Franchise tier
+  // (no point calling the endpoint for solo owners who won't see the section).
+  useEffect(() => {
+    if (leaderboard?.tier === 'franchise' && allocRows === null && !allocLoading) {
+      fetchAllocations();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leaderboard?.tier]);
+
 
   const sortedRows = useMemo(() => {
     if (!leaderboard) return [];
@@ -494,54 +553,154 @@ export default function OwnerDashboardScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Per-instructor leaderboard */}
-        <View style={styles.sectionHeader}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-            <Trophy size={18} color={theme.colors.accent} />
-            <Text style={styles.sectionTitle}>Instructor leaderboard</Text>
-          </View>
-          <SortPicker value={sortKey} onChange={setSortKey} />
-        </View>
+        {/* Per-instructor leaderboard — Franchise tier only. Solo owners
+            (every other tier) get a simpler single-card summary instead of
+            a "leaderboard" of one person with a rank badge. */}
+        {leaderboard?.tier === 'franchise' ? (
+          <>
+            <View style={styles.sectionHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                <Trophy size={18} color={theme.colors.accent} />
+                <Text style={styles.sectionTitle}>Instructor leaderboard</Text>
+              </View>
+              <SortPicker value={sortKey} onChange={setSortKey} />
+            </View>
 
-        {sortedRows.length === 0 ? (
-          <Card style={styles.emptyCardCompact}>
-            <Text style={styles.emptyCompactText}>
-              No instructors yet. Add your first colleague to start growing.
-            </Text>
+            {sortedRows.length === 0 ? (
+              <Card style={styles.emptyCardCompact}>
+                <Text style={styles.emptyCompactText}>
+                  No instructors yet. Add your first colleague to start growing.
+                </Text>
+                <TouchableOpacity
+                  style={styles.compactBtn}
+                  onPress={() => setInviteOpen(true)}
+                  testID="btn-empty-invite-instructor"
+                >
+                  <Text style={styles.compactBtnText}>Invite</Text>
+                </TouchableOpacity>
+              </Card>
+            ) : (
+              sortedRows.map((r, i) => (
+                <Card key={r.instructor_id} style={styles.lbCard} testID={`lb-row-${r.instructor_id}`}>
+                  <View style={styles.lbHeader}>
+                    <Text style={styles.lbRank}>#{i + 1}</Text>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={styles.lbName} numberOfLines={1}>{r.full_name}</Text>
+                        {r.is_owner && (
+                          <View style={styles.ownerPill}>
+                            <Crown size={10} color="#fff" />
+                            <Text style={styles.ownerPillText}>OWNER</Text>
+                          </View>
+                        )}
+                      </View>
+                      {r.adi_number ? <Text style={styles.lbSub}>ADI #{r.adi_number}</Text> : null}
+                    </View>
+                    <Text style={styles.lbRevenue}>{maskRevenue(`£${r.revenue_month.toFixed(0)}`, isRevenueHidden)}</Text>
+                  </View>
+                  <View style={styles.lbStats}>
+                    <Stat label="Lessons" value={String(r.lessons_month)} />
+                    <Stat label="Students" value={String(r.students_active)} />
+                    <Stat label="Pass rate" value={`${r.pass_rate}%`} />
+                  </View>
+                </Card>
+              ))
+            )}
+          </>
+        ) : (
+          <>
+            <View style={styles.sectionHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                <Trophy size={18} color={theme.colors.accent} />
+                <Text style={styles.sectionTitle}>Your performance</Text>
+              </View>
+            </View>
+            {sortedRows[0] && (
+              <Card style={styles.lbCard} testID="solo-performance-card">
+                <View style={styles.lbHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.lbName} numberOfLines={1}>{sortedRows[0].full_name}</Text>
+                    {sortedRows[0].adi_number ? <Text style={styles.lbSub}>ADI #{sortedRows[0].adi_number}</Text> : null}
+                  </View>
+                  <Text style={styles.lbRevenue}>{maskRevenue(`£${sortedRows[0].revenue_month.toFixed(0)}`, isRevenueHidden)}</Text>
+                </View>
+                <View style={styles.lbStats}>
+                  <Stat label="Lessons" value={String(sortedRows[0].lessons_month)} />
+                  <Stat label="Students" value={String(sortedRows[0].students_active)} />
+                  <Stat label="Pass rate" value={`${sortedRows[0].pass_rate}%`} />
+                </View>
+              </Card>
+            )}
+            <TouchableOpacity
+              style={styles.upsellRow}
+              onPress={() => router.push('/pricing-screen')}
+              testID="leaderboard-upsell"
+              activeOpacity={0.85}
+            >
+              <Text style={styles.upsellText}>
+                Add instructors and see a ranked leaderboard on Franchise tier (£39.99/mo).
+              </Text>
+              <ChevronRight size={16} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+          </>
+        )}
+
+        {/* Student allocations by date range — Franchise tier only */}
+        {leaderboard?.tier === 'franchise' && (
+          <>
+            <View style={styles.sectionHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                <ClipboardList size={18} color={theme.colors.primary} />
+                <Text style={styles.sectionTitle}>Student allocations</Text>
+              </View>
+            </View>
+
+            <View style={styles.allocDateRow}>
+              <View style={{ flex: 1 }}>
+                <DateField value={allocFrom} onChange={setAllocFrom} testID="alloc-from" />
+              </View>
+              <Text style={styles.allocDateSep}>to</Text>
+              <View style={{ flex: 1 }}>
+                <DateField value={allocTo} onChange={setAllocTo} testID="alloc-to" />
+              </View>
+            </View>
             <TouchableOpacity
               style={styles.compactBtn}
-              onPress={() => setInviteOpen(true)}
-              testID="btn-empty-invite-instructor"
+              onPress={fetchAllocations}
+              disabled={allocLoading}
+              testID="btn-view-allocations"
+              activeOpacity={0.85}
             >
-              <Text style={styles.compactBtnText}>Invite</Text>
+              {allocLoading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.compactBtnText}>View</Text>
+              )}
             </TouchableOpacity>
-          </Card>
-        ) : (
-          sortedRows.map((r, i) => (
-            <Card key={r.instructor_id} style={styles.lbCard} testID={`lb-row-${r.instructor_id}`}>
-              <View style={styles.lbHeader}>
-                <Text style={styles.lbRank}>#{i + 1}</Text>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={styles.lbName} numberOfLines={1}>{r.full_name}</Text>
-                    {r.is_owner && (
-                      <View style={styles.ownerPill}>
-                        <Crown size={10} color="#fff" />
-                        <Text style={styles.ownerPillText}>OWNER</Text>
-                      </View>
-                    )}
+
+            {allocError ? (
+              <Card style={{ borderColor: theme.colors.danger, borderWidth: 1 }}>
+                <Text style={{ color: theme.colors.danger }}>{allocError}</Text>
+              </Card>
+            ) : allocRows && allocRows.length === 0 ? (
+              <Card style={styles.emptyCardCompact}>
+                <Text style={styles.emptyCompactText}>No students added in this date range.</Text>
+              </Card>
+            ) : allocRows ? (
+              <Card>
+                {allocRows.map((r, i) => (
+                  <View
+                    key={r.instructor_id}
+                    style={[styles.allocRow, i === allocRows.length - 1 && { borderBottomWidth: 0 }]}
+                    testID={`alloc-row-${r.instructor_id}`}
+                  >
+                    <Text style={styles.allocName} numberOfLines={1}>{r.full_name}</Text>
+                    <Text style={styles.allocCount}>{r.student_count}</Text>
                   </View>
-                  {r.adi_number ? <Text style={styles.lbSub}>ADI #{r.adi_number}</Text> : null}
-                </View>
-                <Text style={styles.lbRevenue}>{maskRevenue(`£${r.revenue_month.toFixed(0)}`, isRevenueHidden)}</Text>
-              </View>
-              <View style={styles.lbStats}>
-                <Stat label="Lessons" value={String(r.lessons_month)} />
-                <Stat label="Students" value={String(r.students_active)} />
-                <Stat label="Pass rate" value={`${r.pass_rate}%`} />
-              </View>
-            </Card>
-          ))
+                ))}
+              </Card>
+            ) : null}
+          </>
         )}
 
         {/* Today's live diary */}
@@ -839,6 +998,29 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: theme.colors.primary + '33',
   },
   inviteCtaText: { color: theme.colors.primary, fontWeight: '700', fontSize: 13 },
+  upsellRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    backgroundColor: '#FFF7ED',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
+  upsellText: { flex: 1, fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 },
+  allocDateRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  allocDateSep: { fontSize: 13, color: theme.colors.textMuted },
+  allocRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  allocName: { flex: 1, fontSize: 14, fontWeight: '600', color: theme.colors.text },
+  allocCount: { fontSize: 16, fontWeight: '800', color: theme.colors.primary },
 
   // ----- Section headers, sort chip -----------------------------------------
   sectionHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginTop: 8, marginBottom: 8 },

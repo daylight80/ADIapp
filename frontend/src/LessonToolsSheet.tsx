@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, ScrollView, TextInput, ActivityIndicator, Platform } from 'react-native';
+import { useRouter } from 'expo-router';
 import {
   X,
   Navigation,
@@ -14,6 +15,7 @@ import {
   Plus,
   Trophy,
   PoundSterling,
+  MapPin,
 } from 'lucide-react-native';
 import { theme } from './theme';
 import { Lesson, Student, mockDb } from './mockDb';
@@ -33,6 +35,7 @@ type Props = {
 };
 
 export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props) {
+  const router = useRouter();
   const [precheck, setPrecheck] = useState<{ eye: boolean; fit: boolean; lic: boolean }>({ eye: false, fit: false, lic: false });
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -204,6 +207,15 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
     if (ok) {
       await fireInstantNotification('Arrival message sent', `Notified ${student.name}`);
       onClose();
+    } else {
+      // Previously silent — the instructor tapped the button and nothing
+      // visibly happened, with no way to tell whether it failed or the
+      // student was just notified in the background. Now it says so
+      // explicitly and gives the phone number so they can text manually.
+      Alert.alert(
+        "Couldn't open messages",
+        `Your device didn't open a text message to ${student.name}. You can text them directly at ${student.phone}.`,
+      );
     }
   };
 
@@ -401,6 +413,23 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
             <TouchableOpacity style={styles.imHereBtn} onPress={onArrived} testID="btn-im-here">
               <MessageSquare size={18} color="#fff" />
               <Text style={styles.imHereText}>I've arrived — Text {student.name.split(' ')[0]}</Text>
+            </TouchableOpacity>
+
+            {/* Record route — tags the recording with this lesson + student
+                so it shows up linked instead of as a generic unnamed trip. */}
+            <TouchableOpacity
+              style={styles.recordRouteBtn}
+              onPress={() => {
+                onClose();
+                router.push({
+                  pathname: '/route-recorder-screen',
+                  params: { lessonId: lesson.id, studentId: student.id, studentName: student.name },
+                } as any);
+              }}
+              testID="btn-record-route"
+            >
+              <MapPin size={18} color={theme.colors.primary} />
+              <Text style={styles.recordRouteText}>Record route for this lesson</Text>
             </TouchableOpacity>
 
             {/* Pre-lesson check */}
@@ -921,6 +950,8 @@ const styles = StyleSheet.create({
   navBtnText: { color: theme.colors.primary, fontWeight: '700', fontSize: 13 },
   imHereBtn: { marginTop: 12, backgroundColor: theme.colors.accent, height: 50, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   imHereText: { color: '#fff', fontWeight: '700' },
+  recordRouteBtn: { marginTop: 10, height: 46, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: theme.colors.primary },
+  recordRouteText: { color: theme.colors.primary, fontWeight: '700', fontSize: 14 },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
   checkIcon: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.background },
   checkIconActive: { backgroundColor: theme.colors.success },

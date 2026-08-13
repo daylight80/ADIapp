@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, Camera, ImagePlus, Plus, Trash2, Download, Receipt as ReceiptIcon, Archive } from 'lucide-react-native';
+import { ArrowLeft, Camera, ImagePlus, Plus, Trash2, Download, Receipt as ReceiptIcon, Archive, Fuel, Wrench, Droplets, ParkingMeter, Route, FileText, Shield, BookOpen } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -20,6 +20,23 @@ import {
 import { exportReceiptsZip, type ZipProgress } from '../src/receiptsExport';
 
 const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || '';
+
+// Vector icon per category — swapped in for the old unicode emoji on the
+// filter chips specifically, since emoji rendering isn't reliable across
+// platforms/fonts and was collapsing short-label chips into illegible
+// near-circular blobs. Emoji are kept elsewhere (list rows) where they've
+// been rendering fine.
+const CATEGORY_ICONS: Record<ReceiptCategory, React.ComponentType<{ size?: number; color?: string }>> = {
+  fuel: Fuel,
+  maintenance: Wrench,
+  car_wash: Droplets,
+  parking: ParkingMeter,
+  tolls: Route,
+  mot: FileText,
+  insurance: Shield,
+  lesson_supplies: BookOpen,
+  other: ReceiptIcon,
+};
 
 type ScanResult = {
   vendor?: string | null;
@@ -86,6 +103,15 @@ export default function ReceiptsScreen() {
       .reduce((s, r) => s + r.amount_total, 0);
     return { sum, monthSum, count: filtered.length };
   }, [filtered]);
+
+  // One pass over `items` to count receipts per category, so the filter
+  // chips can show a live count without each chip re-filtering the full
+  // list on every render.
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const r of items) counts[r.category] = (counts[r.category] || 0) + 1;
+    return counts;
+  }, [items]);
 
   const resetSheet = () => {
     setImageBase64(null); setImagePreview(null); setImageMime('image/jpeg');
@@ -331,9 +357,17 @@ export default function ReceiptsScreen() {
 
       {/* Category filter chips */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-        <FilterChip label="All" active={filter === 'all'} onPress={() => setFilter('all')} />
+        <FilterChip label="All" count={items.length} active={filter === 'all'} onPress={() => setFilter('all')} />
         {RECEIPT_CATEGORIES.map((c) => (
-          <FilterChip key={c.key} label={`${c.emoji} ${c.label}`} active={filter === c.key} onPress={() => setFilter(c.key)} />
+          <FilterChip
+            key={c.key}
+            label={c.label}
+            count={categoryCounts[c.key] || 0}
+            active={filter === c.key}
+            onPress={() => setFilter(c.key)}
+            icon={CATEGORY_ICONS[c.key]}
+            tint={c.tint}
+          />
         ))}
       </ScrollView>
 
@@ -511,10 +545,29 @@ export default function ReceiptsScreen() {
   );
 }
 
-function FilterChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function FilterChip({
+  label, count, active, onPress, icon: Icon, tint,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onPress: () => void;
+  icon?: React.ComponentType<{ size?: number; color?: string }>;
+  tint?: { bg: string; border: string; icon: string; text: string };
+}) {
+  const bg = active ? theme.colors.primary : (tint?.bg ?? theme.colors.surface);
+  const border = active ? theme.colors.primary : (tint?.border ?? theme.colors.border);
+  const textColor = active ? '#fff' : (tint?.text ?? theme.colors.text);
+  const iconColor = active ? '#fff' : (tint?.icon ?? theme.colors.textMuted);
   return (
-    <TouchableOpacity onPress={onPress} style={[styles.filterChip, active && styles.filterChipActive]}>
-      <Text style={[styles.filterText, active && { color: '#fff', fontWeight: '700' }]}>{label}</Text>
+    <TouchableOpacity
+      onPress={onPress}
+      style={[styles.filterChip, { backgroundColor: bg, borderColor: border }]}
+      testID={`filter-${label.replace(/\s+/g, '-').toLowerCase()}`}
+    >
+      {Icon && <Icon size={14} color={iconColor} />}
+      <Text style={[styles.filterText, { color: textColor }, active && { fontWeight: '700' }]}>{label}</Text>
+      <Text style={[styles.filterCount, { color: active ? '#fff' : (tint?.icon ?? theme.colors.textMuted) }]}>{count}</Text>
     </TouchableOpacity>
   );
 }
@@ -546,9 +599,13 @@ const styles = StyleSheet.create({
   totalSub: { fontSize: 11, color: theme.colors.textMuted },
 
   filterRow: { gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
-  filterChip: { backgroundColor: theme.colors.surface, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: theme.colors.border },
-  filterChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  filterText: { fontSize: 13, color: theme.colors.text },
+  filterChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8,
+    borderWidth: 1,
+  },
+  filterText: { fontSize: 13, fontWeight: '500' },
+  filterCount: { fontSize: 12 },
 
   list: { padding: 16, gap: 10, paddingBottom: 80 },
   itemCard: { gap: 8 },

@@ -4,7 +4,7 @@ import {
   TextInput, Linking, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as Location from 'expo-location';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -37,6 +37,13 @@ import {
  */
 export default function RouteRecorderScreen() {
   const router = useRouter();
+  // Present only when launched from a specific lesson's LessonToolsSheet
+  // ("Record route for this lesson") — absent when opened generically from
+  // the diary header, in which case the saved route stays unlinked as before.
+  const params = useLocalSearchParams<{ lessonId?: string; studentId?: string; studentName?: string }>();
+  const linkedLessonId = typeof params.lessonId === 'string' ? params.lessonId : undefined;
+  const linkedStudentId = typeof params.studentId === 'string' ? params.studentId : undefined;
+  const linkedStudentName = typeof params.studentName === 'string' ? params.studentName : undefined;
 
   // ---- Recording state ----
   const [isRecording, setIsRecording] = useState(false);
@@ -161,7 +168,9 @@ export default function RouteRecorderScreen() {
       }
 
       // Ask for a name
-      const defaultName = `Lesson · ${new Date(startedAtRef.current).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${new Date(startedAtRef.current).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+      const defaultName = linkedStudentName
+        ? `${linkedStudentName} · ${new Date(startedAtRef.current).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${new Date(startedAtRef.current).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
+        : `Lesson · ${new Date(startedAtRef.current).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${new Date(startedAtRef.current).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
       const id = (typeof globalThis !== 'undefined' && (globalThis as any).crypto?.randomUUID)
         ? (globalThis as any).crypto.randomUUID()
         : `r-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -173,6 +182,8 @@ export default function RouteRecorderScreen() {
         durationSec,
         distanceMeters: distanceM,
         points,
+        lessonId: linkedLessonId,
+        studentId: linkedStudentId,
       };
       await saveRoute(route);
       await reloadRoutes();
@@ -296,6 +307,12 @@ export default function RouteRecorderScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 80 }}>
+        {linkedStudentName && (
+          <View style={styles.linkedBanner} testID="linked-lesson-banner">
+            <MapPin size={14} color={theme.colors.primary} />
+            <Text style={styles.linkedBannerText}>Recording for {linkedStudentName}'s lesson</Text>
+          </View>
+        )}
         {/* ---- Recording panel ---- */}
         <Card style={styles.recPanel}>
           {isRecording ? (
@@ -482,6 +499,13 @@ const styles = StyleSheet.create({
   iconBtn: { padding: 8, borderRadius: 8 },
   title: { ...theme.font.h2 },
   recPanel: { padding: 16, alignItems: 'center', gap: 10 },
+  linkedBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: theme.colors.primaryLight,
+    borderRadius: 10, paddingVertical: 8, paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  linkedBannerText: { fontSize: 13, fontWeight: '600', color: theme.colors.primary },
   recLabel: { fontSize: 12, color: theme.colors.textMuted, fontWeight: '800', letterSpacing: 1.5 },
   bigStat: { fontSize: 18, fontWeight: '700', color: theme.colors.text, textAlign: 'center' },
   helperText: { fontSize: 12, color: theme.colors.textMuted, textAlign: 'center', lineHeight: 17 },

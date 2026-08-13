@@ -42,9 +42,13 @@ export function BottomSheet({ visible, onClose, title, children, testID }: Props
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end', alignItems: 'center' },
   backdropTouch: { ...StyleSheet.absoluteFillObject },
-  sheetWrap: { width: '100%' },
+  // maxWidth only matters on wide viewports (web/tablet) — on a real phone
+  // screen (< 480px wide) this never kicks in, so width:'100%' still fills
+  // the screen exactly as before. On a desktop browser it stops the sheet
+  // stretching edge-to-edge across the whole window.
+  sheetWrap: { width: '100%', maxWidth: 480 },
   sheet: {
     backgroundColor: theme.colors.surface,
     borderTopLeftRadius: 24,

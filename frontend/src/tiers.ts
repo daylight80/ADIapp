@@ -89,6 +89,13 @@ export function isPaidTier(tier: string | null | undefined): boolean {
   return tier === 'growth' || tier === 'pro' || tier === 'franchise';
 }
 
+// For features genuinely exclusive to the top tier — e.g. multi-instructor
+// student assignment management, which only makes sense with more than one
+// instructor in the first place.
+export function isFranchiseTier(tier: string | null | undefined): boolean {
+  return tier === 'franchise';
+}
+
 // Tier-aware replacement for the old proPlan.ts binary canAddStudent — checks
 // the real per-tier limit (Starter 5, Growth 15, Pro/Franchise unlimited)
 // instead of a flat free/pro split.

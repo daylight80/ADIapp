@@ -534,10 +534,14 @@ export default function StudentCrmScreen() {
       <BottomSheet visible={addOpen} onClose={() => setAddOpen(false)} title="Invite New Student" testID="sheet-add-student">
         <Text style={styles.hint}>We&apos;ll generate a private invite link you can copy or send by SMS.</Text>
 
-        <Text style={styles.label}>Full name</Text>
+        <Text style={styles.label}>
+          Full name <Text style={{ color: theme.colors.danger }}>*</Text>
+        </Text>
         <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="e.g. Charlotte Smith" placeholderTextColor={theme.colors.textMuted} testID="input-student-name" />
 
-        <Text style={styles.label}>Email address</Text>
+        <Text style={styles.label}>
+          Email address <Text style={{ color: theme.colors.danger }}>*</Text>
+        </Text>
         <TextInput
           style={styles.input}
           value={email}
@@ -549,7 +553,9 @@ export default function StudentCrmScreen() {
           testID="input-student-email"
         />
 
-        <Text style={styles.label}>Phone</Text>
+        <Text style={styles.label}>
+          Phone <Text style={{ color: theme.colors.danger }}>*</Text>
+        </Text>
         <TextInput
           style={styles.input}
           value={phone}

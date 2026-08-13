@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown, Pencil, Trash2, Trophy, CircleX, Plus, UserCheck, UserX, UserPlus, AlertTriangle, CreditCard } from 'lucide-react-native';
+import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown, Pencil, Trash2, Trophy, CircleX, Plus, UserCheck, UserX, UserPlus, AlertTriangle, CreditCard, MessageSquare, Navigation as NavIcon } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb } from '../src/mockDb';
 import {
@@ -26,6 +26,8 @@ import { PaywallModal } from '../src/PaywallModal';
 import { buildInvoiceHtml, generateAndShareInvoicePdf } from '../src/invoice';
 import { TestOutcomeModal } from '../src/TestOutcomeModal';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
+import { openSmsComposer } from '../src/tools';
+import { fireInstantNotification } from '../src/notifications';
 
 type Tab = 'overview' | 'lessons' | 'competency' | 'earnings';
 const TABS: { key: Tab; label: string }[] = [
@@ -86,6 +88,36 @@ export default function StudentLifecycleScreen() {
   );
 
   const [tab, setTab] = useState<Tab>('overview');
+
+  // ---------------------------------------------------------------------------
+  // Profile-level quick actions (Directions / I've arrived / Record route) —
+  // same three actions as the per-lesson tools sheet, but not tied to
+  // opening a specific lesson first. When the student has a scheduled
+  // upcoming lesson, "I've arrived" and "Record route" link to it (same as
+  // the lesson-tools version); otherwise they still work, just unlinked/
+  // generic — useful for an ad-hoc drive that isn't in the diary at all.
+  // ---------------------------------------------------------------------------
+  const nextLesson = useMemo(() => {
+    const now = new Date();
+    return lessons
+      .filter((l) => l.status === 'Scheduled' && new Date(`${l.date}T${l.start_time}:00`) >= now)
+      .sort((a, b) => `${a.date}${a.start_time}`.localeCompare(`${b.date}${b.start_time}`))[0] || null;
+  }, [lessons]);
+
+  const onArrivedFromProfile = async () => {
+    const body = nextLesson
+      ? `Hi ${student.name.split(' ')[0]}, I've arrived for your ${nextLesson.start_time} lesson. See you in a moment! — Your instructor.`
+      : `Hi ${student.name.split(' ')[0]}, I've arrived. See you in a moment! — Your instructor.`;
+    const ok = await openSmsComposer(student.phone, body);
+    if (ok) {
+      await fireInstantNotification('Arrival message sent', `Notified ${student.name}`);
+    } else {
+      Alert.alert(
+        "Couldn't open messages",
+        `Your device didn't open a text message to ${student.name}. You can text them directly at ${student.phone}.`,
+      );
+    }
+  };
 
   // Amend (edit) sheet state
   const [amendOpen, setAmendOpen] = useState(false);
@@ -378,6 +410,43 @@ export default function StudentLifecycleScreen() {
                 </View>
               </View>
             </Card>
+
+            {/* Quick actions — same three as the per-lesson tools sheet, but
+                available from the profile directly rather than requiring a
+                specific lesson to be open first. */}
+            <View style={styles.actionRow} testID="student-quick-actions">
+              <OpenInMapsButton
+                address={`${student.address || ''}, ${student.postcode || ''}`}
+                variant="pill"
+                label="Directions"
+                testID={`btn-directions-profile-${student.id}`}
+                style={[styles.actionBtn, styles.actionAmend]}
+                textStyle={[styles.actionText, { color: theme.colors.primary }]}
+              />
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionAmend]}
+                onPress={onArrivedFromProfile}
+                testID="btn-arrived-profile"
+              >
+                <MessageSquare size={16} color={theme.colors.primary} />
+                <Text style={[styles.actionText, { color: theme.colors.primary }]}>I've arrived</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionAmend]}
+                onPress={() => router.push({
+                  pathname: '/route-recorder-screen',
+                  params: {
+                    studentId: student.id,
+                    studentName: student.name,
+                    ...(nextLesson ? { lessonId: nextLesson.id } : {}),
+                  },
+                } as any)}
+                testID="btn-record-route-profile"
+              >
+                <NavIcon size={16} color={theme.colors.primary} />
+                <Text style={[styles.actionText, { color: theme.colors.primary }]}>Record route</Text>
+              </TouchableOpacity>
+            </View>
 
             <View style={styles.actionRow} testID="student-actions">
               <TouchableOpacity style={[styles.actionBtn, styles.actionAmend]} onPress={openAmend} testID="btn-amend-student">

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet, useWindowDimensions, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
@@ -22,7 +22,7 @@ import { openNavigation } from '../src/tools';
 
 // Diary-specific extractions
 import {
-  DAYS, TOP_HOUR, BOTTOM_HOUR, HOURS, HOUR_HEIGHT, TOTAL_HEIGHT, TIME_W,
+  DAYS, TOP_HOUR, BOTTOM_HOUR, HOURS, HOUR_HEIGHT, TOTAL_HEIGHT, TIME_W, CELL_W,
 } from '../src/diary/constants';
 import { startOfWeek, addDays, formatDateRange, localDateKey } from '../src/diary/dateUtils';
 import { styles } from '../src/diary/diaryStyles';
@@ -36,6 +36,18 @@ export default function LessonDiaryScreen() {
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return d;
   });
+
+  // On a real phone, this always resolves to CELL_W (the computed available
+  // space is smaller than that), so mobile keeps its existing horizontal-
+  // scroll behavior exactly as before. On a wide desktop browser, columns
+  // grow to fill the window instead of leaving dead space on the right —
+  // capped at 200px so they don't stretch absurdly wide on an ultrawide
+  // monitor.
+  const { width: winWidth } = useWindowDimensions();
+  const weekColWidth = useMemo(() => {
+    const available = winWidth - TIME_W - 32; // minus time gutter + screen padding
+    return Math.min(200, Math.max(CELL_W, Math.floor(available / 7)));
+  }, [winWidth]);
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
   const [addOpen, setAddOpen] = useState(false);
   const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
@@ -93,17 +105,28 @@ export default function LessonDiaryScreen() {
 
   const getStudent = (id: string) => students.find((s) => s.id === id);
 
-  // On mount, if we're viewing today, scroll to roughly the current hour.
+  // Icon-only toolbar buttons have no visible label — fine on mobile where
+  // nothing hovers, but on desktop web a native tooltip on hover is a
+  // near-free usability win. Native mobile ignores an unknown `title` prop.
+  const webTitle = (text: string) => (Platform.OS === 'web' ? { title: text } : {});
+
+  // Scroll to roughly the current hour whenever today is actually visible in
+  // the current view — on mount, and again if the user toggles Day/Week.
+  // (Deliberately NOT re-triggered by selectedDate changes from Prev/Next —
+  // that would yank the scroll position out from under someone browsing.)
   useEffect(() => {
     const today = new Date();
-    if (selectedDate.toDateString() === today.toDateString()) {
+    const isTodayVisible = viewMode === 'day'
+      ? selectedDate.toDateString() === today.toDateString()
+      : today >= weekStart && today < weekEnd;
+    if (isTodayVisible) {
       const h = today.getHours();
       const m = today.getMinutes();
       const hhmm = `${String(Math.max(h, TOP_HOUR)).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
       setTimeout(() => scrollToTime(hhmm), 400);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [viewMode]);
 
   const goPrev = () => setSelectedDate(addDays(selectedDate, viewMode === 'day' ? -1 : -7));
   const goNext = () => setSelectedDate(addDays(selectedDate, viewMode === 'day' ? 1 : 7));
@@ -148,13 +171,26 @@ export default function LessonDiaryScreen() {
             testID="btn-route-recorder"
             style={styles.iconBtn}
             accessibilityLabel="Record lesson route"
+            {...webTitle('Record lesson route')}
           >
             <RouteIcon size={22} color={theme.colors.primary} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={openUnavailNew} testID="btn-add-unavailability" style={styles.iconBtn} accessibilityLabel="Add unavailability">
+          <TouchableOpacity
+            onPress={openUnavailNew}
+            testID="btn-add-unavailability"
+            style={styles.iconBtn}
+            accessibilityLabel="Add unavailability"
+            {...webTitle('Add unavailability')}
+          >
             <Ban size={22} color={theme.colors.danger} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => setAddOpen(true)} testID="btn-add-lesson" style={styles.iconBtn}>
+          <TouchableOpacity
+            onPress={() => setAddOpen(true)}
+            testID="btn-add-lesson"
+            style={styles.iconBtn}
+            accessibilityLabel="Add lesson"
+            {...webTitle('Add lesson')}
+          >
             <Plus size={22} color={theme.colors.primary} />
           </TouchableOpacity>
         </View>
@@ -308,7 +344,7 @@ export default function LessonDiaryScreen() {
                 {DAYS.map((d, i) => {
                   const date = addDays(weekStart, i);
                   return (
-                    <View key={d} style={[styles.dayHeaderCellWeek, styles.headerCell]}>
+                    <View key={d} style={[styles.dayHeaderCellWeek, styles.headerCell, { width: weekColWidth }]}>
                       <Text style={styles.dayName}>{d}</Text>
                       <Text style={styles.dayNum}>{date.getDate()}</Text>
                     </View>
@@ -331,7 +367,7 @@ export default function LessonDiaryScreen() {
                     .map((b) => ({ b, p: projectBlock(b, cellDate) }))
                     .filter((x) => !!x.p) as { b: AvailabilityBlock; p: { top: number; height: number } }[];
                   return (
-                    <View key={di} style={[styles.weekDayCol, { height: TOTAL_HEIGHT }]}>
+                    <View key={di} style={[styles.weekDayCol, { height: TOTAL_HEIGHT, width: weekColWidth }]}>
                       <View style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}>
                         {HOURS.slice(0, -1).map((h) => (
                           <View key={h} style={styles.hourSlot} />

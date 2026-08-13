@@ -8,27 +8,21 @@ import { useRouter } from 'expo-router';
 import {
   Trophy, Users, CalendarDays, PoundSterling, TrendingUp, Plus, Mail, LogOut,
   ChevronRight, Crown, ArrowUpDown, Receipt, Award, CircleX, AlertTriangle, UserPlus,
-  Eye, EyeOff, ClipboardList,
+  Eye, EyeOff, ClipboardList, ArrowUpRight, ArrowDownRight, Check,
 } from 'lucide-react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme } from '../src/theme';
 
 import { Card, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
+import { PaywallModal } from '../src/PaywallModal';
 import { DateField } from '../src/DateTimeFields';
 import { useAuth } from '../src/AuthContext';
+import { isFranchiseTier } from '../src/tiers';
 import { supabase } from '../src/supabaseClient';
 import {
   listTestOutcomesForSchool, computeTestKpis, type TestOutcome,
   getArrearsSummary,
 } from '../src/supabaseDb';
-
-/**
- * AsyncStorage key used to persist the instructor's Privacy Mode preference
- * for masking revenue figures on the dashboard. Stored as '1' / '0'.
- * Namespaced with the `adi_pro_` prefix to avoid clashing with other apps.
- */
-const REVENUE_PRIVACY_KEY = 'adi_pro_revenue_privacy_mode';
 
 /** Stand-in shown when Privacy Mode is on. Renders as e.g. `£•••`. */
 const REVENUE_MASK = '£•••';
@@ -59,6 +53,7 @@ type Leaderboard = {
   seat_limit: number | null;     // null = unlimited
   can_add_instructor: boolean;
   totals: { students_active: number; lessons_month: number; revenue_month: number; pass_rate: number };
+  totals_prev_month: { lessons_month: number; revenue_month: number };
   rows: LeaderboardRow[];
 };
 type TodayLesson = {
@@ -106,6 +101,9 @@ export default function OwnerDashboardScreen() {
   const [inviting, setInviting] = useState(false);
   const [inviteForm, setInviteForm] = useState({ email: '', full_name: '', adi_number: '' });
 
+  // Franchise-only "Manage assignments" gate
+  const [assignmentsPaywallOpen, setAssignmentsPaywallOpen] = useState(false);
+
   // ---------------------------------------------------------------------------
   // Student allocations by date range — Franchise tier only. Counts students
   // per instructor whose created_at (first-added date) falls in the range.
@@ -145,27 +143,17 @@ export default function OwnerDashboardScreen() {
   // ---------------------------------------------------------------------------
   // Privacy Mode — masks financial earnings on the dashboard so an instructor
   // can show the screen to a student in the tuition vehicle without revealing
-  // sensitive revenue figures. Persisted per-device via AsyncStorage so the
-  // preference survives app restarts.
+  // sensitive revenue figures.
+  //
+  // Revenue is ALWAYS hidden by default on every load — this is not something
+  // that should be remembered as "shown" across app restarts, since that
+  // would defeat the safety purpose the moment an instructor forgets they'd
+  // previously revealed it. Tapping the eye icon reveals it for the current
+  // session only; the next time this screen mounts, it's hidden again.
   // ---------------------------------------------------------------------------
-  const [isRevenueHidden, setIsRevenueHidden] = useState(false);
-  useEffect(() => {
-    (async () => {
-      try {
-        const stored = await AsyncStorage.getItem(REVENUE_PRIVACY_KEY);
-        if (stored === '1') setIsRevenueHidden(true);
-      } catch {
-        // best-effort — silently ignore storage read failures
-      }
-    })();
-  }, []);
+  const [isRevenueHidden, setIsRevenueHidden] = useState(true);
   const toggleRevenuePrivacy = useCallback(() => {
-    setIsRevenueHidden((prev) => {
-      const next = !prev;
-      // Fire-and-forget — UI updates immediately; persistence happens in bg.
-      AsyncStorage.setItem(REVENUE_PRIVACY_KEY, next ? '1' : '0').catch(() => {});
-      return next;
-    });
+    setIsRevenueHidden((prev) => !prev);
   }, []);
 
   const fetchAll = useCallback(async () => {
@@ -348,28 +336,54 @@ export default function OwnerDashboardScreen() {
         </View>
 
         {/* ============================================================
-            ALERT BANNER — system warnings (seat-limit, etc.)
-            Only renders when there is an actionable warning.
+            NEEDS ATTENTION — consolidates every active warning (seat
+            limit, arrears, ...) into one card instead of stacking
+            separate alarm-colored banners. Shows a single quiet "all
+            clear" row when nothing needs action.
             ============================================================ */}
-        {leaderboard && !leaderboard.can_add_instructor && (
-          <TouchableOpacity
-            style={styles.alertBanner}
-            onPress={() => setInviteOpen(true)}
-            activeOpacity={0.85}
-            testID="alert-seat-limit"
-          >
-            <View style={styles.alertIconWrap}>
-              <AlertTriangle size={16} color={theme.colors.warning} />
+        {(() => {
+          const issues: { key: string; title: string; onPress: () => void }[] = [];
+          if (leaderboard && !leaderboard.can_add_instructor) {
+            issues.push({ key: 'seats', title: 'Instructor seat limit reached', onPress: () => setInviteOpen(true) });
+          }
+          if (arrears.count > 0) {
+            issues.push({
+              key: 'arrears',
+              title: `${arrears.count} pupil${arrears.count === 1 ? '' : 's'} owing ${maskRevenue(`£${arrears.total_gbp}`, isRevenueHidden)}`,
+              onPress: () => router.push({ pathname: '/student-crm-screen', params: { filter: 'arrears' } } as any),
+            });
+          }
+
+          if (issues.length === 0) {
+            return (
+              <View style={styles.allClearRow} testID="needs-attention-clear">
+                <Check size={16} color={theme.colors.success} />
+                <Text style={styles.allClearText}>All caught up — no arrears, seats available.</Text>
+              </View>
+            );
+          }
+
+          return (
+            <View style={styles.needsAttentionCard} testID="needs-attention-card">
+              <View style={styles.needsAttentionHeader}>
+                <AlertTriangle size={16} color={theme.colors.warning} />
+                <Text style={styles.needsAttentionTitle}>Needs attention</Text>
+              </View>
+              {issues.map((issue, i) => (
+                <TouchableOpacity
+                  key={issue.key}
+                  style={[styles.needsAttentionRow, i === 0 && styles.needsAttentionRowFirst]}
+                  onPress={issue.onPress}
+                  activeOpacity={0.7}
+                  testID={`needs-attention-${issue.key}`}
+                >
+                  <Text style={styles.needsAttentionRowText}>{issue.title}</Text>
+                  <ChevronRight size={16} color={theme.colors.textMuted} />
+                </TouchableOpacity>
+              ))}
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.alertTitle}>Seat limit reached</Text>
-              <Text style={styles.alertSub}>
-                Upgrade to add another instructor.
-              </Text>
-            </View>
-            <ChevronRight size={18} color={theme.colors.textMuted} />
-          </TouchableOpacity>
-        )}
+          );
+        })()}
 
         {error ? (
           <Card style={{ marginHorizontal: 16, borderColor: theme.colors.danger, borderWidth: 1 }}>
@@ -382,9 +396,20 @@ export default function OwnerDashboardScreen() {
           <KPI label="Active students" value={String(leaderboard?.totals.students_active ?? 0)}
                icon={<Users size={16} color={theme.colors.primary} />} tone={theme.colors.primaryLight} />
           <KPI label="Lessons (mo)" value={String(leaderboard?.totals.lessons_month ?? 0)}
-               icon={<CalendarDays size={16} color={theme.colors.info} />} tone="#E0F2FE" />
+               icon={<CalendarDays size={16} color={theme.colors.info} />} tone="#E0F2FE"
+               trend={leaderboard ? monthTrend(
+                 leaderboard.totals.lessons_month,
+                 leaderboard.totals_prev_month.lessons_month,
+                 (n) => `${n > 0 ? '+' : ''}${n}%`,
+               ) ?? undefined : undefined}
+          />
           <KPI label="Revenue (mo)" value={maskRevenue(`£${(leaderboard?.totals.revenue_month ?? 0).toFixed(0)}`, isRevenueHidden)}
                icon={<PoundSterling size={16} color={theme.colors.success} />} tone="#D1FAE5"
+               trend={leaderboard && !isRevenueHidden ? monthTrend(
+                 leaderboard.totals.revenue_month,
+                 leaderboard.totals_prev_month.revenue_month,
+                 (n) => `${n > 0 ? '+' : ''}${n}%`,
+               ) ?? undefined : undefined}
                headerAccessory={
                  <TouchableOpacity
                    onPress={toggleRevenuePrivacy}
@@ -404,32 +429,6 @@ export default function OwnerDashboardScreen() {
           <KPI label="Pass rate" value={`${leaderboard?.totals.pass_rate ?? 0}%`}
                icon={<TrendingUp size={16} color={theme.colors.accent} />} tone="#FFF7ED" />
         </View>
-
-        {/* ============================================================
-            ARREARS TILE — taps through to a filtered Students list
-            showing only pupils with outstanding payments.
-            ============================================================ */}
-        <TouchableOpacity
-          style={[styles.arrearsTile, arrears.count > 0 && styles.arrearsTileActive]}
-          onPress={() => router.push({ pathname: '/student-crm-screen', params: { filter: 'arrears' } } as any)}
-          activeOpacity={0.85}
-          testID="tile-students-in-arrears"
-          accessibilityRole="button"
-          accessibilityLabel={`Students in arrears, ${arrears.count} students owing ${maskRevenue(`£${arrears.total_gbp}`, isRevenueHidden)}`}
-        >
-          <View style={[styles.arrearsIconWrap, arrears.count > 0 && { backgroundColor: '#FEF2F2' }]}>
-            <AlertTriangle size={18} color={arrears.count > 0 ? theme.colors.danger : theme.colors.textMuted} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.arrearsTitle}>Students in arrears</Text>
-            <Text style={styles.arrearsSub}>
-              {arrears.count === 0
-                ? 'All pupil payments are up to date.'
-                : `${arrears.count} pupil${arrears.count === 1 ? '' : 's'} owing ${maskRevenue(`£${arrears.total_gbp}`, isRevenueHidden)}`}
-            </Text>
-          </View>
-          <ChevronRight size={18} color={theme.colors.textMuted} />
-        </TouchableOpacity>
 
         {/* ------- Test Performance card ---------------------------------- */}
         <View style={styles.sectionHeader}>
@@ -528,13 +527,21 @@ export default function OwnerDashboardScreen() {
             <Text style={styles.qaSecondaryText}>Receipts</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.qa, styles.qaSecondary]}
-            onPress={() => router.push('/manage-assignments-screen' as any)}
+            style={[styles.qa, styles.qaSecondary, !isFranchiseTier(leaderboard?.tier) && styles.qaLocked]}
+            onPress={() => {
+              if (isFranchiseTier(leaderboard?.tier)) {
+                router.push('/manage-assignments-screen' as any);
+              } else {
+                setAssignmentsPaywallOpen(true);
+              }
+            }}
             testID="qa-assignments"
             activeOpacity={0.85}
           >
-            <ArrowUpDown size={18} color={theme.colors.text} />
-            <Text style={styles.qaSecondaryText}>Assignments</Text>
+            <ArrowUpDown size={18} color={isFranchiseTier(leaderboard?.tier) ? theme.colors.text : theme.colors.textMuted} />
+            <Text style={[styles.qaSecondaryText, !isFranchiseTier(leaderboard?.tier) && { color: theme.colors.textMuted }]}>
+              Assignments
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -828,11 +835,18 @@ export default function OwnerDashboardScreen() {
           </>
         )}
       </BottomSheet>
+
+      <PaywallModal
+        visible={assignmentsPaywallOpen}
+        onClose={() => setAssignmentsPaywallOpen(false)}
+        targetTier="franchise"
+        reason="Managing student assignments across instructors is included from Franchise tier (£39.99/mo)."
+      />
     </SafeAreaView>
   );
 }
 
-function KPI({ label, value, icon, tone, headerAccessory }: { label: string; value: string; icon: React.ReactNode; tone: string; headerAccessory?: React.ReactNode }) {
+function KPI({ label, value, icon, tone, headerAccessory, trend }: { label: string; value: string; icon: React.ReactNode; tone: string; headerAccessory?: React.ReactNode; trend?: { direction: 'up' | 'down' | 'flat'; text: string } }) {
   return (
     <View style={styles.kpi} testID={`kpi-${label.replace(/\s+/g, '-').toLowerCase()}`}>
       <View style={styles.kpiHeader}>
@@ -843,8 +857,34 @@ function KPI({ label, value, icon, tone, headerAccessory }: { label: string; val
         {headerAccessory}
       </View>
       <Text style={styles.kpiValue}>{value}</Text>
+      {trend && (
+        <View style={styles.kpiTrendRow}>
+          {trend.direction === 'up' && <ArrowUpRight size={12} color={theme.colors.success} />}
+          {trend.direction === 'down' && <ArrowDownRight size={12} color={theme.colors.danger} />}
+          <Text style={[
+            styles.kpiTrendText,
+            trend.direction === 'up' && { color: theme.colors.success },
+            trend.direction === 'down' && { color: theme.colors.danger },
+          ]}>
+            {trend.text}
+          </Text>
+        </View>
+      )}
     </View>
   );
+}
+
+// Turns a (this month, last month) pair into a direction + label. Returns
+// null when there's nothing meaningful to compare (both zero — a brand new
+// school with no lesson history yet), so the KPI just shows no trend line
+// rather than a misleading "+100%" or "0% vs last month".
+function monthTrend(current: number, previous: number, formatDelta: (n: number) => string): { direction: 'up' | 'down' | 'flat'; text: string } | null {
+  if (current === 0 && previous === 0) return null;
+  if (previous === 0) return { direction: 'up', text: 'New this month' };
+  const deltaPct = Math.round(((current - previous) / previous) * 100);
+  if (deltaPct === 0) return { direction: 'flat', text: 'Same as last month' };
+  const direction = deltaPct > 0 ? 'up' : 'down';
+  return { direction, text: `${formatDelta(deltaPct)} vs last month` };
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -916,21 +956,28 @@ const styles = StyleSheet.create({
   headerTitle: { ...theme.font.h2, marginTop: 4 },
   headerSub: { fontSize: 13, color: theme.colors.textMuted, marginTop: 2 },
 
-  // ----- Alert banner (system warnings) -------------------------------------
-  alertBanner: {
+  // ----- Needs attention card (consolidates seat-limit + arrears, etc.) -----
+  needsAttentionCard: {
     marginHorizontal: 16, marginBottom: 14,
-    padding: 12, borderRadius: 12,
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: '#FEF3C7', // warm amber tint
+    padding: 14, borderRadius: 12,
+    backgroundColor: '#FEF3C7',
     borderWidth: 1, borderColor: '#FDE68A',
   },
-  alertIconWrap: {
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: '#FFFBEB',
-    alignItems: 'center', justifyContent: 'center',
+  needsAttentionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  needsAttentionTitle: { fontSize: 14, fontWeight: '700', color: '#92400E' },
+  needsAttentionRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderTopWidth: 1, borderTopColor: '#FDE68A',
   },
-  alertTitle: { fontSize: 14, fontWeight: '700', color: '#92400E' },
-  alertSub: { fontSize: 12, color: '#92400E', opacity: 0.85, marginTop: 1 },
+  needsAttentionRowFirst: { borderTopWidth: 0 },
+  needsAttentionRowText: { fontSize: 13, color: '#92400E', flex: 1, marginRight: 8 },
+  allClearRow: {
+    marginHorizontal: 16, marginBottom: 14,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 4,
+  },
+  allClearText: { fontSize: 13, color: theme.colors.textMuted },
 
   // ----- KPI cards (white, generous padding, icon-badge aligned to label) ---
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16, marginBottom: 14 },
@@ -949,26 +996,8 @@ const styles = StyleSheet.create({
   },
   kpiLabel: { fontSize: 12, color: theme.colors.textMuted, fontWeight: '600', flex: 1 },
   kpiValue: { fontSize: 24, fontWeight: '800', color: theme.colors.text, lineHeight: 28 },
-
-  // ----- Arrears tile (full-width, taps through to filtered Students list) ----
-  arrearsTile: {
-    marginHorizontal: 16, marginBottom: 14,
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    padding: 14, borderRadius: 12,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1, borderColor: theme.colors.border,
-  },
-  arrearsTileActive: {
-    backgroundColor: '#FFFBFB',
-    borderColor: '#FECACA',
-  },
-  arrearsIconWrap: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: theme.colors.background,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  arrearsTitle: { fontSize: 14, fontWeight: '700', color: theme.colors.text },
-  arrearsSub: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
+  kpiTrendRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 4 },
+  kpiTrendText: { fontSize: 11, fontWeight: '600', color: theme.colors.textMuted },
 
   // Privacy Mode toggle — small visible 28×28 button on the 8pt grid, but
   // the touch target is expanded to 52×52 via hitSlop above (well over the
@@ -988,6 +1017,7 @@ const styles = StyleSheet.create({
   qaPrimary: { backgroundColor: theme.colors.accent },
   qaPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   qaSecondary: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
+  qaLocked: { opacity: 0.5 },
   qaSecondaryText: { color: theme.colors.text, fontWeight: '600', fontSize: 13 },
   qaText: { color: '#fff', fontWeight: '700', fontSize: 13 }, // kept for backwards-compat (unused)
   inviteCta: {

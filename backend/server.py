@@ -763,6 +763,19 @@ async def sb_get_school_by_customer(stripe_customer_id: str) -> Optional[dict]:
     return rows[0] if rows else None
 
 
+async def sb_get_school_by_id(school_id: str) -> Optional[dict]:
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.get(
+            f"{_sb_rest_base}/driving_schools",
+            params={"id": f"eq.{school_id}", "select": "*", "limit": "1"},
+            headers=_sb_headers(),
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase read failed: {r.text}")
+    rows = r.json()
+    return rows[0] if rows else None
+
+
 async def sb_update_school(school_id: str, patch: dict) -> dict:
     async with httpx.AsyncClient(timeout=10.0) as client_http:
         r = await client_http.patch(
@@ -962,22 +975,28 @@ async def stripe_webhook(request: FastAPIRequest):
             school_id = (data.get("metadata") or {}).get("school_id") or data.get("client_reference_id")
             sub_id = data.get("subscription")
             if school_id and sub_id:
-                sub = stripe.Subscription.retrieve(sub_id, expand=["items.data.price"])
-                patch = {
-                    "tier": _tier_from_subscription(sub) or "pro",
-                    "subscription_status": "active",
-                    "stripe_subscription_id": sub_id,
-                    "seat_count": _seat_qty_from_subscription(sub),
-                    "current_period_end": datetime.fromtimestamp(sub["current_period_end"], tz=timezone.utc).isoformat() if sub.get("current_period_end") else None,
-                    "stripe_customer_id": data.get("customer"),
-                }
-                await sb_update_school(school_id, patch)
+                school = await sb_get_school_by_id(school_id)
+                if school and school.get("is_comp_account"):
+                    logger.info("Skipping webhook tier update for comp account school %s", school_id)
+                else:
+                    sub = stripe.Subscription.retrieve(sub_id, expand=["items.data.price"])
+                    patch = {
+                        "tier": _tier_from_subscription(sub) or "pro",
+                        "subscription_status": "active",
+                        "stripe_subscription_id": sub_id,
+                        "seat_count": _seat_qty_from_subscription(sub),
+                        "current_period_end": datetime.fromtimestamp(sub["current_period_end"], tz=timezone.utc).isoformat() if sub.get("current_period_end") else None,
+                        "stripe_customer_id": data.get("customer"),
+                    }
+                    await sb_update_school(school_id, patch)
 
         elif etype in ("customer.subscription.updated", "customer.subscription.created"):
             customer_id = data.get("customer")
             if customer_id:
                 school = await sb_get_school_by_customer(customer_id)
-                if school:
+                if school and school.get("is_comp_account"):
+                    logger.info("Skipping webhook tier update for comp account school %s", school["id"])
+                elif school:
                     patch = {
                         "tier": _tier_from_subscription(data) or school.get("tier") or "pro",
                         "subscription_status": data.get("status") or "active",
@@ -991,7 +1010,9 @@ async def stripe_webhook(request: FastAPIRequest):
             customer_id = data.get("customer")
             if customer_id:
                 school = await sb_get_school_by_customer(customer_id)
-                if school:
+                if school and school.get("is_comp_account"):
+                    logger.info("Skipping webhook cancellation for comp account school %s", school["id"])
+                elif school:
                     await sb_update_school(school["id"], {
                         "tier": "starter",
                         "subscription_status": "cancelled",
@@ -1335,6 +1356,11 @@ class LeaderboardResponse(BaseModel):
     seat_limit: Optional[int] = None   # None = unlimited
     can_add_instructor: bool
     totals: dict            # {students_active:int, lessons_month:int, revenue_month:float, pass_rate:float}
+    # Only lessons/revenue are included here — active students and pass rate
+    # are current-snapshot fields with no history log, so there's no honest
+    # way to reconstruct what they were last month. Showing a trend for those
+    # would mean inventing a number, not reporting one.
+    totals_prev_month: dict  # {lessons_month:int, revenue_month:float}
     rows: List[LeaderboardRow]
 
 
@@ -1349,6 +1375,10 @@ async def v2_school_leaderboard(sb_user: dict = Depends(get_current_supabase_use
     today = datetime.now(timezone.utc).date()
     month_start = today.replace(day=1).isoformat()
     month_iso = today.strftime("%Y-%m")
+    # Previous calendar month's boundaries, for an honest lessons/revenue trend.
+    prev_month_end_excl = today.replace(day=1)
+    prev_month_start = (prev_month_end_excl - timedelta(days=1)).replace(day=1).isoformat()
+    prev_month_end_excl = prev_month_end_excl.isoformat()
 
     async with httpx.AsyncClient(timeout=15.0) as client_http:
         # 1. All instructors in this school
@@ -1380,6 +1410,19 @@ async def v2_school_leaderboard(sb_user: dict = Depends(get_current_supabase_use
             headers=_sb_headers(),
         )
         lessons = lr.json() if lr.status_code < 400 else []
+
+        # 3b. Previous month's lessons, same shape, for the trend comparison.
+        plr = await client_http.get(
+            f"{_sb_rest_base}/lessons",
+            params={
+                "select": "id,instructor_id,status,amount_paid,start_time",
+                "start_time": f"gte.{prev_month_start}T00:00:00",
+                "and": f"(start_time.lt.{prev_month_end_excl}T00:00:00)",
+                "instructor_id": f"in.({','.join(i['id'] for i in instructors) or 'null'})",
+            },
+            headers=_sb_headers(),
+        )
+        prev_lessons = plr.json() if plr.status_code < 400 else []
 
     owner_auth_id = school["owner_auth_id"]
     rows: List[LeaderboardRow] = []
@@ -1414,6 +1457,12 @@ async def v2_school_leaderboard(sb_user: dict = Depends(get_current_supabase_use
         "pass_rate":       round(sum(r.pass_rate for r in rows) / len(rows), 1) if rows else 0.0,
     }
 
+    prev_completed = [l for l in prev_lessons if (l.get("status") or "").lower() != "cancelled"]
+    totals_prev_month = {
+        "lessons_month": len(prev_completed),
+        "revenue_month": round(sum((l.get("amount_paid") or 0) for l in prev_completed), 2),
+    }
+
     # Sort by revenue desc as a sensible default
     rows.sort(key=lambda r: r.revenue_month, reverse=True)
 
@@ -1433,6 +1482,7 @@ async def v2_school_leaderboard(sb_user: dict = Depends(get_current_supabase_use
         seat_limit=seat_limit,
         can_add_instructor=can_add,
         totals=totals,
+        totals_prev_month=totals_prev_month,
         rows=rows,
     )
 

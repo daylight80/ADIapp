@@ -12,6 +12,11 @@ type Props = {
   testID?: string;
   /** Override the user's preferred nav app. Defaults to instructor preference (or Google). */
   navApp?: 'google' | 'waze' | 'apple';
+  /** Optional style overrides so this can match a surrounding action row
+   * (e.g. the same flex:1/height:44 buttons on the student profile quick
+   * actions) instead of always rendering its own compact pill shape. */
+  style?: any;
+  textStyle?: any;
 };
 
 /**
@@ -25,7 +30,7 @@ type Props = {
  *
  * Zero API keys required — opens the user's native Maps app via deep-link.
  */
-export function OpenInMapsButton({ address, variant = 'pill', label = 'Open in Maps', testID, navApp }: Props) {
+export function OpenInMapsButton({ address, variant = 'pill', label = 'Open in Maps', testID, navApp, style, textStyle }: Props) {
   const { profile } = useInstructorProfile();
   const preferred = (navApp || profile?.preferred_nav_app || 'google') as 'google' | 'waze' | 'apple';
 
@@ -60,13 +65,13 @@ export function OpenInMapsButton({ address, variant = 'pill', label = 'Open in M
     <TouchableOpacity
       onPress={onPress}
       disabled={disabled}
-      style={[styles.pill, disabled && styles.disabled]}
+      style={[styles.pill, disabled && styles.disabled, style]}
       testID={testID || 'btn-open-maps'}
       accessibilityRole="button"
       accessibilityLabel={`${label}: ${trimmed || 'no address'}`}
     >
       <NavIcon size={13} color={disabled ? theme.colors.textMuted : theme.colors.primary} />
-      <Text style={[styles.pillText, disabled && styles.disabledText]} numberOfLines={1}>{label}</Text>
+      <Text style={[styles.pillText, disabled && styles.disabledText, textStyle]} numberOfLines={1}>{label}</Text>
     </TouchableOpacity>
   );
 }

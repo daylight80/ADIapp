@@ -7,9 +7,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Users, ChevronRight, Crown, Check, ArrowRight } from 'lucide-react-native';
 import { theme } from '../src/theme';
-import { Card, Badge } from '../src/ui';
+import { Card, Badge, LockedFeature } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { supabase } from '../src/supabaseClient';
+import { useAuth } from '../src/AuthContext';
+import { isFranchiseTier } from '../src/tiers';
 
 const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || '';
 
@@ -31,6 +33,7 @@ type SchoolStudent = {
 
 export default function ManageAssignmentsScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
 
@@ -174,6 +177,28 @@ export default function ManageAssignmentsScreen() {
     );
   }
 
+  // Defense in depth: the owner dashboard already greys out the entry point
+  // for non-Franchise schools, but this screen is reachable by direct URL
+  // too, so it must enforce the tier itself rather than trusting the caller.
+  if (!isFranchiseTier(user?.tier)) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="btn-back">
+            <ArrowLeft size={22} color={theme.colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.title}>Student assignments</Text>
+          <View style={{ width: 38 }} />
+        </View>
+        <LockedFeature
+          variant="fullscreen"
+          title="Student assignments locked"
+          subtitle="Managing assignments across instructors is included from Franchise tier (£39.99/mo)."
+        />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
@@ -204,9 +229,10 @@ export default function ManageAssignmentsScreen() {
         {instructors.map((i) => (
           <RailChip
             key={i.id}
-            label={`${i.is_owner ? '👑 ' : ''}${i.full_name} · ${counts.get(i.id) || 0}`}
+            label={`${i.full_name} · ${counts.get(i.id) || 0}`}
             active={filterInstructorId === i.id}
             onPress={() => setFilterInstructorId(i.id)}
+            icon={i.is_owner ? Crown : undefined}
           />
         ))}
       </ScrollView>
@@ -328,12 +354,13 @@ export default function ManageAssignmentsScreen() {
   );
 }
 
-function RailChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function RailChip({ label, active, onPress, icon: Icon }: { label: string; active: boolean; onPress: () => void; icon?: React.ComponentType<{ size?: number; color?: string }> }) {
   return (
     <TouchableOpacity
       onPress={onPress}
       style={[styles.railChip, active && styles.railChipActive]}
     >
+      {Icon && <Icon size={12} color={active ? '#fff' : theme.colors.accent} />}
       <Text style={[styles.railChipText, active && { color: '#fff', fontWeight: '700' }]}>{label}</Text>
     </TouchableOpacity>
   );
@@ -346,7 +373,12 @@ const styles = StyleSheet.create({
   title: { ...theme.font.h2, flex: 1, textAlign: 'center' },
 
   railRow: { gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
-  railChip: { backgroundColor: theme.colors.surface, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: theme.colors.border },
+  railChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: theme.colors.surface, borderRadius: 999,
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderWidth: 1, borderColor: theme.colors.border,
+  },
   railChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   railChipText: { fontSize: 13, color: theme.colors.text },
 

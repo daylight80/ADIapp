@@ -1301,16 +1301,32 @@ export type ReceiptCategory =
   | 'fuel' | 'maintenance' | 'car_wash' | 'parking' | 'tolls'
   | 'mot'  | 'insurance'   | 'lesson_supplies' | 'other';
 
-export const RECEIPT_CATEGORIES: { key: ReceiptCategory; label: string; emoji: string }[] = [
-  { key: 'fuel',            label: 'Fuel',            emoji: '\u26FD' },
-  { key: 'maintenance',     label: 'Maintenance',     emoji: '\uD83D\uDD27' },
-  { key: 'car_wash',        label: 'Car wash',        emoji: '\uD83E\uDDFC' },
-  { key: 'parking',         label: 'Parking',         emoji: '\uD83C\uDD7F\uFE0F' },
-  { key: 'tolls',           label: 'Tolls',           emoji: '\uD83D\uDEE3\uFE0F' },
-  { key: 'mot',             label: 'MOT',             emoji: '\uD83D\uDCDD' },
-  { key: 'insurance',       label: 'Insurance',       emoji: '\uD83D\uDEE1\uFE0F' },
-  { key: 'lesson_supplies', label: 'Lesson supplies', emoji: '\uD83D\uDCDA' },
-  { key: 'other',           label: 'Other',           emoji: '\uD83D\uDCC4' },
+export type ReceiptCategoryTint = {
+  bg: string;
+  border: string;
+  icon: string;
+  text: string;
+};
+
+export const RECEIPT_CATEGORIES: { key: ReceiptCategory; label: string; emoji: string; tint: ReceiptCategoryTint }[] = [
+  { key: 'fuel',            label: 'Fuel',            emoji: '\u26FD',
+    tint: { bg: '#FEF2F2', border: '#FCA5A5', icon: '#B91C1C', text: '#7F1D1D' } },
+  { key: 'maintenance',     label: 'Maintenance',     emoji: '\uD83D\uDD27',
+    tint: { bg: '#F9FAFB', border: '#E5E7EB', icon: '#6B7280', text: '#374151' } },
+  { key: 'car_wash',        label: 'Car wash',        emoji: '\uD83E\uDDFC',
+    tint: { bg: '#FDF4FF', border: '#E9A6F5', icon: '#A21CAF', text: '#701A75' } },
+  { key: 'parking',         label: 'Parking',         emoji: '\uD83C\uDD7F\uFE0F',
+    tint: { bg: '#EFF6FF', border: '#93C5FD', icon: '#1D4ED8', text: '#1E3A8A' } },
+  { key: 'tolls',           label: 'Tolls',           emoji: '\uD83D\uDEE3\uFE0F',
+    tint: { bg: '#F5F3FF', border: '#C4B5FD', icon: '#6D28D9', text: '#4C1D95' } },
+  { key: 'mot',             label: 'MOT',             emoji: '\uD83D\uDCDD',
+    tint: { bg: '#FFFBEB', border: '#FCD34D', icon: '#B45309', text: '#78350F' } },
+  { key: 'insurance',       label: 'Insurance',       emoji: '\uD83D\uDEE1\uFE0F',
+    tint: { bg: '#EFF6FF', border: '#93C5FD', icon: '#1D4ED8', text: '#1E3A8A' } },
+  { key: 'lesson_supplies', label: 'Lesson supplies', emoji: '\uD83D\uDCDA',
+    tint: { bg: '#F0FDF4', border: '#86EFAC', icon: '#15803D', text: '#14532D' } },
+  { key: 'other',           label: 'Other',           emoji: '\uD83D\uDCC4',
+    tint: { bg: '#F9FAFB', border: '#E5E7EB', icon: '#6B7280', text: '#374151' } },
 ];
 
 export type ExpenseReceipt = {

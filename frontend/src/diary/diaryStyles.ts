@@ -201,6 +201,34 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Test-day and paid indicators live in the top-left / bottom-left corners
+  // deliberately — the top-right is already used by the nav button, the
+  // gap-warning dot, and the cancelled tag, and those aren't all mutually
+  // exclusive with these two.
+  testDayBadge: {
+    position: 'absolute', top: 4, left: 4,
+    width: 16, height: 16, borderRadius: 8,
+    backgroundColor: theme.colors.accent,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  testDayBadgeWeek: {
+    position: 'absolute', top: 2, left: 2,
+    width: 13, height: 13, borderRadius: 7,
+    backgroundColor: theme.colors.accent,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  paidBadge: {
+    position: 'absolute', bottom: 4, left: 4,
+    width: 16, height: 16, borderRadius: 8,
+    backgroundColor: theme.colors.success,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  paidBadgeWeek: {
+    position: 'absolute', bottom: 2, left: 2,
+    width: 13, height: 13, borderRadius: 7,
+    backgroundColor: theme.colors.success,
+    alignItems: 'center', justifyContent: 'center',
+  },
   dayName: { fontWeight: '600', color: theme.colors.text, fontSize: 12 },
   dayNum: { fontSize: 16, fontWeight: '700', color: theme.colors.primary },
   // ---------- Shared / Form ----------

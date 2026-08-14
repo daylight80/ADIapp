@@ -22,7 +22,10 @@ export function BottomSheet({ visible, onClose, title, children, testID }: Props
     >
       <View style={styles.backdrop}>
         <TouchableOpacity style={styles.backdropTouch} activeOpacity={1} onPress={onClose} testID="bottom-sheet-backdrop" />
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheetWrap}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.sheetWrap}
+        >
           <View style={styles.sheet}>
             <View style={styles.handle} />
             <View style={styles.header}>

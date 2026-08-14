@@ -969,6 +969,23 @@ export async function listCompetencies(studentId: string): Promise<Competency[]>
   return (data || []).map(competencyFromRow);
 }
 
+// Cross-student competency records for pattern detection — "which DVSA
+// categories are several of my students currently weak on". RLS already
+// permits an instructor to read every tracking row for their own assigned
+// students in one query (not just one student at a time), so this is a
+// single round trip rather than N per-student calls.
+export async function listCompetenciesForStudents(studentIds: string[]): Promise<Competency[]> {
+  const validIds = studentIds.filter((id) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+  if (validIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from('dvsa_syllabus_tracking')
+    .select('*')
+    .in('student_id', validIds);
+  if (error) throw error;
+  return (data || []).map(competencyFromRow);
+}
+
 export async function seedCompetenciesIfEmpty(studentId: string): Promise<number> {
   // Guard against mockDb sentinel IDs (won't cast to UUID at PostgREST).
   if (!studentId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(studentId)) {
@@ -2032,6 +2049,103 @@ export async function listMockTestAttempts(studentId: string): Promise<MockTestA
     throw error;
   }
   return (data || []) as MockTestAttempt[];
+}
+
+// ===========================================================================
+// GDPR deletion requests (Migration 026) — a formal, audited "please delete
+// my data" request. Deliberately doesn't execute the deletion itself; a
+// student's request becomes visible to their instructor (who already has a
+// working hard-delete), and an instructor's own request is logged for
+// manual follow-up rather than auto-executed, since deleting an
+// instructor's account is a bigger operation than this session scoped out.
+// ===========================================================================
+
+export type GdprDeletionRequest = {
+  id: string;
+  requested_by_role: 'student' | 'instructor';
+  requested_by_auth_id: string;
+  student_id: string | null;
+  instructor_id: string | null;
+  reason: string | null;
+  status: 'pending' | 'completed' | 'declined';
+  requested_at: string;
+  resolved_at: string | null;
+  resolution_note: string | null;
+};
+
+function isMissingGdprTable(msg: string): boolean {
+  return /gdpr_deletion_requests/i.test(msg) && /(does not exist|schema cache)/i.test(msg);
+}
+
+export async function submitDeletionRequest(input: {
+  role: 'student' | 'instructor';
+  studentId?: string;
+  instructorId?: string;
+  reason?: string;
+}): Promise<GdprDeletionRequest> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const uid = sessionData.session?.user.id;
+  if (!uid) throw new Error('Not signed in');
+  const row = {
+    requested_by_role: input.role,
+    requested_by_auth_id: uid,
+    student_id: input.role === 'student' ? input.studentId : null,
+    instructor_id: input.role === 'instructor' ? input.instructorId : null,
+    reason: input.reason?.trim() || null,
+  };
+  const { data, error } = await supabase
+    .from('gdpr_deletion_requests')
+    .insert(row)
+    .select('*')
+    .single();
+  if (error) {
+    if (isMissingGdprTable(error.message || '')) {
+      throw new Error('Please apply Migration 026 first (gdpr_deletion_requests table).');
+    }
+    throw error;
+  }
+  return data as GdprDeletionRequest;
+}
+
+export async function listMyDeletionRequests(role: 'student' | 'instructor', id: string): Promise<GdprDeletionRequest[]> {
+  const column = role === 'student' ? 'student_id' : 'instructor_id';
+  const { data, error } = await supabase
+    .from('gdpr_deletion_requests')
+    .select('*')
+    .eq(column, id)
+    .order('requested_at', { ascending: false });
+  if (error) {
+    if (isMissingGdprTable(error.message || '')) return [];
+    throw error;
+  }
+  return (data || []) as GdprDeletionRequest[];
+}
+
+// For the instructor side — is there a pending deletion request from this
+// specific student? Used to surface a prompt on the student's own profile
+// screen rather than requiring the instructor to check a separate inbox.
+export async function getPendingDeletionRequestForStudent(studentId: string): Promise<GdprDeletionRequest | null> {
+  const { data, error } = await supabase
+    .from('gdpr_deletion_requests')
+    .select('*')
+    .eq('student_id', studentId)
+    .eq('status', 'pending')
+    .order('requested_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    if (isMissingGdprTable(error.message || '')) return null;
+    throw error;
+  }
+  return (data as GdprDeletionRequest) || null;
+}
+
+export async function resolveDeletionRequest(requestId: string, status: 'completed' | 'declined', note?: string): Promise<void> {
+  const { error } = await supabase
+    .from('gdpr_deletion_requests')
+    .update({ status, resolved_at: new Date().toISOString(), resolution_note: note?.trim() || null })
+    .eq('id', requestId);
+  if (error) throw error;
 }
 
 

@@ -16,6 +16,7 @@ import {
   Trophy,
   PoundSterling,
   MapPin,
+  BookOpen,
 } from 'lucide-react-native';
 import { theme } from './theme';
 import { Lesson, Student, mockDb } from './mockDb';
@@ -352,8 +353,8 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
             <View style={styles.badgeRow}>
               <Badge label={lesson.status} />
               <Badge label={`${lesson.duration_hours}h`} />
-              {lesson.travel_minutes && <Badge label={`${lesson.travel_minutes}m travel`} bg="#FFF7ED" color={theme.colors.accent} />}
-              {lesson.pre_check_completed_at && <Badge label="Pre-check ✓" bg="#D1FAE5" color={theme.colors.success} />}
+              {lesson.travel_minutes && <Badge label={`${lesson.travel_minutes}m travel`} bg={theme.colors.lockedBg} color={theme.colors.accent} />}
+              {lesson.pre_check_completed_at && <Badge label="Pre-check ✓" bg={theme.colors.successLight} color={theme.colors.success} />}
             </View>
 
             {/* Cancellation summary — only shown when the lesson was cancelled.
@@ -430,6 +431,20 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
             >
               <MapPin size={18} color={theme.colors.primary} />
               <Text style={styles.recordRouteText}>Record route for this lesson</Text>
+            </TouchableOpacity>
+
+            {/* Show Me, Tell Me quick reference — for glancing at during the
+                lesson, e.g. before running a practice question with the student. */}
+            <TouchableOpacity
+              style={styles.smtmLinkBtn}
+              onPress={() => {
+                onClose();
+                router.push('/show-me-tell-me-screen');
+              }}
+              testID="btn-show-me-tell-me"
+            >
+              <BookOpen size={16} color={theme.colors.textMuted} />
+              <Text style={styles.smtmLinkText}>Show Me, Tell Me question reference</Text>
             </TouchableOpacity>
 
             {/* Pre-lesson check */}
@@ -853,7 +868,7 @@ function CompleteLessonModal(p: CompleteProps) {
 
           <ScrollView style={{ maxHeight: 480 }} contentContainerStyle={{ paddingBottom: 8 }}>
             <Text style={styles.section}>Faults recorded</Text>
-            <Stepper label="Driving faults"     value={p.drivingFaults}   setter={p.setDrivingFaults}   colour={theme.colors.warning ?? '#F59E0B'} testID="step-driving" />
+            <Stepper label="Driving faults"     value={p.drivingFaults}   setter={p.setDrivingFaults}   colour={theme.colors.warning ?? theme.colors.warning} testID="step-driving" />
             <Stepper label="Serious faults"     value={p.seriousFaults}   setter={p.setSeriousFaults}   colour="#EA580C"                          testID="step-serious" />
             <Stepper label="Dangerous faults"   value={p.dangerousFaults} setter={p.setDangerousFaults} colour={theme.colors.danger}              testID="step-dangerous" />
 
@@ -952,6 +967,8 @@ const styles = StyleSheet.create({
   imHereText: { color: '#fff', fontWeight: '700' },
   recordRouteBtn: { marginTop: 10, height: 46, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: theme.colors.primary },
   recordRouteText: { color: theme.colors.primary, fontWeight: '700', fontSize: 14 },
+  smtmLinkBtn: { marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8 },
+  smtmLinkText: { color: theme.colors.textMuted, fontWeight: '600', fontSize: 13, textDecorationLine: 'underline' },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
   checkIcon: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.background },
   checkIconActive: { backgroundColor: theme.colors.success },
@@ -970,7 +987,7 @@ const styles = StyleSheet.create({
   modalSub: { fontSize: 14, color: theme.colors.textMuted, textAlign: 'center' },
   modalCta: { backgroundColor: theme.colors.accent, height: 50, borderRadius: 12, paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch' },
   modalCtaText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  sentRow: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#D1FAE5', padding: 12, borderRadius: 10, alignSelf: 'stretch' },
+  sentRow: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.successLight, padding: 12, borderRadius: 10, alignSelf: 'stretch' },
   sentText: { color: theme.colors.success, fontWeight: '600', flex: 1, fontSize: 13 },
   modalClose: { color: theme.colors.textMuted, marginTop: 8, fontWeight: '600' },
   // Complete-lesson modal

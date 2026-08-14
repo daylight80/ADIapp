@@ -243,6 +243,20 @@ export default function StudentHomeScreen() {
           </Card>
         </TouchableOpacity>
 
+        {/* Show Me, Tell Me reference */}
+        <TouchableOpacity onPress={() => router.push('/show-me-tell-me-screen')} testID="show-me-tell-me-widget">
+          <Card style={styles.smtmCard}>
+            <View style={styles.smtmIcon}>
+              <BookOpen size={22} color={theme.colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.smtmTitle}>Show Me, Tell Me</Text>
+              <Text style={styles.smtmSub}>All 21 official DVSA vehicle safety questions</Text>
+            </View>
+            <ChevronRight size={20} color={theme.colors.textMuted} />
+          </Card>
+        </TouchableOpacity>
+
         {/* DVSA Competency Tracker — Growth tier and above */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>DVSA Competency Tracker</Text>
@@ -287,10 +301,10 @@ export default function StudentHomeScreen() {
               <Text style={styles.fbTopic}>{recentLesson.topic}</Text>
               {recentLesson.notes && <Text style={styles.fbNotes}>"{recentLesson.notes}"</Text>}
               <View style={{ flexDirection: 'row', gap: 8 }}>
-                {recentLesson.grade && <Badge label={`Grade ${recentLesson.grade}/5`} bg="#D1FAE5" color={theme.colors.success} />}
+                {recentLesson.grade && <Badge label={`Grade ${recentLesson.grade}/5`} bg={theme.colors.successLight} color={theme.colors.success} />}
                 <Badge
                   label={`${recentLesson.driving_faults + recentLesson.serious_faults} faults`}
-                  bg="#FEF3C7"
+                  bg={theme.colors.warningLight}
                   color={theme.colors.faultDriving}
                 />
               </View>
@@ -424,6 +438,10 @@ const styles = StyleSheet.create({
   mockIcon: { width: 52, height: 52, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
   mockTitle: { color: '#fff', fontWeight: '700', fontSize: 17 },
   mockSub: { color: '#ffffffdd', fontSize: 13, marginTop: 2 },
+  smtmCard: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  smtmIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: theme.colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
+  smtmTitle: { color: theme.colors.text, fontWeight: '700', fontSize: 15 },
+  smtmSub: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
   sectionTitle: { ...theme.font.h3 },
   sectionHeader: { marginTop: 4 },
   compGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
@@ -445,7 +463,7 @@ const styles = StyleSheet.create({
   fbTopic: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
   fbNotes: { fontSize: 14, color: theme.colors.text, fontStyle: 'italic', lineHeight: 20 },
   badgesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  badgeChip: { backgroundColor: '#FFF7ED', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: theme.colors.accent },
+  badgeChip: { backgroundColor: theme.colors.lockedBg, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: theme.colors.accent },
   badgeChipText: { color: theme.colors.accent, fontWeight: '700', fontSize: 13 },
   shortcutRow: { flexDirection: 'row', gap: 10 },
   shortcut: { flex: 1, height: 60, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },

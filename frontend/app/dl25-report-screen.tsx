@@ -98,13 +98,13 @@ export default function Dl25ReportScreen() {
                   <Text style={styles.bdName}>{c.name}</Text>
                   <View style={{ flexDirection: 'row', gap: 6 }}>
                     {f.driving > 0 && (
-                      <Badge label={`D:${f.driving}`} bg="#FEF3C7" color={theme.colors.faultDriving} />
+                      <Badge label={`D:${f.driving}`} bg={theme.colors.warningLight} color={theme.colors.faultDriving} />
                     )}
                     {f.serious > 0 && (
-                      <Badge label={`S:${f.serious}`} bg="#FEE2E2" color={theme.colors.faultSerious} />
+                      <Badge label={`S:${f.serious}`} bg={theme.colors.dangerLight} color={theme.colors.faultSerious} />
                     )}
                     {f.dangerous > 0 && (
-                      <Badge label={`X:${f.dangerous}`} bg="#FEE2E2" color={theme.colors.faultDangerous} />
+                      <Badge label={`X:${f.dangerous}`} bg={theme.colors.dangerLight} color={theme.colors.faultDangerous} />
                     )}
                   </View>
                 </View>
@@ -137,7 +137,7 @@ export default function Dl25ReportScreen() {
                   </View>
                   <Badge
                     label={a.passed ? 'PASS' : 'FAIL'}
-                    bg={a.passed ? '#D1FAE5' : '#FEE2E2'}
+                    bg={a.passed ? theme.colors.successLight : theme.colors.dangerLight}
                     color={a.passed ? theme.colors.success : theme.colors.danger}
                   />
                 </View>

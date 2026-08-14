@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import time
 import logging
 from pathlib import Path
 from pydantic import BaseModel, EmailStr, Field
@@ -96,6 +97,46 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 _PRO_PRICE_ID: Optional[str] = None
+
+# =============================================================================
+# Login rate limiting (legacy /auth/login only — the Supabase-backed auth
+# flow already has its own rate limiting on Supabase's side; this is
+# specifically for the custom Mongo-based endpoint below, which had none).
+#
+# Deliberately dependency-free: an in-memory sliding window keyed by both
+# email and client IP. Known limitation — resets on process restart and
+# doesn't share state across multiple server instances. Fine at current
+# scale (single instance); revisit with a shared store (Redis) if/when the
+# backend runs as more than one process.
+# =============================================================================
+_LOGIN_ATTEMPT_WINDOW_SEC = 15 * 60   # 15 minutes
+_LOGIN_MAX_ATTEMPTS = 8               # per identifier, per window
+_login_attempts: dict[str, list[float]] = {}
+
+
+def _rate_limit_check(identifier: str) -> None:
+    """Raises 429 if `identifier` (email or IP) has too many recent failed
+    login attempts. Call AFTER a failed password check, not before — this
+    counts failures, not every request, so a correct password on a first try
+    never gets blocked."""
+    now = time.time()
+    attempts = [t for t in _login_attempts.get(identifier, []) if now - t < _LOGIN_ATTEMPT_WINDOW_SEC]
+    if len(attempts) >= _LOGIN_MAX_ATTEMPTS:
+        retry_after = int(_LOGIN_ATTEMPT_WINDOW_SEC - (now - attempts[0]))
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many login attempts. Try again in {max(1, retry_after // 60)} minute(s).",
+            headers={"Retry-After": str(max(1, retry_after))},
+        )
+    _login_attempts[identifier] = attempts
+
+
+def _rate_limit_record_failure(identifier: str) -> None:
+    _login_attempts.setdefault(identifier, []).append(time.time())
+
+
+def _rate_limit_clear(identifier: str) -> None:
+    _login_attempts.pop(identifier, None)
 
 
 # ============= MODELS =============
@@ -316,10 +357,27 @@ async def register_instructor(req: RegisterInstructorRequest):
 
 
 @api_router.post("/auth/login", response_model=TokenResponse)
-async def login(req: LoginRequest):
-    user = await db.users.find_one({"email": req.email.lower()})
+async def login(req: LoginRequest, request: Request):
+    email = req.email.lower()
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Check both the email and the IP — stops both "hammer one account" and
+    # "spray many emails from one source" patterns.
+    _rate_limit_check(email)
+    _rate_limit_check(f"ip:{client_ip}")
+
+    user = await db.users.find_one({"email": email})
     if not user or not verify_password(req.password, user["password"]):
+        _rate_limit_record_failure(email)
+        _rate_limit_record_failure(f"ip:{client_ip}")
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # Successful login — clear this email's failure count so a legitimate
+    # user who mistyped their password a couple of times isn't stuck
+    # waiting out the window unnecessarily. IP counter is left alone
+    # deliberately, since it protects against spraying many different
+    # emails from one source, not this one account's own history.
+    _rate_limit_clear(email)
     token = create_access_token(user["id"], user["email"], user["role"])
     return TokenResponse(access_token=token, user=to_public_user(user))
 

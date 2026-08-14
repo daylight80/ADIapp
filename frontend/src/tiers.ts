@@ -150,3 +150,36 @@ export function explainLimitError(err: any): string | null {
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Escalating "you're getting close to your limit" nudges — the point being
+// to prompt an upgrade before someone hits the hard cap, not just when they
+// do (previously the only nudge was the paywall that appears once blocked).
+// ---------------------------------------------------------------------------
+export type UsageUrgency = 'ok' | 'warning' | 'critical';
+
+export function studentUsageUrgency(current: number, limit: number | null): UsageUrgency {
+  if (limit === null || limit === 0) return 'ok'; // unlimited tier
+  if (current >= limit) return 'critical';
+  if (current / limit >= 0.6) return 'warning';
+  return 'ok';
+}
+
+// Same three-tier message regardless of which screen shows it, so the nudge
+// feels consistent wherever it's seen.
+export function studentUsageMessage(current: number, limit: number | null): string {
+  if (limit === null || limit === 0) return '';
+  const growth = tierById('growth');
+  const remaining = limit - current;
+  if (remaining <= 0) {
+    return `You've reached your limit — upgrade to ${growth.name} (£${growth.price_gbp}/mo) to add more students.`;
+  }
+  if (remaining === 1) {
+    return `Just 1 spot left — upgrade to ${growth.name} (£${growth.price_gbp}/mo) before you hit your limit.`;
+  }
+  if (studentUsageUrgency(current, limit) === 'warning') {
+    return `Getting close to your limit — upgrade to ${growth.name} (£${growth.price_gbp}/mo) for more room to grow.`;
+  }
+  return `Unlock more students + invoicing from £${growth.price_gbp}/mo.`;
+}
+

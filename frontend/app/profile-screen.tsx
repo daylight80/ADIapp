@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown, ShieldCheck, Wallet, Copy, IdCard, Car, Navigation as NavIcon, Users, FileSpreadsheet } from 'lucide-react-native';
+import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown, ShieldCheck, Wallet, Copy, IdCard, Car, Navigation as NavIcon, Users, FileSpreadsheet, Download, Trash2 } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { mockDb, instructorProfile } from '../src/mockDb';
@@ -12,10 +12,12 @@ import { isPaidTier } from '../src/tiers';
 import { copyToClipboard } from '../src/tools';
 import { useInstructorProfile, updatePreferredNavApp } from '../src/useSupabaseData';
 import type { NavApp } from '../src/supabaseDb';
+import { submitDeletionRequest, listMyDeletionRequests } from '../src/supabaseDb';
+import { exportMyDataJson } from '../src/gdprExport';
 import { CalendarFeedCard } from '../src/CalendarFeedCard';
 import { ContactsImportSheet } from '../src/ContactsImportSheet';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
-import { Alert, TextInput } from 'react-native';
+import { Alert, TextInput, ActivityIndicator } from 'react-native';
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
@@ -32,6 +34,65 @@ export default function ProfileScreen() {
     if (sbInstructor?.preferred_nav_app) setNavApp(sbInstructor.preferred_nav_app);
   }, [sbInstructor?.preferred_nav_app]);
   const [savingNav, setSavingNav] = useState(false);
+
+  // ---------------------------------------------------------------------------
+  // Privacy & data — self-service export and a formal deletion request.
+  // ---------------------------------------------------------------------------
+  const [exportingData, setExportingData] = useState(false);
+  const [submittingDeletion, setSubmittingDeletion] = useState(false);
+  const [pendingDeletionRequest, setPendingDeletionRequest] = useState<boolean>(false);
+
+  React.useEffect(() => {
+    const id = role === 'student' ? user?.student_id : user?.instructor_id;
+    if (!id) return;
+    listMyDeletionRequests(role as 'student' | 'instructor', id)
+      .then((reqs) => setPendingDeletionRequest(reqs.some((r) => r.status === 'pending')))
+      .catch(() => {});
+  }, [role, user?.student_id, user?.instructor_id]);
+
+  const handleDownloadMyData = async () => {
+    setExportingData(true);
+    try {
+      await exportMyDataJson(role as 'student' | 'instructor', user?.student_id ?? undefined, user?.instructor_id ?? undefined);
+    } catch (e: any) {
+      Alert.alert('Could not export your data', e?.message || 'Please try again.');
+    } finally {
+      setExportingData(false);
+    }
+  };
+
+  const handleRequestDeletion = () => {
+    Alert.alert(
+      'Request account deletion',
+      role === 'student'
+        ? "This sends a formal request to your instructor to delete your data. This can't be undone once they action it."
+        : "This logs a formal request for your account to be reviewed and deleted. Since this affects your students and lesson records too, it needs manual follow-up rather than happening instantly.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Send request',
+          style: 'destructive',
+          onPress: async () => {
+            setSubmittingDeletion(true);
+            try {
+              await submitDeletionRequest({
+                role: role as 'student' | 'instructor',
+                studentId: user?.student_id ?? undefined,
+                instructorId: user?.instructor_id ?? undefined,
+              });
+              setPendingDeletionRequest(true);
+              Alert.alert('Request sent', "We've logged your request. You'll be notified once it's been actioned.");
+            } catch (e: any) {
+              Alert.alert('Could not submit request', e?.message || 'Please try again.');
+            } finally {
+              setSubmittingDeletion(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const [contactsImportOpen, setContactsImportOpen] = useState(false);
   const onPickNavApp = async (app: NavApp) => {
     const prev = navApp;
@@ -63,6 +124,10 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
       <View style={styles.header}>
         <Text style={styles.title}>Profile</Text>
       </View>
@@ -278,6 +343,39 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         )}
 
+        {/* Privacy & data — GDPR self-service export + deletion request */}
+        <Card style={{ gap: 10 }} testID="card-privacy-data">
+          <Text style={styles.cardTitle}>Privacy & data</Text>
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={handleDownloadMyData}
+            disabled={exportingData}
+            testID="btn-download-my-data"
+          >
+            {exportingData ? (
+              <ActivityIndicator size="small" color={theme.colors.primary} />
+            ) : (
+              <Download size={18} color={theme.colors.primary} />
+            )}
+            <Text style={styles.linkRowText}>{exportingData ? 'Preparing your data…' : 'Download my data'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.linkRow, { borderColor: theme.colors.danger }]}
+            onPress={handleRequestDeletion}
+            disabled={submittingDeletion || pendingDeletionRequest}
+            testID="btn-request-deletion"
+          >
+            {submittingDeletion ? (
+              <ActivityIndicator size="small" color={theme.colors.danger} />
+            ) : (
+              <Trash2 size={18} color={theme.colors.danger} />
+            )}
+            <Text style={[styles.linkRowText, { color: theme.colors.danger }]}>
+              {pendingDeletionRequest ? 'Deletion request pending' : 'Request account deletion'}
+            </Text>
+          </TouchableOpacity>
+        </Card>
+
         <TouchableOpacity style={styles.logoutBtn} onPress={signOut} testID="btn-signout">
           <LogOut size={18} color="#fff" />
           <Text style={styles.logoutText}>Sign Out</Text>
@@ -293,6 +391,7 @@ export default function ProfileScreen() {
         visible={contactsImportOpen}
         onClose={() => setContactsImportOpen(false)}
       />
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

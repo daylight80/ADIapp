@@ -404,7 +404,7 @@ export default function OwnerDashboardScreen() {
                ) ?? undefined : undefined}
           />
           <KPI label="Revenue (mo)" value={maskRevenue(`£${(leaderboard?.totals.revenue_month ?? 0).toFixed(0)}`, isRevenueHidden)}
-               icon={<PoundSterling size={16} color={theme.colors.success} />} tone="#D1FAE5"
+               icon={<PoundSterling size={16} color={theme.colors.success} />} tone={theme.colors.successLight}
                trend={leaderboard && !isRevenueHidden ? monthTrend(
                  leaderboard.totals.revenue_month,
                  leaderboard.totals_prev_month.revenue_month,
@@ -427,7 +427,7 @@ export default function OwnerDashboardScreen() {
                }
           />
           <KPI label="Pass rate" value={`${leaderboard?.totals.pass_rate ?? 0}%`}
-               icon={<TrendingUp size={16} color={theme.colors.accent} />} tone="#FFF7ED" />
+               icon={<TrendingUp size={16} color={theme.colors.accent} />} tone={theme.colors.lockedBg} />
         </View>
 
         {/* ------- Test Performance card ---------------------------------- */}
@@ -960,15 +960,15 @@ const styles = StyleSheet.create({
   needsAttentionCard: {
     marginHorizontal: 16, marginBottom: 14,
     padding: 14, borderRadius: 12,
-    backgroundColor: '#FEF3C7',
-    borderWidth: 1, borderColor: '#FDE68A',
+    backgroundColor: theme.colors.warningLight,
+    borderWidth: 1, borderColor: theme.colors.warningBorder,
   },
   needsAttentionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
   needsAttentionTitle: { fontSize: 14, fontWeight: '700', color: '#92400E' },
   needsAttentionRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingVertical: 8,
-    borderTopWidth: 1, borderTopColor: '#FDE68A',
+    borderTopWidth: 1, borderTopColor: theme.colors.warningBorder,
   },
   needsAttentionRowFirst: { borderTopWidth: 0 },
   needsAttentionRowText: { fontSize: 13, color: '#92400E', flex: 1, marginRight: 8 },
@@ -1033,10 +1033,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     padding: 12,
-    backgroundColor: '#FFF7ED',
+    backgroundColor: theme.colors.lockedBg,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#FED7AA',
+    borderColor: theme.colors.lockedBorder,
   },
   upsellText: { flex: 1, fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 },
   allocDateRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },

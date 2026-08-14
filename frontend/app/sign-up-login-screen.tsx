@@ -463,7 +463,7 @@ const styles = StyleSheet.create({
   tabTextActive: { color: theme.colors.text },
 
   // ----- Invite banner --------------------------------------------------
-  inviteBanner: { flexDirection: 'row', gap: 10, padding: 14, borderRadius: 12, backgroundColor: '#D1FAE5', borderWidth: 1, borderColor: theme.colors.success, marginBottom: 16 },
+  inviteBanner: { flexDirection: 'row', gap: 10, padding: 14, borderRadius: 12, backgroundColor: theme.colors.successLight, borderWidth: 1, borderColor: theme.colors.success, marginBottom: 16 },
   inviteTitle: { fontWeight: '700', color: theme.colors.success, fontSize: 15 },
   inviteSub: { color: theme.colors.text, fontSize: 13, marginTop: 4 },
 

@@ -299,6 +299,66 @@ export function useCompetencies(studentId: string | undefined) {
   return { competencies: items, loading };
 }
 
+export type CompetencyPattern = {
+  category_key: string;
+  category_name: string;
+  studentsStruggling: number;  // competency_level <= 2
+  studentsAssessed: number;    // has any record at all for this category
+};
+
+// A category counts as "struggling" for a student when their level is 1 or
+// 2 out of 5 — DriveHub doesn't have a separate "at risk" flag, so this is
+// a judgment call on what "struggling" means from the same data the
+// competency tracker already shows.
+const STRUGGLING_LEVEL_MAX = 2;
+
+export function useCompetencyPatterns(studentIds: string[]) {
+  const version = useVersion();
+  const [patterns, setPatterns] = useState<CompetencyPattern[]>([]);
+  const [studentsWithData, setStudentsWithData] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  // Stable key so the effect only re-runs when the actual set of ids
+  // changes, not on every render where a new array reference is passed in.
+  const idsKey = studentIds.slice().sort().join(',');
+
+  useEffect(() => {
+    if (studentIds.length === 0) {
+      setPatterns([]);
+      setStudentsWithData(0);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    db.listCompetenciesForStudents(studentIds)
+      .then((rows) => {
+        const byCategory = new Map<string, { name: string; struggling: Set<string>; assessed: Set<string> }>();
+        for (const r of rows) {
+          const entry = byCategory.get(r.category_key) || { name: r.category_name, struggling: new Set(), assessed: new Set() };
+          entry.assessed.add(r.student_id);
+          if (r.level <= STRUGGLING_LEVEL_MAX) entry.struggling.add(r.student_id);
+          byCategory.set(r.category_key, entry);
+        }
+        const result: CompetencyPattern[] = Array.from(byCategory.entries())
+          .map(([category_key, v]) => ({
+            category_key,
+            category_name: v.name,
+            studentsStruggling: v.struggling.size,
+            studentsAssessed: v.assessed.size,
+          }))
+          .filter((p) => p.studentsStruggling >= 2)  // a "pattern" needs at least 2 students, not just one
+          .sort((a, b) => b.studentsStruggling - a.studentsStruggling);
+        setPatterns(result);
+        setStudentsWithData(new Set(rows.map((r) => r.student_id)).size);
+      })
+      .catch(() => { setPatterns([]); setStudentsWithData(0); })
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey, version]);
+
+  return { patterns, studentsWithData, loading };
+}
+
 export async function updateCompetency(
   studentId: string,
   category_key: string,

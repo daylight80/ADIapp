@@ -1,15 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet, useWindowDimensions, Platform } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet, useWindowDimensions, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
   ChevronLeft, ChevronRight, Plus, ArrowLeft, AlertTriangle,
   Calendar, CalendarDays, Ban, Navigation as NavIcon, Route as RouteIcon,
+  PoundSterling, Trophy,
 } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { Lesson } from '../src/mockDb';
 import {
   useLessonsForWeek, useStudents, useInstructorProfile, useAvailabilityBlocks,
+  patchLesson,
 } from '../src/useSupabaseData';
 import { type AvailabilityBlock } from '../src/supabaseDb';
 import { BottomNav } from '../src/BottomNav';
@@ -24,9 +26,10 @@ import { openNavigation } from '../src/tools';
 import {
   DAYS, TOP_HOUR, BOTTOM_HOUR, HOURS, HOUR_HEIGHT, TOTAL_HEIGHT, TIME_W, CELL_W,
 } from '../src/diary/constants';
-import { startOfWeek, addDays, formatDateRange, localDateKey } from '../src/diary/dateUtils';
+import { startOfWeek, addDays, formatDateRange, localDateKey, toMin, minutesToTime, snapMinutes } from '../src/diary/dateUtils';
 import { styles } from '../src/diary/diaryStyles';
 import { AddLessonSheet } from '../src/diary/AddLessonSheet';
+import { DraggableLessonBlock } from '../src/diary/DraggableLessonBlock';
 
 export default function LessonDiaryScreen() {
   const router = useRouter();
@@ -105,6 +108,15 @@ export default function LessonDiaryScreen() {
 
   const getStudent = (id: string) => students.find((s) => s.id === id);
 
+  // Visual indicators on the diary grid: a lesson is "paid" if it has any
+  // amount recorded against it, and a "test day" lesson if it falls on the
+  // same calendar date as that student's booked test_date (students table,
+  // Migration 002) — a lesson isn't itself flagged as a test, so this is
+  // the only signal available to spot test-day lessons on the grid.
+  const isLessonPaid = (l: Lesson) => (l.amount_paid ?? 0) > 0;
+  const isLessonTestDay = (l: Lesson, s: ReturnType<typeof getStudent>) =>
+    !!s?.test_date && s.test_date.slice(0, 10) === l.date;
+
   // Icon-only toolbar buttons have no visible label — fine on mobile where
   // nothing hovers, but on desktop web a native tooltip on hover is a
   // near-free usability win. Native mobile ignores an unknown `title` prop.
@@ -142,6 +154,81 @@ export default function LessonDiaryScreen() {
     const top = ((sh - TOP_HOUR) + sm / 60) * HOUR_HEIGHT;
     const height = Math.max(28, l.duration_hours * HOUR_HEIGHT - 2);
     return { top, height };
+  };
+
+  // ---------------------------------------------------------------------------
+  // Drag-and-drop rescheduling. Both ScrollViews (the outer vertical one via
+  // `scrollRef`, and the horizontal week one) are disabled for the duration
+  // of a drag so gesture-handler has exclusive control of the touch — without
+  // this, dragging vertically fights the vertical scroll, and horizontally
+  // in week view fights the horizontal scroll.
+  // ---------------------------------------------------------------------------
+  const [dragScrollLocked, setDragScrollLocked] = useState(false);
+
+  const workingDayMinutes = (BOTTOM_HOUR - TOP_HOUR) * 60;
+
+  /**
+   * Converts a drag's raw pixel translation into a candidate new date/time,
+   * checks it against working hours and existing lessons for a collision,
+   * and — if clear — persists it. Returns whether the drop was accepted;
+   * the DraggableLessonBlock uses this to decide whether to spring back.
+   */
+  const handleLessonDrop = async (l: Lesson, translationX: number, translationY: number): Promise<boolean> => {
+    const deltaMinutes = snapMinutes((translationY / HOUR_HEIGHT) * 60);
+    const durationMinutes = Math.round(l.duration_hours * 60);
+    const currentStartMin = toMin(l.start_time);
+    const newStartMin = currentStartMin + deltaMinutes;
+
+    if (newStartMin < 0 || newStartMin + durationMinutes > workingDayMinutes) {
+      Alert.alert('Outside diary hours', `That would put the lesson outside the ${TOP_HOUR}:00–${BOTTOM_HOUR}:00 diary window.`);
+      return false;
+    }
+
+    // Day change only applies in week view — deltaDays stays 0 in day view
+    // since DraggableLessonBlock is told allowDayChange=false there, which
+    // already forces translationX to 0 before this function is even called.
+    const deltaDays = weekColWidth > 0 ? Math.round(translationX / weekColWidth) : 0;
+    const originalDate = new Date(`${l.date}T00:00:00`);
+    const newDateObj = deltaDays !== 0 ? addDays(originalDate, deltaDays) : originalDate;
+    const newDateKey = localDateKey(newDateObj);
+
+    // Clamp to the currently visible week — dragging further than that
+    // would move it somewhere the user can't currently see land, which is
+    // more confusing than useful for a first version of this.
+    const dayIndexInWeek = Math.round((newDateObj.getTime() - weekStart.getTime()) / 86400000);
+    if (dayIndexInWeek < 0 || dayIndexInWeek > 6) {
+      Alert.alert('Stay within the visible week', 'Scroll to next/previous week first, then drag within it.');
+      return false;
+    }
+
+    const newStartTime = minutesToTime(newStartMin);
+    const newEndTime = minutesToTime(newStartMin + durationMinutes);
+
+    const collision = lessons.some((other) =>
+      other.id !== l.id &&
+      other.status !== 'Cancelled' &&
+      other.date === newDateKey &&
+      toMin(other.start_time) < newStartMin + durationMinutes &&
+      toMin(other.end_time) > newStartMin
+    );
+    if (collision) {
+      Alert.alert('Time slot taken', 'Another lesson already occupies that time — pick a different slot.');
+      return false;
+    }
+
+    if (deltaMinutes === 0 && deltaDays === 0) {
+      // Dropped back where it started (e.g. a long-press with no real
+      // movement) — nothing to save, treat as accepted with no-op.
+      return true;
+    }
+
+    try {
+      await patchLesson(l.id, { date: newDateKey, start_time: newStartTime, end_time: newEndTime });
+      return true;
+    } catch (e: any) {
+      Alert.alert('Could not reschedule', e?.message || 'Please try again.');
+      return false;
+    }
   };
 
   const prevLessonFor = (l: Lesson) => lessons
@@ -228,7 +315,7 @@ export default function LessonDiaryScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll} scrollEnabled={!dragScrollLocked}>
         {viewMode === 'day' ? (
           <View style={styles.dayGrid} testID="day-grid">
             <View style={styles.dayGridHeader}>
@@ -281,17 +368,26 @@ export default function LessonDiaryScreen() {
                     const needed = l.travel_minutes ?? prev?.travel_minutes ?? 0;
                     const tooTight = !isCancelled && gapMin !== null && gapMin < needed;
                     return (
-                      <Pressable
+                      <DraggableLessonBlock
                         key={l.id}
+                        disabled={isCancelled}
+                        allowDayChange={false}
+                        resetKey={`${l.id}-${l.date}-${l.start_time}`}
+                        onDragStart={() => setDragScrollLocked(true)}
+                        onDragEnd={() => setDragScrollLocked(false)}
+                        onDrop={(tx, ty) => handleLessonDrop(l, tx, ty)}
                         style={[
                           styles.lessonBlockDay,
                           tooTight && styles.lessonBlockWarn,
                           isCancelled && styles.lessonBlockCancelled,
                           { top, height },
                         ]}
-                        onPress={() => setDetailLesson(l)}
                         testID={`lesson-block-${l.id}`}
                       >
+                        <Pressable
+                          style={{ flex: 1 }}
+                          onPress={() => setDetailLesson(l)}
+                        >
                         <Text style={[styles.lessonBlockTimeBig, isCancelled && styles.lessonTextCancelled]}>
                           {l.start_time}–{l.end_time}
                         </Text>
@@ -306,6 +402,16 @@ export default function LessonDiaryScreen() {
                         {tooTight && (
                           <View style={styles.warnDot} testID={`gap-warn-${l.id}`}>
                             <AlertTriangle size={10} color="#fff" />
+                          </View>
+                        )}
+                        {!isCancelled && isLessonTestDay(l, s) && (
+                          <View style={styles.testDayBadge} testID={`test-day-badge-${l.id}`} {...webTitle(`${s?.name || 'Student'}'s test is today`)}>
+                            <Trophy size={10} color="#fff" />
+                          </View>
+                        )}
+                        {!isCancelled && isLessonPaid(l) && (
+                          <View style={styles.paidBadge} testID={`paid-badge-${l.id}`} {...webTitle('Lesson paid')}>
+                            <PoundSterling size={9} color="#fff" />
                           </View>
                         )}
                         {isCancelled && (
@@ -329,14 +435,15 @@ export default function LessonDiaryScreen() {
                             <NavIcon size={14} color="#fff" />
                           </Pressable>
                         )}
-                      </Pressable>
+                        </Pressable>
+                      </DraggableLessonBlock>
                     );
                   })}
               </View>
             </View>
           </View>
         ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEnabled={!dragScrollLocked}>
             <View style={styles.grid} testID="weekly-grid">
               {/* Header row */}
               <View style={styles.gridRow}>
@@ -393,17 +500,26 @@ export default function LessonDiaryScreen() {
                         const needed = l.travel_minutes ?? prev?.travel_minutes ?? 0;
                         const tooTight = !isCancelled && gapMin !== null && gapMin < needed;
                         return (
-                          <Pressable
+                          <DraggableLessonBlock
                             key={l.id}
+                            disabled={isCancelled}
+                            allowDayChange
+                            resetKey={`${l.id}-${l.date}-${l.start_time}`}
+                            onDragStart={() => setDragScrollLocked(true)}
+                            onDragEnd={() => setDragScrollLocked(false)}
+                            onDrop={(tx, ty) => handleLessonDrop(l, tx, ty)}
                             style={[
                               styles.lessonBlockWeek,
                               tooTight && styles.lessonBlockWarn,
                               isCancelled && styles.lessonBlockCancelled,
                               { top, height },
                             ]}
-                            onPress={() => setDetailLesson(l)}
                             testID={`lesson-block-${l.id}`}
                           >
+                            <Pressable
+                              style={{ flex: 1 }}
+                              onPress={() => setDetailLesson(l)}
+                            >
                             <Text style={[styles.lessonBlockTime, isCancelled && styles.lessonTextCancelled]}>
                               {l.start_time}–{l.end_time}
                             </Text>
@@ -416,6 +532,16 @@ export default function LessonDiaryScreen() {
                             {tooTight && (
                               <View style={styles.warnDot} testID={`gap-warn-${l.id}`}>
                                 <AlertTriangle size={10} color="#fff" />
+                              </View>
+                            )}
+                            {!isCancelled && isLessonTestDay(l, s) && (
+                              <View style={styles.testDayBadgeWeek} testID={`test-day-badge-${l.id}`} {...webTitle(`${s?.name || 'Student'}'s test is today`)}>
+                                <Trophy size={8} color="#fff" />
+                              </View>
+                            )}
+                            {!isCancelled && isLessonPaid(l) && (
+                              <View style={styles.paidBadgeWeek} testID={`paid-badge-${l.id}`} {...webTitle('Lesson paid')}>
+                                <PoundSterling size={7} color="#fff" />
                               </View>
                             )}
                             {/* One-tap 🧭 navigation — hidden when cancelled */}
@@ -433,7 +559,8 @@ export default function LessonDiaryScreen() {
                                 <NavIcon size={11} color="#fff" />
                               </Pressable>
                             )}
-                          </Pressable>
+                            </Pressable>
+                          </DraggableLessonBlock>
                         );
                       })}
                     </View>

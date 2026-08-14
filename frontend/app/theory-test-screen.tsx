@@ -84,7 +84,7 @@ export default function TheoryTestScreen() {
             <Card key={q.id} style={styles.qCard} testID={`q-${q.id}`}>
               <View style={styles.qHead}>
                 <Badge label={`Q${i + 1}`} />
-                <Badge label={q.topic} bg="#FFF7ED" color={theme.colors.accent} />
+                <Badge label={q.topic} bg={theme.colors.lockedBg} color={theme.colors.accent} />
               </View>
               <Text style={styles.qText}>{q.question}</Text>
               <View style={{ gap: 8, marginTop: 8 }}>
@@ -154,8 +154,8 @@ const styles = StyleSheet.create({
   qText: { fontSize: 15, fontWeight: '600', color: theme.colors.text, lineHeight: 22 },
   opt: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, gap: 8 },
   optActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primaryLight },
-  optRight: { borderColor: theme.colors.success, backgroundColor: '#D1FAE5' },
-  optWrong: { borderColor: theme.colors.danger, backgroundColor: '#FEE2E2' },
+  optRight: { borderColor: theme.colors.success, backgroundColor: theme.colors.successLight },
+  optWrong: { borderColor: theme.colors.danger, backgroundColor: theme.colors.dangerLight },
   optText: { fontSize: 14, color: theme.colors.text, flex: 1 },
   submit: { backgroundColor: theme.colors.primary, height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   submitDisabled: { opacity: 0.4 },

@@ -18,7 +18,7 @@ import { theme } from '../src/theme';
 import { mockDb, StudentStatus } from '../src/mockDb';
 import { useStudents, createStudent, ensureDemoStudentsSeeded } from '../src/useSupabaseData';
 import { listStudentBalances } from '../src/supabaseDb';
-import { explainLimitError, canAddStudent, isPaidTier, tierById } from '../src/tiers';
+import { explainLimitError, canAddStudent, isPaidTier, tierById, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
 import { Card, ProgressBar, StatusBadge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { BottomNav } from '../src/BottomNav';
@@ -336,20 +336,27 @@ export default function StudentCrmScreen() {
         })}
       </ScrollView>
 
-      {!pro && (
-        <TouchableOpacity
-          style={styles.tierBanner}
-          onPress={() => router.push('/pricing-screen')}
-          testID="tier-usage-banner"
-          activeOpacity={0.9}
-        >
-          <Crown size={16} color={theme.colors.accent} />
-          <Text style={styles.tierText}>
-            {students.length}/{tierById(user?.tier).student_limit} students used ({tierById(user?.tier).name}) ·{' '}
-            <Text style={{ fontWeight: '700', color: theme.colors.primary }}>Upgrade</Text>
-          </Text>
-        </TouchableOpacity>
-      )}
+      {!pro && (() => {
+        const limit = tierById(user?.tier).student_limit;
+        const urgency = studentUsageUrgency(students.length, limit);
+        const urgencyColor = urgency === 'critical' ? theme.colors.danger
+          : urgency === 'warning' ? theme.colors.warning
+          : theme.colors.accent;
+        return (
+          <TouchableOpacity
+            style={[styles.tierBanner, urgency !== 'ok' && { borderColor: urgencyColor, backgroundColor: urgency === 'critical' ? '#FEF2F2' : '#FFFBEB' }]}
+            onPress={() => router.push('/pricing-screen')}
+            testID="tier-usage-banner"
+            activeOpacity={0.9}
+          >
+            <Crown size={16} color={urgencyColor} />
+            <Text style={styles.tierText}>
+              <Text style={{ fontWeight: '700' }}>{students.length}/{limit} students used</Text>
+              {' — '}{studentUsageMessage(students.length, limit)}
+            </Text>
+          </TouchableOpacity>
+        );
+      })()}
 
       <FlatList
         data={filtered}
@@ -712,7 +719,7 @@ const styles = StyleSheet.create({
   arrearsEmptyBadge: {
     width: 56, height: 56, borderRadius: 28,
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#D1FAE5',
+    backgroundColor: theme.colors.successLight,
   },
   arrearsEmptyTitle: { fontSize: 18, fontWeight: '800', color: theme.colors.text },
   arrearsEmptySub: {
@@ -780,7 +787,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#FFF7ED',
+    backgroundColor: theme.colors.lockedBg,
     marginHorizontal: 16,
     marginBottom: 8,
     paddingHorizontal: 12,
@@ -832,7 +839,7 @@ const styles = StyleSheet.create({
   linkBtn: { flex: 1, height: 48, borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   linkBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   emailBanner: {
-    backgroundColor: '#D1FAE5',
+    backgroundColor: theme.colors.successLight,
     borderColor: theme.colors.success,
     borderWidth: 1,
     borderRadius: 12,
@@ -842,7 +849,7 @@ const styles = StyleSheet.create({
   emailBannerTitle: { color: theme.colors.success, fontSize: 14, fontWeight: '700' },
   emailBannerText:  { color: theme.colors.text, fontSize: 13, lineHeight: 18 },
   emailBannerWarn: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: theme.colors.warningLight,
     borderColor: theme.colors.accent,
     borderWidth: 1,
     borderRadius: 12,

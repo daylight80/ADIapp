@@ -244,7 +244,7 @@ export default function CompetencyDetailScreen() {
                       <View style={styles.levelArrow}>
                         <Badge label={`L${beforeLvl}`} bg={theme.colors.border} color={theme.colors.textMuted} />
                         <Text style={{ color: theme.colors.textMuted }}>→</Text>
-                        <Badge label={`L${afterLvl}`} bg="#D1FAE5" color={theme.colors.success} />
+                        <Badge label={`L${afterLvl}`} bg={theme.colors.successLight} color={theme.colors.success} />
                       </View>
                       {isOpen ? <ChevronUp size={18} color={theme.colors.textMuted} /> : <ChevronDown size={18} color={theme.colors.textMuted} />}
                     </TouchableOpacity>

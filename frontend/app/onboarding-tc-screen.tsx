@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Check, ShieldCheck } from 'lucide-react-native';
@@ -87,6 +87,10 @@ export default function OnboardingTcScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="btn-back">
           <ArrowLeft size={22} color={theme.colors.text} />
@@ -183,6 +187,7 @@ export default function OnboardingTcScreen() {
 
         <View style={{ height: 32 }} />
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -212,7 +217,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.background,
     fontSize: 15,
   },
-  sigPreview: { marginTop: 8, padding: 14, borderWidth: 1, borderColor: theme.colors.accent, borderRadius: 10, backgroundColor: '#FFF7ED' },
+  sigPreview: { marginTop: 8, padding: 14, borderWidth: 1, borderColor: theme.colors.accent, borderRadius: 10, backgroundColor: theme.colors.lockedBg },
   sigPreviewText: { fontFamily: 'serif', fontSize: 22, fontStyle: 'italic', color: theme.colors.primary },
   sigPreviewDate: { fontSize: 11, color: theme.colors.textMuted, marginTop: 4 },
   submitBtn: { backgroundColor: theme.colors.primary, height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 4 },

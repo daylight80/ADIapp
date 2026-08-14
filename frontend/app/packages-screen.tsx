@@ -390,7 +390,7 @@ const styles = StyleSheet.create({
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: theme.colors.primary, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
   addBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
 
-  warnCard: { backgroundColor: '#FFF7ED', borderColor: '#FED7AA', borderWidth: 1, gap: 4 },
+  warnCard: { backgroundColor: theme.colors.lockedBg, borderColor: theme.colors.lockedBorder, borderWidth: 1, gap: 4 },
   warnTitle: { fontSize: 14, fontWeight: '800', color: theme.colors.text },
   warnSub: { fontSize: 12, color: theme.colors.textMuted, lineHeight: 16 },
 

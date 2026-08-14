@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -31,9 +31,9 @@ import { isCurrentUserSchoolOwner } from '../src/supabaseDb';
 import { Card, LockedFeature } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
 import { SimpleBarChart } from '../src/SimpleBarChart';
-import { isPaidTier, tierById } from '../src/tiers';
+import { isPaidTier, tierById, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
 import { ContactsImportBanner } from '../src/ContactsImportBanner';
-import { useInstructorTestOutcomes } from '../src/useSupabaseData';
+import { useInstructorTestOutcomes, useStudents, useCompetencyPatterns } from '../src/useSupabaseData';
 import { computeTestKpis } from '../src/supabaseDb';
 import { Trophy } from 'lucide-react-native';
 
@@ -72,6 +72,9 @@ export default function InstructorHomeScreen() {
   // Only fetched for paid tiers (Growth+) per user spec; the hook itself is
   // cheap (single SELECT) but we still gate display below.
   const { rows: testOutcomes } = useInstructorTestOutcomes();
+  const { students } = useStudents();
+  const studentIds = useMemo(() => students.map((s) => s.id), [students]);
+  const { patterns: competencyPatterns } = useCompetencyPatterns(studentIds);
   const testKpis = computeTestKpis(testOutcomes);
 
   const onRefresh = useCallback(() => {
@@ -112,25 +115,31 @@ export default function InstructorHomeScreen() {
         <ContactsImportBanner studentCount={kpis.total} isInstructor={true} />
 
         {/* Upgrade banner (Starter tier only) */}
-        {!isPaidTier(user?.tier) && (
-          <TouchableOpacity
-            style={styles.upgradeBanner}
-            onPress={() => router.push('/pricing-screen')}
-            testID="upgrade-banner"
-            activeOpacity={0.9}
-          >
-            <View style={styles.upgradeIcon}>
-              <Crown size={20} color="#fff" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.upgradeTitle}>Upgrade to {tierById('growth').name}</Text>
-              <Text style={styles.upgradeSub}>
-                {kpis.total}/{tierById(user?.tier).student_limit} students used · unlock more students + invoicing from £{tierById('growth').price_gbp}/mo
-              </Text>
-            </View>
-            <ChevronRight size={20} color="#fff" />
-          </TouchableOpacity>
-        )}
+        {!isPaidTier(user?.tier) && (() => {
+          const limit = tierById(user?.tier).student_limit;
+          const urgency = studentUsageUrgency(kpis.total, limit);
+          return (
+            <TouchableOpacity
+              style={[styles.upgradeBanner, urgency === 'critical' && { backgroundColor: theme.colors.danger }]}
+              onPress={() => router.push('/pricing-screen')}
+              testID="upgrade-banner"
+              activeOpacity={0.9}
+            >
+              <View style={styles.upgradeIcon}>
+                <Crown size={20} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.upgradeTitle}>
+                  {urgency === 'critical' ? "You've reached your limit" : `Upgrade to ${tierById('growth').name}`}
+                </Text>
+                <Text style={styles.upgradeSub}>
+                  {kpis.total}/{limit} students used · {studentUsageMessage(kpis.total, limit)}
+                </Text>
+              </View>
+              <ChevronRight size={20} color="#fff" />
+            </TouchableOpacity>
+          );
+        })()}
         {isPaidTier(user?.tier) && (
           <View style={styles.proBadgeBar} testID="pro-active-bar">
             <Crown size={16} color={theme.colors.accent} />
@@ -149,10 +158,10 @@ export default function InstructorHomeScreen() {
                 label="Pass Rate"
                 value={testKpis.total > 0 ? `${testKpis.passRatePct}%` : '—'}
                 icon={<TrendingUp size={20} color={theme.colors.success} />}
-                bg="#D1FAE5"
+                bg={theme.colors.successLight}
               />
               <KPI label="Active Students" value={kpis.active.toString()} icon={<Users size={20} color={theme.colors.primary} />} bg={theme.colors.primaryLight} />
-              <KPI label="Test Ready" value={kpis.testReady.toString()} icon={<CheckCircle2 size={20} color={theme.colors.accent} />} bg="#FFF7ED" />
+              <KPI label="Test Ready" value={kpis.testReady.toString()} icon={<CheckCircle2 size={20} color={theme.colors.accent} />} bg={theme.colors.lockedBg} />
               <KPI label="Completed" value={kpis.completed.toString()} icon={<CalendarDays size={20} color={theme.colors.info} />} bg="#E0F2FE" />
             </View>
 
@@ -233,7 +242,7 @@ export default function InstructorHomeScreen() {
               </View>
               <View style={styles.mtdDivider} />
               <View style={styles.mtdItem}>
-                <View style={[styles.mtdIcon, { backgroundColor: '#FFF7ED' }]}>
+                <View style={[styles.mtdIcon, { backgroundColor: theme.colors.lockedBg }]}>
                   <PoundSterling size={18} color={theme.colors.accent} />
                 </View>
                 <Text style={styles.mtdValue}>£{mtd.earnings.toLocaleString()}</Text>
@@ -252,6 +261,28 @@ export default function InstructorHomeScreen() {
               color={theme.colors.primary}
               height={180}
             />
+          </Card>
+        )}
+
+        {/* Competency patterns — "several students weak on the same thing"
+            insight. Only renders when there's actually a pattern (2+
+            students below the struggling threshold in the same category) —
+            no empty state, since "no patterns found" isn't a useful thing
+            to show on a dashboard. */}
+        {isPaidTier(user?.tier) && competencyPatterns.length > 0 && (
+          <Card style={{ gap: 10 }} testID="competency-patterns-card">
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <TrendingUp size={16} color={theme.colors.accent} />
+              <Text style={styles.cardTitle}>Where your students need help</Text>
+            </View>
+            {competencyPatterns.slice(0, 3).map((p, i) => (
+              <View key={p.category_key} style={[styles.patternRow, i === 0 && { borderTopWidth: 0 }]} testID={`pattern-${p.category_key}`}>
+                <Text style={styles.patternText}>
+                  <Text style={styles.patternCount}>{p.studentsStruggling} of {p.studentsAssessed} students</Text>
+                  {' '}struggling with <Text style={styles.patternCategory}>{p.category_name}</Text>
+                </Text>
+              </View>
+            ))}
           </Card>
         )}
 
@@ -345,7 +376,7 @@ const styles = StyleSheet.create({
   },
   qaStudents: { backgroundColor: theme.colors.accent },
   qaDiary: { backgroundColor: theme.colors.primary },
-  qaReceipts: { backgroundColor: '#0EA5E9' },
+  qaReceipts: { backgroundColor: theme.colors.info },
   // Test Performance card (Growth+ only — DVSA test_outcomes aggregate)
   testPerfCard: { marginBottom: 12, gap: 10 },
   testPerfTitle: { fontSize: 14, fontWeight: '800', color: theme.colors.text },
@@ -363,6 +394,10 @@ const styles = StyleSheet.create({
   qaText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   mtdCard: { gap: 12 },
   cardTitle: { ...theme.font.h3 },
+  patternRow: { paddingVertical: 6, borderTopWidth: 1, borderTopColor: theme.colors.border },
+  patternText: { fontSize: 13, color: theme.colors.textMuted, lineHeight: 19 },
+  patternCount: { fontWeight: '700', color: theme.colors.text },
+  patternCategory: { fontWeight: '700', color: theme.colors.accent },
   mtdRow: { flexDirection: 'row', alignItems: 'center' },
   mtdItem: { flex: 1, alignItems: 'center', gap: 6 },
   mtdIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
@@ -391,7 +426,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#FFF7ED',
+    backgroundColor: theme.colors.lockedBg,
     borderRadius: theme.radius.md,
     paddingHorizontal: 14,
     paddingVertical: 10,

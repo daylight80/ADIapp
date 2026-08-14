@@ -21,6 +21,13 @@ export const theme = {
     lockedBg: '#FFF7ED',
     lockedBorder: '#FED7AA',
     lockedIcon: '#FED7AA',
+    // These four were being retyped as raw hex in 30+ places instead of
+    // using a shared token — the exact green/red pass-fail badge tint and
+    // amber warning-banner tint that show up repeatedly across the app.
+    successLight: '#D1FAE5',
+    dangerLight: '#FEE2E2',
+    warningLight: '#FEF3C7',
+    warningBorder: '#FDE68A',
   },
   radius: {
     sm: 8,

@@ -13,10 +13,12 @@ import {
   useLessonsForStudent,
   useCompetencies,
   useTestOutcomesForStudent,
+  useMockTestAttempts,
   removeTestOutcome,
   setStudentStatusAsync,
   removeStudentViaApi,
 } from '../src/useSupabaseData';
+import { getPendingDeletionRequestForStudent, type GdprDeletionRequest } from '../src/supabaseDb';
 import { Card, ProgressBar, StatusBadge, Badge, LockedFeature } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { SimpleBarChart } from '../src/SimpleBarChart';
@@ -80,6 +82,16 @@ export default function StudentLifecycleScreen() {
   // DVSA Competency Tracker — live from Supabase (dvsa_syllabus_tracking)
   const { competencies: sbCompetencies, loading: compLoading } = useCompetencies(student?.id);
   const { rows: testOutcomes } = useTestOutcomesForStudent(student?.id);
+  const { attempts: mockAttempts, loading: mockAttemptsLoading } = useMockTestAttempts(student?.id);
+
+  // GDPR — has this student submitted a formal deletion request? Surfaced
+  // here rather than a separate "requests inbox" screen, since the Danger
+  // Zone is exactly where the instructor would act on it.
+  const [pendingGdprRequest, setPendingGdprRequest] = useState<GdprDeletionRequest | null>(null);
+  useEffect(() => {
+    if (!student?.id) return;
+    getPendingDeletionRequestForStudent(student.id).then(setPendingGdprRequest).catch(() => {});
+  }, [student?.id]);
   const competencies = useMemo(
     () => (sbCompetencies && sbCompetencies.length > 0
       ? sbCompetencies
@@ -628,12 +640,62 @@ export default function StudentLifecycleScreen() {
               )}
             </Card>
 
+            {/* ---- DL25 mock test history (self-administered practice —
+                separate from the real DVSA "Test outcomes" above; see
+                Migration 024) ---- */}
+            <Card style={{ gap: 10 }} testID="card-mock-test-history">
+              <Text style={styles.cardTitle}>Mock test history</Text>
+              {mockAttemptsLoading && mockAttempts.length === 0 ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : mockAttempts.length === 0 ? (
+                <Text style={styles.empty}>
+                  {student.name.split(' ')[0]} hasn't taken a DL25 mock test yet.
+                </Text>
+              ) : (
+                mockAttempts.slice(0, 5).map((a, i) => (
+                  <View
+                    key={a.id}
+                    style={[styles.historyRow, i === Math.min(4, mockAttempts.length - 1) && { borderBottomWidth: 0 }]}
+                    testID={`mock-attempt-${a.id}`}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.historyDate}>
+                        {new Date(a.taken_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </Text>
+                      <Text style={styles.historyFaults}>
+                        {a.driving_faults} driving · {a.serious_faults} serious · {a.dangerous_faults} dangerous
+                      </Text>
+                    </View>
+                    <Badge
+                      label={a.passed ? 'PASS' : 'FAIL'}
+                      bg={a.passed ? theme.colors.successLight : theme.colors.dangerLight}
+                      color={a.passed ? theme.colors.success : theme.colors.danger}
+                    />
+                  </View>
+                ))
+              )}
+              {mockAttempts.length > 5 && (
+                <Text style={[styles.empty, { fontStyle: 'italic' }]}>
+                  Showing 5 most recent of {mockAttempts.length} attempts.
+                </Text>
+              )}
+            </Card>
+
             {/* ---- Danger zone ---- */}
             <Card style={styles.dangerCard} testID="card-danger-zone">
               <View style={styles.dangerHeaderRow}>
                 <AlertTriangle size={18} color={theme.colors.danger} />
                 <Text style={styles.dangerTitle}>Danger zone</Text>
               </View>
+              {pendingGdprRequest && (
+                <View style={styles.gdprBanner} testID="gdpr-pending-banner">
+                  <Text style={styles.gdprBannerText}>
+                    {student.name.split(' ')[0]} submitted a formal data deletion request on{' '}
+                    {new Date(pendingGdprRequest.requested_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}.
+                    {pendingGdprRequest.reason ? ` Reason given: "${pendingGdprRequest.reason}"` : ''}
+                  </Text>
+                </View>
+              )}
               <Text style={styles.dangerHint}>
                 Deleting {student.name} permanently removes every lesson, competency record and test outcome attached to them. This cannot be undone.
               </Text>
@@ -668,8 +730,8 @@ export default function StudentLifecycleScreen() {
                   </View>
                   <View style={{ flexDirection: 'row', gap: 8 }}>
                     <Badge label={`${l.start_time}-${l.end_time}`} />
-                    {l.grade && <Badge label={`Grade ${l.grade}/5`} bg="#D1FAE5" color={theme.colors.success} />}
-                    <Badge label={`${l.driving_faults + l.serious_faults + l.dangerous_faults} faults`} bg="#FEF3C7" color={theme.colors.faultDriving} />
+                    {l.grade && <Badge label={`Grade ${l.grade}/5`} bg={theme.colors.successLight} color={theme.colors.success} />}
+                    <Badge label={`${l.driving_faults + l.serious_faults + l.dangerous_faults} faults`} bg={theme.colors.warningLight} color={theme.colors.faultDriving} />
                   </View>
                   {l.notes && <Text style={styles.notes}>{l.notes}</Text>}
                 </Card>
@@ -1006,6 +1068,12 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 18, fontWeight: '700', color: theme.colors.primary },
   statLabel: { fontSize: 12, color: theme.colors.textMuted, marginTop: 4 },
   cardTitle: { ...theme.font.h3, marginBottom: 8 },
+  historyRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border,
+  },
+  historyDate: { fontSize: 14, color: theme.colors.text, fontWeight: '600' },
+  historyFaults: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
   readyRow: { gap: 8 },
   readyPct: { fontWeight: '700', color: theme.colors.primary },
   notes: { color: theme.colors.text, lineHeight: 20, fontSize: 14 },
@@ -1028,7 +1096,7 @@ const styles = StyleSheet.create({
   snackbar: {
     position: 'absolute',
     left: 16, right: 16, bottom: 24,
-    backgroundColor: '#0F172A',
+    backgroundColor: theme.colors.text,
     borderRadius: 8,
     paddingVertical: 14, paddingHorizontal: 16,
     flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -1087,6 +1155,12 @@ const styles = StyleSheet.create({
   dangerHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   dangerTitle: { fontSize: 14, fontWeight: '800', color: theme.colors.danger, letterSpacing: 0.3, textTransform: 'uppercase' },
   dangerHint: { fontSize: 13, color: theme.colors.text, lineHeight: 18 },
+  gdprBanner: {
+    backgroundColor: theme.colors.warningLight,
+    borderWidth: 1, borderColor: theme.colors.warningBorder,
+    borderRadius: 10, padding: 10,
+  },
+  gdprBannerText: { fontSize: 12, color: '#92400E', lineHeight: 17 },
   dangerBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     minHeight: 48, paddingHorizontal: 16, borderRadius: theme.radius.md,

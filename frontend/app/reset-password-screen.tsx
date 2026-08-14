@@ -102,7 +102,7 @@ export default function ResetPasswordScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
       >
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
@@ -222,8 +222,8 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme.colors.background },
   scroll: { padding: 24, paddingBottom: 48, paddingTop: 32 },
   heroIcon: { alignSelf: 'center', width: 76, height: 76, borderRadius: 38, backgroundColor: theme.colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
-  successIcon: { alignSelf: 'center', width: 76, height: 76, borderRadius: 38, backgroundColor: '#D1FAE5', alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
-  errorIcon: { alignSelf: 'center', width: 76, height: 76, borderRadius: 38, backgroundColor: '#FEE2E2', alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
+  successIcon: { alignSelf: 'center', width: 76, height: 76, borderRadius: 38, backgroundColor: theme.colors.successLight, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
+  errorIcon: { alignSelf: 'center', width: 76, height: 76, borderRadius: 38, backgroundColor: theme.colors.dangerLight, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
   heading: { fontSize: 22, fontWeight: '700', color: theme.colors.text, textAlign: 'center', marginBottom: 8 },
   body: { fontSize: 15, lineHeight: 22, color: theme.colors.textMuted, textAlign: 'center' },
   field: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, paddingHorizontal: 14, height: 52, marginTop: 14, gap: 10, backgroundColor: theme.colors.surface },

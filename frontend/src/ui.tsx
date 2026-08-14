@@ -24,13 +24,13 @@ export function Badge({ label, color, bg, testID }: { label: string; color?: str
 
 export function StatusBadge({ status, testID }: { status: 'New' | 'Active' | 'Test Ready' | 'Passed' | 'Inactive' | 'Waitlist'; testID?: string }) {
   const map = {
-    New: { bg: '#FFF7ED', color: theme.colors.accent },
-    Active: { bg: '#E5F0FA', color: theme.colors.primary },
-    'Test Ready': { bg: '#D1FAE5', color: theme.colors.success },
+    New: { bg: theme.colors.lockedBg, color: theme.colors.accent },
+    Active: { bg: theme.colors.primaryLight, color: theme.colors.primary },
+    'Test Ready': { bg: theme.colors.successLight, color: theme.colors.success },
     Passed: { bg: '#DCFCE7', color: '#15803D' },
     // Lifecycle statuses added in migration 018
     Inactive: { bg: '#F1F5F9', color: theme.colors.textMuted },
-    Waitlist: { bg: '#FEF3C7', color: '#B45309' },
+    Waitlist: { bg: theme.colors.warningLight, color: '#B45309' },
   } as const;
   const { bg, color } = map[status] || map.New;
   return <Badge label={status} bg={bg} color={color} testID={testID} />;

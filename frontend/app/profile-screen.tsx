@@ -278,6 +278,17 @@ export default function ProfileScreen() {
         {role === 'instructor' && (
           <TouchableOpacity
             style={styles.linkRow}
+            onPress={() => router.push('/lesson-note-questions-screen' as any)}
+            testID="link-lesson-note-questions"
+          >
+            <FileSpreadsheet size={18} color={theme.colors.primary} />
+            <Text style={styles.linkRowText}>Lesson note questions</Text>
+          </TouchableOpacity>
+        )}
+
+        {role === 'instructor' && (
+          <TouchableOpacity
+            style={styles.linkRow}
             onPress={() => router.push('/packages-screen' as any)}
             testID="link-packages"
           >

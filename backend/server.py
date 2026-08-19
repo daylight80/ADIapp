@@ -469,7 +469,7 @@ async def get_or_create_pro_price() -> str:
                 break
         if not product_id:
             product = stripe.Product.create(
-                name="DriveHub UK Pro",
+                name="ADI Pro — Pro Plan",
                 description="Unlimited students, invoicing, push notifications.",
                 metadata={"plan_key": "drivehub_pro_monthly"},
             )

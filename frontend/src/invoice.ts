@@ -18,8 +18,19 @@ export function buildInvoiceHtml(opts: {
   student: Student;
   lessons: Lesson[];
   issuedAt: Date;
+  // Real school branding — all optional so this stays backwards compatible
+  // for any call site that hasn't been updated. Falls back to the old
+  // hardcoded "ADI Pro" branding when not provided.
+  schoolName?: string | null;
+  schoolLogoUrl?: string | null;
+  schoolContactEmail?: string | null;
+  schoolContactPhone?: string | null;
+  schoolAddress?: string | null;
 }): string {
-  const { invoiceNo, instructorName, instructorEmail, student, lessons, issuedAt } = opts;
+  const {
+    invoiceNo, instructorName, instructorEmail, student, lessons, issuedAt,
+    schoolName, schoolLogoUrl, schoolContactEmail, schoolContactPhone, schoolAddress,
+  } = opts;
   const subtotal = lessons.reduce((s, l) => s + (l.amount_paid || 0), 0);
   const vat = +(subtotal * 0.2).toFixed(2);
   const total = +(subtotal + vat).toFixed(2);
@@ -56,8 +67,15 @@ export function buildInvoiceHtml(opts: {
 </style></head><body>
 <div class="header">
   <div>
-    <div class="brand">ADI<span class="accent">Pro</span></div>
+    ${schoolLogoUrl
+      ? `<img src="${escape(schoolLogoUrl)}" style="height:44px; max-width:180px; object-fit:contain; margin-bottom:6px;" />`
+      : ''}
+    <div class="brand">${schoolName ? escape(schoolName) : `ADI<span class="accent">Pro</span>`}</div>
     <div class="muted">Driving Instructor Invoice</div>
+    ${schoolAddress ? `<div class="muted">${escape(schoolAddress)}</div>` : ''}
+    ${schoolContactEmail || schoolContactPhone
+      ? `<div class="muted">${[schoolContactEmail, schoolContactPhone].filter(Boolean).map(escape).join(' · ')}</div>`
+      : ''}
   </div>
   <div style="text-align:right">
     <h2>Invoice ${escape(invoiceNo)}</h2>
@@ -92,7 +110,7 @@ export function buildInvoiceHtml(opts: {
   <div class="row grand"><span>Total</span><span>£${total.toFixed(2)}</span></div>
 </div>
 
-<div class="footer">Thank you for your business. Payment terms: 14 days. ADI Pro · adipro.app</div>
+<div class="footer">Thank you for your business. Payment terms: 14 days. ${schoolName ? escape(schoolName) : 'ADI Pro · adipro.app'}</div>
 </body></html>`;
 }
 

@@ -17,7 +17,7 @@ import { BottomSheet } from '../src/BottomSheet';
 import { PaywallModal } from '../src/PaywallModal';
 import { DateField } from '../src/DateTimeFields';
 import { useAuth } from '../src/AuthContext';
-import { isFranchiseTier } from '../src/tiers';
+import { isFranchiseTier, schoolDisplayName } from '../src/tiers';
 import { supabase } from '../src/supabaseClient';
 import {
   listTestOutcomesForSchool, computeTestKpis, type TestOutcome,
@@ -321,7 +321,7 @@ export default function OwnerDashboardScreen() {
               )}
             </View>
             <Text style={styles.headerTitle} numberOfLines={1}>
-              {leaderboard?.business_name || 'Your driving school'}
+              {schoolDisplayName(user?.tier, leaderboard?.business_name, user?.name, user?.adi_number)}
             </Text>
             <Text style={styles.headerSub}>
               {monthLabel}

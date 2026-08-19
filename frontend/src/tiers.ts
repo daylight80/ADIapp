@@ -183,3 +183,21 @@ export function studentUsageMessage(current: number, limit: number | null): stri
   return `Unlock more students + invoicing from £${growth.price_gbp}/mo.`;
 }
 
+// ---------------------------------------------------------------------------
+// A "business name" only really means something once there's an actual
+// multi-instructor business to name — Franchise tier. Every tier gets an
+// auto-generated business_name in the database (required, NOT NULL), but
+// showing that invented name to a solo Starter/Growth/Pro instructor implies
+// a formality that isn't there. Below Franchise, show who they actually are
+// instead: their own name and ADI number.
+export function schoolDisplayName(
+  tier: string | null | undefined,
+  businessName: string | null | undefined,
+  instructorName: string | null | undefined,
+  adiNumber: string | null | undefined,
+): string {
+  if (tier === 'franchise' && businessName) return businessName;
+  if (instructorName) return adiNumber ? `${instructorName} · ADI #${adiNumber}` : instructorName;
+  return businessName || 'Your driving school';
+}
+

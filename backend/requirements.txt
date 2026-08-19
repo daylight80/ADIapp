@@ -20,7 +20,13 @@ distro==1.9.0
 dnspython==2.8.0
 ecdsa==0.19.2
 email-validator==2.3.0
-emergentintegrations==0.1.0
+# emergentintegrations==0.1.0 — removed. This is a private package specific
+# to the emergent.sh platform, not published on public PyPI — pip install
+# fails entirely with it listed here. It's only used inside /receipts/scan
+# (Gemini-based receipt OCR), which already checks for EMERGENT_LLM_KEY and
+# returns a clean 500 before ever reaching the import if that key isn't set
+# — so removing it doesn't change any behavior for a deployment that
+# doesn't have that emergent.sh-specific key anyway.
 fastapi==0.110.1
 fastuuid==0.14.0
 filelock==3.29.0

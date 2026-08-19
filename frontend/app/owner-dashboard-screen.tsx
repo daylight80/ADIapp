@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
   Trophy, Users, CalendarDays, PoundSterling, TrendingUp, Plus, Mail, LogOut,
-  ChevronRight, Crown, ArrowUpDown, Receipt, Award, CircleX, AlertTriangle, UserPlus,
+  ChevronRight, Crown, ArrowUpDown, Receipt, Award, CircleX, AlertTriangle, UserPlus, Building2,
   Eye, EyeOff, ClipboardList, ArrowUpRight, ArrowDownRight, Check,
 } from 'lucide-react-native';
 import { theme } from '../src/theme';
@@ -542,6 +542,15 @@ export default function OwnerDashboardScreen() {
             <Text style={[styles.qaSecondaryText, !isFranchiseTier(leaderboard?.tier) && { color: theme.colors.textMuted }]}>
               Assignments
             </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.qa, styles.qaSecondary]}
+            onPress={() => router.push('/school-profile-screen' as any)}
+            testID="qa-school-profile"
+            activeOpacity={0.85}
+          >
+            <Building2 size={18} color={theme.colors.text} />
+            <Text style={styles.qaSecondaryText}>School Profile</Text>
           </TouchableOpacity>
         </View>
 

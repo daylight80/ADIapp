@@ -307,7 +307,7 @@ export type CompetencyPattern = {
 };
 
 // A category counts as "struggling" for a student when their level is 1 or
-// 2 out of 5 — DriveHub doesn't have a separate "at risk" flag, so this is
+// 2 out of 5 — ADI Pro doesn't have a separate "at risk" flag, so this is
 // a judgment call on what "struggling" means from the same data the
 // competency tracker already shows.
 const STRUGGLING_LEVEL_MAX = 2;

@@ -447,6 +447,22 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
               <Text style={styles.smtmLinkText}>Show Me, Tell Me question reference</Text>
             </TouchableOpacity>
 
+            {/* Post-lesson notes — the instructor's own custom question set */}
+            <TouchableOpacity
+              style={styles.recordRouteBtn}
+              onPress={() => {
+                onClose();
+                router.push({
+                  pathname: '/lesson-notes-screen',
+                  params: { lessonId: lesson.id, studentId: student.id, studentName: student.name },
+                } as any);
+              }}
+              testID="btn-lesson-notes"
+            >
+              <FileCheck size={16} color={theme.colors.primary} />
+              <Text style={styles.recordRouteText}>Lesson notes</Text>
+            </TouchableOpacity>
+
             {/* Pre-lesson check */}
             <Text style={styles.section}>Pre-lesson check</Text>
             <CheckRow

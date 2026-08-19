@@ -1506,6 +1506,90 @@ export async function isCurrentUserSchoolOwner(): Promise<boolean> {
 }
 
 // =============================================================================
+// School profile (Migration 027) — business name, logo, contact details.
+// Editable by the school's owner only; RLS on driving_schools already
+// restricts UPDATE to rows the caller owns.
+// =============================================================================
+
+export type SchoolProfile = {
+  id: string;
+  business_name: string;
+  logo_url: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  address: string | null;
+  default_hourly_rate: number | null;
+  google_review_url: string | null;
+  tier: string;
+};
+
+export async function getMySchoolProfile(): Promise<SchoolProfile | null> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const uid = sessionData.session?.user.id;
+  if (!uid) return null;
+  const { data, error } = await supabase
+    .from('driving_schools')
+    .select('id, business_name, logo_url, contact_email, contact_phone, address, default_hourly_rate, google_review_url, tier')
+    .eq('owner_auth_id', uid)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as SchoolProfile) || null;
+}
+
+export async function updateMySchoolProfile(patch: Partial<{
+  business_name: string;
+  contact_email: string | null;
+  contact_phone: string | null;
+  address: string | null;
+  default_hourly_rate: number | null;
+  google_review_url: string | null;
+}>): Promise<void> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const uid = sessionData.session?.user.id;
+  if (!uid) throw new Error('Not signed in');
+  const { error } = await supabase
+    .from('driving_schools')
+    .update(patch)
+    .eq('owner_auth_id', uid);
+  if (error) throw error;
+}
+
+// Uploads a logo image (base64, no data: prefix) to the school-logos bucket
+// under "<school_id>/logo.<ext>" — overwriting any existing logo — then
+// saves the resulting public URL onto the school's row.
+export async function uploadSchoolLogo(schoolId: string, base64: string, mimeType: string): Promise<string> {
+  const ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
+  const path = `${schoolId}/logo.${ext}`;
+
+  // Decode base64 -> Uint8Array in a way that works on web + native (same
+  // approach as uploadReceiptImage above).
+  const cleaned = base64.replace(/^data:[^;]+;base64,/, '');
+  const bytes = (() => {
+    if (typeof atob === 'function') {
+      const raw = atob(cleaned);
+      const arr = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+      return arr;
+    }
+    return new Uint8Array(Buffer.from(cleaned, 'base64'));
+  })();
+
+  const { error: uploadError } = await supabase.storage
+    .from('school-logos')
+    .upload(path, bytes, { contentType: mimeType, upsert: true });
+  if (uploadError) throw uploadError;
+  const { data: pub } = supabase.storage.from('school-logos').getPublicUrl(path);
+  // Cache-bust so the new logo shows immediately instead of a stale CDN copy.
+  const url = `${pub.publicUrl}?v=${Date.now()}`;
+  const { error: updateError } = await supabase
+    .from('driving_schools')
+    .update({ logo_url: url })
+    .eq('id', schoolId);
+  if (updateError) throw updateError;
+  return url;
+}
+
+// =============================================================================
 // LESSON PACKAGES (instructor pricing)
 // =============================================================================
 export type LessonPackage = {
@@ -2145,6 +2229,163 @@ export async function resolveDeletionRequest(requestId: string, status: 'complet
     .from('gdpr_deletion_requests')
     .update({ status, resolved_at: new Date().toISOString(), resolution_note: note?.trim() || null })
     .eq('id', requestId);
+  if (error) throw error;
+}
+
+// ===========================================================================
+// Customizable instructor lesson notes (Migration 029) — the instructor's
+// own question set, and their answers for one specific lesson. Deliberately
+// separate from reflective_logs (the student's own free-text reflection).
+// ===========================================================================
+
+export type LessonNoteQuestion = {
+  id: string;
+  instructor_id: string;
+  question_text: string;
+  sort_order: number;
+  is_active: boolean;
+};
+
+function isMissingLessonNotesTable(msg: string): boolean {
+  return /(lesson_note_questions|instructor_lesson_notes)/i.test(msg) && /(does not exist|schema cache)/i.test(msg);
+}
+
+// Sensible starting point for an instructor who's never customized their
+// questions — not copied verbatim from any one competitor, just a
+// reasonable default they're free to change or delete entirely.
+const DEFAULT_LESSON_NOTE_QUESTIONS = [
+  'What went well this lesson?',
+  'What needs more practice?',
+  'Goal for next lesson',
+];
+
+export async function listMyLessonNoteQuestions(instructorId: string): Promise<LessonNoteQuestion[]> {
+  const { data, error } = await supabase
+    .from('lesson_note_questions')
+    .select('*')
+    .eq('instructor_id', instructorId)
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true });
+  if (error) {
+    if (isMissingLessonNotesTable(error.message || '')) return [];
+    throw error;
+  }
+  if ((data || []).length === 0) {
+    // First-time use — seed the sensible defaults so the instructor isn't
+    // looking at a completely blank notes screen with no guidance.
+    const seeded = await Promise.all(
+      DEFAULT_LESSON_NOTE_QUESTIONS.map((text, i) =>
+        supabase
+          .from('lesson_note_questions')
+          .insert({ instructor_id: instructorId, question_text: text, sort_order: i })
+          .select('*')
+          .single(),
+      ),
+    );
+    return seeded.filter((r) => !r.error).map((r) => r.data as LessonNoteQuestion);
+  }
+  return (data || []) as LessonNoteQuestion[];
+}
+
+export async function addLessonNoteQuestion(instructorId: string, questionText: string): Promise<LessonNoteQuestion> {
+  const { data: existing } = await supabase
+    .from('lesson_note_questions')
+    .select('sort_order')
+    .eq('instructor_id', instructorId)
+    .order('sort_order', { ascending: false })
+    .limit(1);
+  const nextOrder = existing && existing.length > 0 ? existing[0].sort_order + 1 : 0;
+  const { data, error } = await supabase
+    .from('lesson_note_questions')
+    .insert({ instructor_id: instructorId, question_text: questionText.trim(), sort_order: nextOrder })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as LessonNoteQuestion;
+}
+
+export async function updateLessonNoteQuestion(id: string, questionText: string): Promise<void> {
+  const { error } = await supabase
+    .from('lesson_note_questions')
+    .update({ question_text: questionText.trim() })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+// Soft-delete only — never hard-deletes, so past lesson notes that
+// reference this question by id still make sense when viewed later.
+export async function removeLessonNoteQuestion(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('lesson_note_questions')
+    .update({ is_active: false })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+export async function reorderLessonNoteQuestions(orderedIds: string[]): Promise<void> {
+  await Promise.all(
+    orderedIds.map((id, i) =>
+      supabase.from('lesson_note_questions').update({ sort_order: i }).eq('id', id),
+    ),
+  );
+}
+
+export type InstructorLessonNote = {
+  id: string;
+  lesson_id: string;
+  student_id: string;
+  instructor_id: string;
+  answers: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function getLessonNotes(lessonId: string): Promise<InstructorLessonNote | null> {
+  const { data, error } = await supabase
+    .from('instructor_lesson_notes')
+    .select('*')
+    .eq('lesson_id', lessonId)
+    .maybeSingle();
+  if (error) {
+    if (isMissingLessonNotesTable(error.message || '')) return null;
+    throw error;
+  }
+  return (data as InstructorLessonNote) || null;
+}
+
+export async function listLessonNotesForStudent(studentId: string): Promise<InstructorLessonNote[]> {
+  const { data, error } = await supabase
+    .from('instructor_lesson_notes')
+    .select('*')
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: false });
+  if (error) {
+    if (isMissingLessonNotesTable(error.message || '')) return [];
+    throw error;
+  }
+  return (data || []) as InstructorLessonNote[];
+}
+
+// Upsert — one row per lesson (unique constraint on lesson_id), so saving
+// twice just updates the same entry rather than creating a duplicate.
+export async function saveLessonNotes(input: {
+  lessonId: string;
+  studentId: string;
+  instructorId: string;
+  answers: Record<string, string>;
+}): Promise<void> {
+  const { error } = await supabase
+    .from('instructor_lesson_notes')
+    .upsert(
+      {
+        lesson_id: input.lessonId,
+        student_id: input.studentId,
+        instructor_id: input.instructorId,
+        answers: input.answers,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'lesson_id' },
+    );
   if (error) throw error;
 }
 

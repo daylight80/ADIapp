@@ -1,8 +1,8 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown, Pencil, Trash2, Trophy, CircleX, Plus, UserCheck, UserX, UserPlus, AlertTriangle, CreditCard, MessageSquare, Navigation as NavIcon } from 'lucide-react-native';
+import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown, Pencil, Trash2, Trophy, CircleX, Plus, UserCheck, UserX, UserPlus, AlertTriangle, CreditCard, MessageSquare, Navigation as NavIcon, Star } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb } from '../src/mockDb';
 import {
@@ -18,7 +18,7 @@ import {
   setStudentStatusAsync,
   removeStudentViaApi,
 } from '../src/useSupabaseData';
-import { getPendingDeletionRequestForStudent, type GdprDeletionRequest } from '../src/supabaseDb';
+import { getPendingDeletionRequestForStudent, type GdprDeletionRequest, getMySchoolProfile, listLessonNotesForStudent, listMyLessonNoteQuestions, type InstructorLessonNote, type LessonNoteQuestion } from '../src/supabaseDb';
 import { Card, ProgressBar, StatusBadge, Badge, LockedFeature } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { SimpleBarChart } from '../src/SimpleBarChart';
@@ -83,6 +83,58 @@ export default function StudentLifecycleScreen() {
   const { competencies: sbCompetencies, loading: compLoading } = useCompetencies(student?.id);
   const { rows: testOutcomes } = useTestOutcomesForStudent(student?.id);
   const { attempts: mockAttempts, loading: mockAttemptsLoading } = useMockTestAttempts(student?.id);
+
+  // Instructor's own custom-question lesson notes for this student.
+  const [lessonNotesHistory, setLessonNotesHistory] = useState<InstructorLessonNote[]>([]);
+  const [lessonNoteQuestions, setLessonNoteQuestions] = useState<LessonNoteQuestion[]>([]);
+  useEffect(() => {
+    if (!student?.id) return;
+    listLessonNotesForStudent(student.id).then(setLessonNotesHistory).catch(() => {});
+    if (user?.instructor_id) {
+      listMyLessonNoteQuestions(user.instructor_id).then(setLessonNoteQuestions).catch(() => {});
+    }
+  }, [student?.id, user?.instructor_id]);
+  const questionTextById = useMemo(
+    () => Object.fromEntries(lessonNoteQuestions.map((q) => [q.id, q.question_text])),
+    [lessonNoteQuestions],
+  );
+
+  // A "request review" text only makes sense once the student has actually
+  // passed — either the lifecycle status has been set to Passed, or there's
+  // a logged real practical test outcome with result 'pass'. Checking both
+  // rather than just one, since instructors may update these at slightly
+  // different times.
+  const hasPassedPracticalTest = student.status === 'Passed'
+    || testOutcomes.some((o) => o.test_type === 'practical' && o.result === 'pass');
+
+  const handleRequestReview = async () => {
+    let schoolProfile: Awaited<ReturnType<typeof getMySchoolProfile>> = null;
+    try {
+      schoolProfile = await getMySchoolProfile();
+    } catch {
+      // fall through — treated the same as "not set" below
+    }
+    const reviewUrl = schoolProfile?.google_review_url;
+    if (!reviewUrl) {
+      Alert.alert(
+        'No review link set',
+        "You haven't added a Google review link yet. Set one in School Profile first, then come back to send this.",
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Go to School Profile', onPress: () => router.push('/school-profile-screen' as any) },
+        ],
+      );
+      return;
+    }
+    const body = `Hi ${student.name.split(' ')[0]}, congratulations on passing your driving test, I knew you could do it! \u{1F697} It has been an absolute pleasure teaching you. If you have a spare minute, I would really appreciate it if you could leave a quick review about your experience. It truly helps other learners find me. Here is the link: ${reviewUrl}. See you out on the road!\n\nP.s. It really helps if you could include your pass photo with the review.`;
+    const ok = await openSmsComposer(student.phone, body);
+    if (!ok) {
+      Alert.alert(
+        "Couldn't open messages",
+        `Your device didn't open a text message to ${student.name}. You can text them directly at ${student.phone}.`,
+      );
+    }
+  };
 
   // GDPR — has this student submitted a formal deletion request? Surfaced
   // here rather than a separate "requests inbox" screen, since the Danger
@@ -329,6 +381,13 @@ export default function StudentLifecycleScreen() {
     }
     setBusyInvoice(true);
     const invoiceNo = `INV-${new Date().getFullYear()}-${student.id.toUpperCase()}-${Date.now().toString().slice(-4)}`;
+    let schoolProfile: Awaited<ReturnType<typeof getMySchoolProfile>> = null;
+    try {
+      schoolProfile = await getMySchoolProfile();
+    } catch {
+      // Non-fatal — the invoice still generates with the old default
+      // branding if the school profile can't be loaded for any reason.
+    }
     const html = buildInvoiceHtml({
       invoiceNo,
       instructorName: user?.name || 'Instructor',
@@ -336,6 +395,11 @@ export default function StudentLifecycleScreen() {
       student,
       lessons: paidLessons,
       issuedAt: new Date(),
+      schoolName: schoolProfile?.business_name,
+      schoolLogoUrl: schoolProfile?.logo_url,
+      schoolContactEmail: schoolProfile?.contact_email,
+      schoolContactPhone: schoolProfile?.contact_phone,
+      schoolAddress: schoolProfile?.address,
     });
     await generateAndShareInvoicePdf(html, `${invoiceNo}.pdf`);
     setBusyInvoice(false);
@@ -474,6 +538,17 @@ export default function StudentLifecycleScreen() {
                 <Text style={[styles.actionText, { color: '#fff' }]}>Passed</Text>
               </TouchableOpacity>
             </View>
+
+            {hasPassedPracticalTest && (
+              <TouchableOpacity
+                style={styles.reviewRequestBtn}
+                onPress={handleRequestReview}
+                testID="btn-request-review"
+              >
+                <Star size={16} color={theme.colors.accent} />
+                <Text style={styles.reviewRequestText}>Request a Google review</Text>
+              </TouchableOpacity>
+            )}
 
             {/* ---- Lifecycle status management ---- */}
             <Card style={styles.lifecycleCard} testID="card-lifecycle">
@@ -677,6 +752,39 @@ export default function StudentLifecycleScreen() {
               {mockAttempts.length > 5 && (
                 <Text style={[styles.empty, { fontStyle: 'italic' }]}>
                   Showing 5 most recent of {mockAttempts.length} attempts.
+                </Text>
+              )}
+            </Card>
+
+            {/* ---- Instructor's own post-lesson notes (custom questions) ---- */}
+            <Card style={{ gap: 10 }} testID="card-lesson-notes-history">
+              <Text style={styles.cardTitle}>Lesson notes</Text>
+              {lessonNotesHistory.length === 0 ? (
+                <Text style={styles.empty}>
+                  No lesson notes yet — add some from a lesson's quick actions in the diary.
+                </Text>
+              ) : (
+                lessonNotesHistory.slice(0, 3).map((note) => (
+                  <View key={note.id} style={{ gap: 4, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border }} testID={`lesson-note-${note.id}`}>
+                    <Text style={styles.historyDate}>
+                      {new Date(note.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </Text>
+                    {Object.entries(note.answers)
+                      .filter(([, answer]) => answer && answer.trim())
+                      .map(([questionId, answer]) => (
+                        <View key={questionId} style={{ marginTop: 2 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textMuted }}>
+                            {questionTextById[questionId] || 'Question'}
+                          </Text>
+                          <Text style={{ fontSize: 13, color: theme.colors.text }}>{answer}</Text>
+                        </View>
+                      ))}
+                  </View>
+                ))
+              )}
+              {lessonNotesHistory.length > 3 && (
+                <Text style={[styles.empty, { fontStyle: 'italic' }]}>
+                  Showing 3 most recent of {lessonNotesHistory.length} entries.
                 </Text>
               )}
             </Card>
@@ -1199,6 +1307,13 @@ const styles = StyleSheet.create({
   actionText: { fontWeight: '700', fontSize: 13 },
   actionAmend: { backgroundColor: theme.colors.surface, borderColor: theme.colors.primary },
   actionPassed: { backgroundColor: theme.colors.success, borderColor: theme.colors.success },
+  reviewRequestBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    marginTop: 10, height: 46, borderRadius: 12,
+    borderWidth: 1, borderColor: theme.colors.accent,
+    backgroundColor: '#FFF7ED',
+  },
+  reviewRequestText: { color: theme.colors.accent, fontWeight: '700', fontSize: 14 },
   actionDelete: { backgroundColor: theme.colors.surface, borderColor: theme.colors.danger },
   actionDisabled: { opacity: 0.55 },
   fieldLabel: { ...theme.font.caption, fontWeight: '600', marginBottom: 6, color: theme.colors.text },

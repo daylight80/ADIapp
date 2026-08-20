@@ -201,7 +201,14 @@ export default function StudentCrmScreen() {
           school_id: created.school_id,
         }),
       );
-      const inviteUrl = `${process.env.EXPO_PUBLIC_BACKEND_URL || ''}/?invite=${payload}`;
+      // This link is meant to be opened in a browser/app by the student —
+      // it must point at the actual app, not the backend API server (which
+      // has no UI at all). Same platform-aware origin resolution already
+      // used for the password-reset redirect in AuthContext.
+      const appOrigin = Platform.OS === 'web' && typeof window !== 'undefined'
+        ? window.location.origin
+        : (process.env.EXPO_PUBLIC_APP_URL || 'https://adiapp.netlify.app');
+      const inviteUrl = `${appOrigin}/?invite=${payload}`;
 
       // Clear form
       setName('');

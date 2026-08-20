@@ -75,10 +75,21 @@ export default function StudentLifecycleScreen() {
   const [deleting, setDeleting] = useState(false);
   const id = (params.id as string) || '';
   const { student: sbStudent, loading: studentLoading } = useStudent(id);
-  // Fall back to mockDb until lessons + competencies are migrated in the next slice.
-  const student = sbStudent || (mockDb.getStudent(id) || mockDb.listStudents()[0]);
+  // Fall back to mockDb ONLY when there's genuinely no real, Supabase-linked
+  // student for this id (offline/demo mode) — never to a random unrelated
+  // student. The previous `|| mockDb.listStudents()[0]` here was a real bug:
+  // if the real fetch was ever slow or briefly empty, it would silently
+  // substitute whichever mock student happened to be first in the seed
+  // list, showing the wrong person's data.
+  const student = sbStudent || mockDb.getStudent(id);
   const { lessons: sbLessons } = useLessonsForStudent(student?.id);
-  const lessons = useMemo(() => (sbLessons && sbLessons.length > 0 ? sbLessons : (student ? mockDb.listLessonsForStudent(student.id) : [])), [sbLessons, student?.id]);
+  // Once we have a REAL student, always trust their real (possibly
+  // genuinely empty) lessons — a new student legitimately having zero
+  // lessons is a valid state, not a reason to fall back to mock data.
+  const lessons = useMemo(
+    () => (sbStudent ? (sbLessons || []) : (student ? mockDb.listLessonsForStudent(student.id) : [])),
+    [sbStudent, sbLessons, student?.id],
+  );
   // DVSA Competency Tracker — live from Supabase (dvsa_syllabus_tracking)
   const { competencies: sbCompetencies, loading: compLoading } = useCompetencies(student?.id);
   const { rows: testOutcomes } = useTestOutcomesForStudent(student?.id);
@@ -145,10 +156,8 @@ export default function StudentLifecycleScreen() {
     getPendingDeletionRequestForStudent(student.id).then(setPendingGdprRequest).catch(() => {});
   }, [student?.id]);
   const competencies = useMemo(
-    () => (sbCompetencies && sbCompetencies.length > 0
-      ? sbCompetencies
-      : (student ? mockDb.getCompetencies(student.id) : [])),
-    [sbCompetencies, student?.id]
+    () => (sbStudent ? (sbCompetencies || []) : (student ? mockDb.getCompetencies(student.id) : [])),
+    [sbStudent, sbCompetencies, student?.id]
   );
 
   const [tab, setTab] = useState<Tab>('overview');
@@ -477,19 +486,15 @@ export default function StudentLifecycleScreen() {
                   <Text style={[styles.contactText, { flex: 1 }]} numberOfLines={2}>
                     {`${student.address || ''}, ${student.postcode || ''}`.replace(/^,\s*|,\s*$/g, '')}
                   </Text>
-                  <OpenInMapsButton
-                    address={`${student.address || ''}, ${student.postcode || ''}`}
-                    variant="pill"
-                    label="Maps"
-                    testID={`btn-open-maps-student-${student.id}`}
-                  />
                 </View>
               </View>
             </Card>
 
             {/* Quick actions — same three as the per-lesson tools sheet, but
                 available from the profile directly rather than requiring a
-                specific lesson to be open first. */}
+                specific lesson to be open first. "Directions" here covers
+                the same navigation as the address above — no separate
+                inline "Maps" button needed. */}
             <View style={styles.actionRow} testID="student-quick-actions">
               <OpenInMapsButton
                 address={`${student.address || ''}, ${student.postcode || ''}`}

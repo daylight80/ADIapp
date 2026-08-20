@@ -36,7 +36,6 @@ MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
 JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
-JWT_EXPIRATION_HOURS = int(os.environ.get("JWT_EXPIRATION_HOURS", "720"))
 STRIPE_API_KEY = os.environ.get("STRIPE_API_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 APP_DOMAIN = os.environ.get("APP_DOMAIN", "http://localhost:3000")
@@ -96,105 +95,7 @@ api_router = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-_PRO_PRICE_ID: Optional[str] = None
-
-# =============================================================================
-# Login rate limiting (legacy /auth/login only — the Supabase-backed auth
-# flow already has its own rate limiting on Supabase's side; this is
-# specifically for the custom Mongo-based endpoint below, which had none).
-#
-# Deliberately dependency-free: an in-memory sliding window keyed by both
-# email and client IP. Known limitation — resets on process restart and
-# doesn't share state across multiple server instances. Fine at current
-# scale (single instance); revisit with a shared store (Redis) if/when the
-# backend runs as more than one process.
-# =============================================================================
-_LOGIN_ATTEMPT_WINDOW_SEC = 15 * 60   # 15 minutes
-_LOGIN_MAX_ATTEMPTS = 8               # per identifier, per window
-_login_attempts: dict[str, list[float]] = {}
-
-
-def _rate_limit_check(identifier: str) -> None:
-    """Raises 429 if `identifier` (email or IP) has too many recent failed
-    login attempts. Call AFTER a failed password check, not before — this
-    counts failures, not every request, so a correct password on a first try
-    never gets blocked."""
-    now = time.time()
-    attempts = [t for t in _login_attempts.get(identifier, []) if now - t < _LOGIN_ATTEMPT_WINDOW_SEC]
-    if len(attempts) >= _LOGIN_MAX_ATTEMPTS:
-        retry_after = int(_LOGIN_ATTEMPT_WINDOW_SEC - (now - attempts[0]))
-        raise HTTPException(
-            status_code=429,
-            detail=f"Too many login attempts. Try again in {max(1, retry_after // 60)} minute(s).",
-            headers={"Retry-After": str(max(1, retry_after))},
-        )
-    _login_attempts[identifier] = attempts
-
-
-def _rate_limit_record_failure(identifier: str) -> None:
-    _login_attempts.setdefault(identifier, []).append(time.time())
-
-
-def _rate_limit_clear(identifier: str) -> None:
-    _login_attempts.pop(identifier, None)
-
-
 # ============= MODELS =============
-class RegisterInstructorRequest(BaseModel):
-    email: EmailStr
-    password: str = Field(..., min_length=6)
-    name: str = Field(..., min_length=1)
-    adi_number: str = Field(..., min_length=4, max_length=12, description="DVSA ADI number")
-
-
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
-
-
-class UserPublic(BaseModel):
-    id: str
-    email: str
-    name: str
-    role: Literal["instructor", "student"]
-    adi_number: Optional[str] = None
-    invited_by_adi: Optional[str] = None
-    subscription_status: Literal["free", "pro", "past_due", "canceled"] = "free"
-    stripe_customer_id: Optional[str] = None
-    created_at: datetime
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: UserPublic
-
-
-class InviteStudentRequest(BaseModel):
-    email: EmailStr
-    name: str = Field(..., min_length=1)
-    phone: Optional[str] = None
-
-
-class InviteResponse(BaseModel):
-    invite_token: str
-    invite_url: str
-    expires_at: datetime
-
-
-class InvitePreview(BaseModel):
-    email: str
-    name: str
-    instructor_name: str
-    instructor_adi: str
-    expires_at: datetime
-
-
-class AcceptInviteRequest(BaseModel):
-    invite_token: str
-    password: str = Field(..., min_length=6)
-
-
 class CheckoutSessionRequest(BaseModel):
     success_url: Optional[str] = None
     cancel_url: Optional[str] = None
@@ -207,78 +108,13 @@ class CheckoutSessionResponse(BaseModel):
 
 
 # ============= UTILS =============
-def hash_password(p: str) -> str:
-    return pwd_context.hash(p)
-
-
-def verify_password(p: str, h: str) -> bool:
-    try:
-        return pwd_context.verify(p, h)
-    except Exception:
-        return False
-
-
-def create_access_token(user_id: str, email: str, role: str) -> str:
-    now = datetime.now(timezone.utc)
-    exp = now + timedelta(hours=JWT_EXPIRATION_HOURS)
-    return jwt.encode(
-        {"sub": user_id, "email": email, "role": role, "exp": int(exp.timestamp()), "iat": int(now.timestamp())},
-        JWT_SECRET,
-        algorithm=JWT_ALGORITHM,
-    )
-
-
-def create_invite_token(email: str, name: str, adi: str, instructor_name: str, phone: Optional[str]) -> tuple[str, datetime]:
-    now = datetime.now(timezone.utc)
-    exp = now + timedelta(days=7)
-    payload = {
-        "kind": "invite",
-        "email": email.lower(),
-        "name": name,
-        "phone": phone,
-        "instructor_adi": adi,
-        "instructor_name": instructor_name,
-        "exp": int(exp.timestamp()),
-        "iat": int(now.timestamp()),
-    }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM), exp
-
-
-def decode_invite(token: str) -> dict:
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        if payload.get("kind") != "invite":
-            raise HTTPException(status_code=400, detail="Not an invite token")
-        return payload
-    except JWTError:
-        raise HTTPException(status_code=400, detail="Invalid or expired invite link")
-
-
-async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Missing authorization header")
-    try:
-        scheme, token = authorization.split()
-        if scheme.lower() != "bearer":
-            raise ValueError("Bad scheme")
-    except ValueError:
-        raise HTTPException(status_code=401, detail="Invalid authorization header")
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token payload")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    user = await db.users.find_one({"id": user_id}, {"_id": 0, "password": 0})
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    return user
-
-
-# Accepts EITHER a legacy Mongo-issued JWT (get_current_user) OR a Supabase
-# Auth bearer token (get_current_supabase_user). Used by endpoints we want to
-# work from both old demo accounts and the new Supabase-only accounts.
+# Accepts EITHER a legacy Mongo-issued JWT OR a Supabase Auth bearer token.
+# The legacy branch is a fast, harmless no-op today (nothing issues those
+# tokens anymore — /auth/login and /auth/register were removed along with
+# the rest of the legacy auth system), falling straight through to the
+# real Supabase verification. Left exactly as-is rather than simplified,
+# since it's genuinely load-bearing (powers /maps/travel-time) and there's
+# no value in touching working code during this cleanup.
 async def get_current_user_any(authorization: Optional[str] = Header(None)) -> dict:
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing authorization header")
@@ -305,259 +141,15 @@ async def get_current_user_any(authorization: Optional[str] = Header(None)) -> d
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
-def to_public_user(u: dict) -> UserPublic:
-    return UserPublic(
-        id=u["id"],
-        email=u["email"],
-        name=u["name"],
-        role=u["role"],
-        adi_number=u.get("adi_number"),
-        invited_by_adi=u.get("invited_by_adi"),
-        subscription_status=u.get("subscription_status", "free"),
-        stripe_customer_id=u.get("stripe_customer_id"),
-        created_at=u["created_at"],
-    )
-
-
 # ============= AUTH ROUTES =============
 @api_router.get("/")
 async def root():
     return {"message": "UK Driving Portal API", "status": "ok"}
 
 
-@api_router.post("/auth/register", response_model=TokenResponse)
-async def register_instructor(req: RegisterInstructorRequest):
-    """Instructor self-registration. Students must be invited."""
-    adi = req.adi_number.strip()
-    existing_email = await db.users.find_one({"email": req.email.lower()})
-    if existing_email:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    existing_adi = await db.users.find_one({"adi_number": adi})
-    if existing_adi:
-        raise HTTPException(status_code=400, detail="An instructor with this ADI number already exists")
-
-    user_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc)
-    user_doc = {
-        "id": user_id,
-        "email": req.email.lower(),
-        "name": req.name,
-        "role": "instructor",
-        "adi_number": adi,
-        "invited_by_adi": None,
-        "password": hash_password(req.password),
-        "subscription_status": "free",
-        "stripe_customer_id": None,
-        "stripe_subscription_id": None,
-        "created_at": now,
-    }
-    await db.users.insert_one(user_doc)
-    token = create_access_token(user_id, req.email.lower(), "instructor")
-    return TokenResponse(access_token=token, user=to_public_user(user_doc))
-
-
-@api_router.post("/auth/login", response_model=TokenResponse)
-async def login(req: LoginRequest, request: Request):
-    email = req.email.lower()
-    client_ip = request.client.host if request.client else "unknown"
-
-    # Check both the email and the IP — stops both "hammer one account" and
-    # "spray many emails from one source" patterns.
-    _rate_limit_check(email)
-    _rate_limit_check(f"ip:{client_ip}")
-
-    user = await db.users.find_one({"email": email})
-    if not user or not verify_password(req.password, user["password"]):
-        _rate_limit_record_failure(email)
-        _rate_limit_record_failure(f"ip:{client_ip}")
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-
-    # Successful login — clear this email's failure count so a legitimate
-    # user who mistyped their password a couple of times isn't stuck
-    # waiting out the window unnecessarily. IP counter is left alone
-    # deliberately, since it protects against spraying many different
-    # emails from one source, not this one account's own history.
-    _rate_limit_clear(email)
-    token = create_access_token(user["id"], user["email"], user["role"])
-    return TokenResponse(access_token=token, user=to_public_user(user))
-
-
-@api_router.get("/auth/me", response_model=UserPublic)
-async def me(current_user: dict = Depends(get_current_user)):
-    return to_public_user(current_user)
-
-
 @api_router.get("/health")
 async def health():
     return {"status": "healthy"}
-
-
-# ============= INVITES =============
-@api_router.post("/instructor/invite-student", response_model=InviteResponse)
-async def invite_student(req: InviteStudentRequest, current_user: dict = Depends(get_current_user)):
-    if current_user["role"] != "instructor":
-        raise HTTPException(status_code=403, detail="Only instructors can invite students")
-    if not current_user.get("adi_number"):
-        raise HTTPException(status_code=400, detail="Set your ADI number first")
-    # Reject if a user already exists for that email
-    existing = await db.users.find_one({"email": req.email.lower()})
-    if existing:
-        raise HTTPException(status_code=400, detail="A user with this email already exists")
-    token, exp = create_invite_token(
-        email=req.email,
-        name=req.name,
-        adi=current_user["adi_number"],
-        instructor_name=current_user["name"],
-        phone=req.phone,
-    )
-    invite_url = f"{APP_DOMAIN}/sign-up-login-screen?invite={token}"
-    return InviteResponse(invite_token=token, invite_url=invite_url, expires_at=exp)
-
-
-@api_router.get("/auth/invite/{token}", response_model=InvitePreview)
-async def preview_invite(token: str):
-    payload = decode_invite(token)
-    return InvitePreview(
-        email=payload["email"],
-        name=payload["name"],
-        instructor_name=payload["instructor_name"],
-        instructor_adi=payload["instructor_adi"],
-        expires_at=datetime.fromtimestamp(payload["exp"], tz=timezone.utc),
-    )
-
-
-@api_router.post("/auth/accept-invite", response_model=TokenResponse)
-async def accept_invite(req: AcceptInviteRequest):
-    payload = decode_invite(req.invite_token)
-    email = payload["email"]
-    existing = await db.users.find_one({"email": email})
-    if existing:
-        raise HTTPException(status_code=400, detail="This invite has already been used")
-
-    user_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc)
-    user_doc = {
-        "id": user_id,
-        "email": email,
-        "name": payload["name"],
-        "role": "student",
-        "adi_number": None,
-        "invited_by_adi": payload["instructor_adi"],
-        "phone": payload.get("phone"),
-        "password": hash_password(req.password),
-        "subscription_status": "free",
-        "stripe_customer_id": None,
-        "stripe_subscription_id": None,
-        "created_at": now,
-    }
-    await db.users.insert_one(user_doc)
-    access = create_access_token(user_id, email, "student")
-    return TokenResponse(access_token=access, user=to_public_user(user_doc))
-
-
-# ============= STRIPE BILLING (unchanged from previous iteration) =============
-async def get_or_create_pro_price() -> str:
-    global _PRO_PRICE_ID
-    if _PRO_PRICE_ID:
-        return _PRO_PRICE_ID
-    try:
-        products = stripe.Product.list(limit=100, active=True)
-        product_id = None
-        for p in products.data:
-            if p.metadata.get("plan_key") == "drivehub_pro_monthly":
-                product_id = p.id
-                break
-        if not product_id:
-            product = stripe.Product.create(
-                name="ADI Pro — Pro Plan",
-                description="Unlimited students, invoicing, push notifications.",
-                metadata={"plan_key": "drivehub_pro_monthly"},
-            )
-            product_id = product.id
-        prices = stripe.Price.list(product=product_id, active=True, limit=100)
-        for pr in prices.data:
-            if pr.recurring and pr.recurring.get("interval") == "month" and pr.unit_amount == 999 and pr.currency == "gbp":
-                _PRO_PRICE_ID = pr.id
-                return pr.id
-        price = stripe.Price.create(
-            unit_amount=999, currency="gbp", recurring={"interval": "month"}, product=product_id,
-            metadata={"plan_key": "drivehub_pro_monthly"},
-        )
-        _PRO_PRICE_ID = price.id
-        return price.id
-    except Exception as e:
-        logger.error(f"Failed to set up Stripe price: {e}")
-        raise HTTPException(status_code=500, detail="Billing not configured")
-
-
-@api_router.post("/billing/create-checkout-session", response_model=CheckoutSessionResponse)
-async def create_checkout_session(req: CheckoutSessionRequest, current_user: dict = Depends(get_current_user)):
-    if current_user["role"] != "instructor":
-        raise HTTPException(status_code=403, detail="Only instructors can subscribe")
-
-    tier = (req.tier or "pro").lower()
-    seat_count = max(1, int(req.seat_count or 1))
-
-    # Don't let users buy the same tier twice if it's already active
-    if current_user.get("subscription_status") == tier:
-        raise HTTPException(status_code=400, detail=f"You already have an active {tier.capitalize()} subscription")
-
-    line_items = tier_to_line_items(tier, seat_count=seat_count)
-
-    customer_id = current_user.get("stripe_customer_id")
-    if not customer_id:
-        customer = stripe.Customer.create(email=current_user["email"], name=current_user["name"], metadata={"user_id": current_user["id"]})
-        customer_id = customer.id
-        await db.users.update_one({"id": current_user["id"]}, {"$set": {"stripe_customer_id": customer_id}})
-    success_url = (req.success_url or f"{APP_DOMAIN}/pricing-screen") + "?status=success&session_id={CHECKOUT_SESSION_ID}"
-    cancel_url = req.cancel_url or f"{APP_DOMAIN}/pricing-screen?status=cancelled"
-    session = stripe.checkout.Session.create(
-        customer=customer_id, mode="subscription", payment_method_types=["card"],
-        line_items=line_items,
-        success_url=success_url, cancel_url=cancel_url,
-        client_reference_id=current_user["id"],
-        metadata={"user_id": current_user["id"], "tier": tier, "seat_count": seat_count},
-        subscription_data={"metadata": {"user_id": current_user["id"], "tier": tier}},
-    )
-    return CheckoutSessionResponse(url=session.url)
-
-
-@api_router.get("/billing/subscription-status")
-async def subscription_status(current_user: dict = Depends(get_current_user)):
-    return {"subscription_status": current_user.get("subscription_status", "free"), "stripe_customer_id": current_user.get("stripe_customer_id")}
-
-
-@api_router.post("/billing/verify-session")
-async def verify_session(payload: dict, current_user: dict = Depends(get_current_user)):
-    session_id = payload.get("session_id")
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id required")
-    session = stripe.checkout.Session.retrieve(session_id, expand=["subscription"])
-    if session.client_reference_id != current_user["id"]:
-        raise HTTPException(status_code=403, detail="Session does not belong to you")
-    if session.payment_status == "paid" and session.subscription:
-        sub = session.subscription
-        await db.users.update_one(
-            {"id": current_user["id"]},
-            {"$set": {"subscription_status": "pro", "stripe_subscription_id": sub["id"] if isinstance(sub, dict) else sub.id, "subscription_started_at": datetime.now(timezone.utc)}},
-        )
-        return {"subscription_status": "pro", "verified": True}
-    return {"subscription_status": current_user.get("subscription_status", "free"), "verified": False}
-
-
-@api_router.post("/billing/create-portal-session", response_model=CheckoutSessionResponse)
-async def create_portal_session(current_user: dict = Depends(get_current_user)):
-    customer_id = current_user.get("stripe_customer_id")
-    if not customer_id:
-        raise HTTPException(status_code=400, detail="No Stripe customer for this user")
-    session = stripe.billing_portal.Session.create(customer=customer_id, return_url=f"{APP_DOMAIN}/home-screen")
-    return CheckoutSessionResponse(url=session.url)
-
-
-@api_router.post("/billing/cancel-mock")
-async def cancel_mock(current_user: dict = Depends(get_current_user)):
-    await db.users.update_one({"id": current_user["id"]}, {"$set": {"subscription_status": "free", "stripe_subscription_id": None}})
-    return {"subscription_status": "free"}
 
 
 # ============= MAPS / TRAVEL TIME =============
@@ -657,36 +249,6 @@ async def travel_time(req: TravelTimeRequest, current_user: dict = Depends(get_c
         logger.error(f"Failed to parse Distance Matrix response: {e}")
         data = {**_mock_travel(req.origin, req.destination), "status": "error"}
         return TravelTimeResponse(**data)
-
-
-@api_router.post("/billing/webhook-legacy")
-async def stripe_webhook_legacy(request: Request):
-    """Deprecated. Kept only for the legacy MongoDB-auth flow. The new
-    Supabase tier-aware handler is registered below as /api/billing/webhook."""
-    if not STRIPE_WEBHOOK_SECRET:
-        # Never fall back to trusting an unsigned payload — that lets anyone
-        # POST a fake "checkout.session.completed" event and grant themselves
-        # Pro for free. Fail closed instead.
-        raise HTTPException(status_code=500, detail="STRIPE_WEBHOOK_SECRET not configured")
-    payload = await request.body()
-    sig_header = request.headers.get("stripe-signature", "")
-    try:
-        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid webhook: {e}")
-    event_type = event.get("type") if isinstance(event, dict) else event.type
-    data_object = event["data"]["object"] if isinstance(event, dict) else event.data.object
-    if event_type == "checkout.session.completed":
-        user_id = data_object.get("client_reference_id") or data_object.get("metadata", {}).get("user_id")
-        if user_id:
-            await db.users.update_one({"id": user_id}, {"$set": {"subscription_status": "pro", "stripe_subscription_id": data_object.get("subscription"), "subscription_started_at": datetime.now(timezone.utc)}})
-    elif event_type == "customer.subscription.deleted":
-        customer_id = data_object.get("customer")
-        await db.users.update_one({"stripe_customer_id": customer_id}, {"$set": {"subscription_status": "canceled"}})
-    elif event_type == "invoice.payment_failed":
-        customer_id = data_object.get("customer")
-        await db.users.update_one({"stripe_customer_id": customer_id}, {"$set": {"subscription_status": "past_due"}})
-    return {"status": "received"}
 
 
 # ============= STARTUP =============

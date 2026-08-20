@@ -94,7 +94,15 @@ export default function SchoolProfileScreen() {
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       base64: true,
-      quality: 0.8,
+      // A logo only ever renders at ~88x88px in the app, or modestly sized
+      // on an invoice — there's no reason to carry a multi-megabyte photo
+      // through this flow. A phone camera photo at the previous quality
+      // (0.8) could be large enough that decoding it (see uploadSchoolLogo)
+      // took long enough on a phone's CPU to look like a stuck spinner —
+      // this never showed up in testing since every earlier logo test this
+      // session was on desktop. 0.3 keeps a small square crop plenty sharp
+      // while keeping the payload small.
+      quality: 0.3,
       allowsEditing: true,
       aspect: [1, 1],
     });

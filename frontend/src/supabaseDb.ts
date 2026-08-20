@@ -2389,4 +2389,73 @@ export async function saveLessonNotes(input: {
   if (error) throw error;
 }
 
+// ===========================================================================
+// ADI Standards Check tracking (Migration 030) — the instructor's own
+// periodic DVSA quality assurance assessment. Distinct from student
+// pass-rate stats.
+// ===========================================================================
+
+export type AdiStandardsCheck = {
+  id: string;
+  instructor_id: string;
+  check_date: string;
+  overall_score: number;
+  risk_management_score: number | null;
+  notes: string | null;
+  created_at: string;
+};
+
+export type AdiGrade = 'A' | 'B' | 'Fail';
+
+// Official DVSA boundaries: A 43-51, B 31-42, Fail 0-30.
+export function computeAdiGrade(overallScore: number): AdiGrade {
+  if (overallScore >= 43) return 'A';
+  if (overallScore >= 31) return 'B';
+  return 'Fail';
+}
+
+function isMissingAdiStandardsChecksTable(msg: string): boolean {
+  return /adi_standards_checks/i.test(msg) && /(does not exist|schema cache)/i.test(msg);
+}
+
+export async function listMyStandardsChecks(instructorId: string): Promise<AdiStandardsCheck[]> {
+  const { data, error } = await supabase
+    .from('adi_standards_checks')
+    .select('*')
+    .eq('instructor_id', instructorId)
+    .order('check_date', { ascending: false });
+  if (error) {
+    if (isMissingAdiStandardsChecksTable(error.message || '')) return [];
+    throw error;
+  }
+  return (data || []) as AdiStandardsCheck[];
+}
+
+export async function addStandardsCheck(input: {
+  instructorId: string;
+  checkDate: string;
+  overallScore: number;
+  riskManagementScore?: number | null;
+  notes?: string | null;
+}): Promise<AdiStandardsCheck> {
+  const { data, error } = await supabase
+    .from('adi_standards_checks')
+    .insert({
+      instructor_id: input.instructorId,
+      check_date: input.checkDate,
+      overall_score: input.overallScore,
+      risk_management_score: input.riskManagementScore ?? null,
+      notes: input.notes?.trim() || null,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as AdiStandardsCheck;
+}
+
+export async function removeStandardsCheck(id: string): Promise<void> {
+  const { error } = await supabase.from('adi_standards_checks').delete().eq('id', id);
+  if (error) throw error;
+}
+
 

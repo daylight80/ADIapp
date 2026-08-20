@@ -46,15 +46,20 @@ export default function PricingScreen() {
     const status = params.status as string | undefined;
     const sessionId = params.session_id as string | undefined;
     if (status === 'success' && sessionId) {
+      // Stripe only redirects here with status=success once checkout has
+      // genuinely completed — there's no separate "verify" step needed.
+      // The real tier update happens via the Stripe webhook independently
+      // of this redirect, so a brief pause before refreshing gives it a
+      // moment to land rather than risking a refresh that's a beat too
+      // early. (Previously this called a "/billing/verify-session" endpoint
+      // that no longer exists — every real successful checkout was showing
+      // "Could not verify subscription" as an error, despite the upgrade
+      // having actually worked.)
+      setSuccess('Subscription active. Welcome to your new tier!');
       (async () => {
-        try {
-          await api.post('/billing/verify-session', { session_id: sessionId });
-          setSuccess('Subscription active. Welcome to your new tier!');
-          await refreshUser();
-          await reload();
-        } catch (e: any) {
-          setError(e?.response?.data?.detail || 'Could not verify subscription');
-        }
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await refreshUser();
+        await reload();
       })();
     } else if (status === 'cancelled') {
       setError('Checkout was cancelled. You can try again anytime.');
@@ -106,20 +111,6 @@ export default function PricingScreen() {
     } finally {
       setBusyTier(null);
     }
-  };
-
-  const showDevReset = () => {
-    Alert.alert('Reset tier (dev)?', 'Revert this school to the free Starter tier locally.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Reset to Starter',
-        style: 'destructive',
-        onPress: async () => {
-          try { await api.post('/billing/cancel-mock'); await refreshUser(); await reload(); }
-          catch {}
-        },
-      },
-    ]);
   };
 
   return (
@@ -176,12 +167,6 @@ export default function PricingScreen() {
           Powered by Stripe. Subscriptions renew monthly until cancelled. Franchise tier bills £10 per
           additional instructor — quantities update automatically when you add or remove team members.
         </Text>
-
-        {currentTier !== 'starter' && (
-          <TouchableOpacity style={styles.devReset} onPress={showDevReset} testID="btn-dev-reset">
-            <Text style={styles.devResetText}>Reset to Starter (dev)</Text>
-          </TouchableOpacity>
-        )}
 
         <View style={{ height: 32 }} />
       </ScrollView>
@@ -383,6 +368,4 @@ const styles = StyleSheet.create({
   successBox: { backgroundColor: theme.colors.successLight, padding: 12, borderRadius: 10 },
   successText: { color: theme.colors.success, fontSize: 14, fontWeight: '600' },
   legal: { fontSize: 11, color: theme.colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 16 },
-  devReset: { padding: 12, alignItems: 'center' },
-  devResetText: { color: theme.colors.textMuted, fontSize: 12 },
 });

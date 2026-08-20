@@ -289,6 +289,17 @@ export default function ProfileScreen() {
         {role === 'instructor' && (
           <TouchableOpacity
             style={styles.linkRow}
+            onPress={() => router.push('/standards-check-screen' as any)}
+            testID="link-standards-check"
+          >
+            <Award size={18} color={theme.colors.primary} />
+            <Text style={styles.linkRowText}>My Standards Check</Text>
+          </TouchableOpacity>
+        )}
+
+        {role === 'instructor' && (
+          <TouchableOpacity
+            style={styles.linkRow}
             onPress={() => router.push('/packages-screen' as any)}
             testID="link-packages"
           >

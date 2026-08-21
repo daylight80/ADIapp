@@ -880,7 +880,20 @@ async def _is_school_owner(sb_user: dict) -> bool:
     school = sb_user.get("school")
     if not school:
         school = await sb_get_school_by_auth_user(sb_user["auth_user_id"])
-    return bool(school and school.get("owner_auth_id") == sb_user["auth_user_id"])
+    result = bool(school and school.get("owner_auth_id") == sb_user["auth_user_id"])
+    if not result:
+        # TEMPORARY diagnostic — remove once the 403-despite-matching-data
+        # mystery on /v2/school/today and /v2/school/leaderboard is solved.
+        # Logs the actual values being compared rather than just "it failed",
+        # since static code review couldn't explain a real 403 happening
+        # despite the school and auth IDs matching exactly in the database.
+        logger.warning(
+            "_is_school_owner returned False — auth_user_id=%r school=%r owner_auth_id=%r",
+            sb_user.get("auth_user_id"),
+            school,
+            school.get("owner_auth_id") if school else None,
+        )
+    return result
 
 
 @api_router.post("/v2/instructors/invite", response_model=InstructorInviteResponse)

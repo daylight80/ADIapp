@@ -591,6 +591,7 @@ export type Lesson = {
   travel_minutes?: number;
   pickup_address?: string;
   topic: string;
+  lesson_type: string;
   notes?: string;
   driving_faults: number;
   serious_faults: number;
@@ -639,6 +640,7 @@ const lessonFromRow = (r: any): Lesson => {
     travel_minutes: r.travel_minutes ?? undefined,
     pickup_address: r.pickup_address ?? undefined,
     topic: r.topic ?? '',
+    lesson_type: r.lesson_type ?? 'Standard',
     notes: r.notes ?? undefined,
     driving_faults: Number(r.driving_faults ?? 0),
     serious_faults: Number(r.serious_faults ?? 0),
@@ -689,6 +691,7 @@ export type AddLessonInput = {
   start_time: string;  // HH:mm
   end_time: string;    // HH:mm
   topic: string;
+  lesson_type?: string; // defaults to 'Standard' in the DB if omitted
   pickup_address?: string;
   travel_minutes?: number;
   notes?: string;
@@ -717,6 +720,7 @@ export async function addLesson(input: AddLessonInput): Promise<Lesson> {
     duration_hours: duration,
     travel_minutes: input.travel_minutes ?? null,
     topic: input.topic,
+    lesson_type: input.lesson_type || 'Standard',
     pickup_address: input.pickup_address || null,
     notes: input.notes || null,
     amount_paid: input.amount_paid ?? null,
@@ -735,6 +739,13 @@ export async function addLesson(input: AddLessonInput): Promise<Lesson> {
       if (retry.error) throw retry.error;
       return lessonFromRow(retry.data);
     }
+    // Same idea for Migration 032 (lesson_type) not being applied yet.
+    if (/lesson_type/i.test(error.message || '')) {
+      delete payload.lesson_type;
+      const retry = await supabase.from('lessons').insert(payload).select('*').single();
+      if (retry.error) throw retry.error;
+      return lessonFromRow(retry.data);
+    }
     throw error;
   }
   return lessonFromRow(data);
@@ -745,6 +756,7 @@ export type UpdateLessonInput = Partial<{
   start_time: string;
   end_time: string;
   topic: string;
+  lesson_type: string;
   pickup_address: string;
   travel_minutes: number;
   notes: string;
@@ -763,6 +775,7 @@ export type UpdateLessonInput = Partial<{
 export async function updateLesson(id: string, patch: UpdateLessonInput): Promise<Lesson | undefined> {
   const dbPatch: Record<string, any> = {};
   if (patch.topic !== undefined) dbPatch.topic = patch.topic;
+  if (patch.lesson_type !== undefined) dbPatch.lesson_type = patch.lesson_type;
   if (patch.pickup_address !== undefined) dbPatch.pickup_address = patch.pickup_address || null;
   if (patch.travel_minutes !== undefined) dbPatch.travel_minutes = patch.travel_minutes;
   if (patch.notes !== undefined) dbPatch.notes = patch.notes;
@@ -1095,6 +1108,10 @@ export type ReflectiveLog = {
   what_well?: string;
   what_difficult?: string;
   next_focus?: string;
+  mood_emoji?: string;
+  mood_reason?: string;
+  understanding_rating?: number;
+  ability_rating?: number;
   created_at: string;
 };
 
@@ -1105,6 +1122,10 @@ const reflectiveFromRow = (r: any): ReflectiveLog => ({
   what_well: r.what_well ?? undefined,
   what_difficult: r.what_difficult ?? undefined,
   next_focus: r.next_focus ?? undefined,
+  mood_emoji: r.mood_emoji ?? undefined,
+  mood_reason: r.mood_reason ?? undefined,
+  understanding_rating: r.understanding_rating ?? undefined,
+  ability_rating: r.ability_rating ?? undefined,
   created_at: r.created_at,
 });
 
@@ -1124,6 +1145,10 @@ export async function addReflectiveLog(input: {
   what_well?: string;
   what_difficult?: string;
   next_focus?: string;
+  mood_emoji?: string;
+  mood_reason?: string;
+  understanding_rating?: number;
+  ability_rating?: number;
 }): Promise<ReflectiveLog> {
   const { data, error } = await supabase
     .from('reflective_logs')
@@ -1236,6 +1261,30 @@ export type BlockBooking = {
   purchased_at: string;
   notes?: string;
 };
+
+// Bulk hours-balance fetch for a whole roster at once — one query instead
+// of N, same pattern as listCompetenciesForStudents. Returns available
+// prepaid hours per student (hours_paid - hours_used, summed across all
+// their block bookings), so it can be shown inline on a student list
+// without opening each profile individually.
+export async function listHoursBalanceForStudents(studentIds: string[]): Promise<Record<string, number>> {
+  if (studentIds.length === 0) return {};
+  const { data, error } = await supabase
+    .from('block_bookings')
+    .select('student_id, hours_paid, hours_used')
+    .in('student_id', studentIds);
+  if (error) {
+    // Non-fatal — the list still renders fine without balances if this fails.
+    console.warn('[hours-balance] listHoursBalanceForStudents failed:', error.message);
+    return {};
+  }
+  const totals: Record<string, number> = {};
+  for (const row of data || []) {
+    const net = Number(row.hours_paid) - Number(row.hours_used);
+    totals[row.student_id] = (totals[row.student_id] || 0) + net;
+  }
+  return totals;
+}
 
 export async function listBlockBookings(studentId: string): Promise<BlockBooking[]> {
   const { data, error } = await supabase
@@ -1558,8 +1607,15 @@ export async function updateMySchoolProfile(patch: Partial<{
 // under "<school_id>/logo.<ext>" — overwriting any existing logo — then
 // saves the resulting public URL onto the school's row.
 export async function uploadSchoolLogo(schoolId: string, base64: string, mimeType: string): Promise<string> {
-  const ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
-  const path = `${schoolId}/logo.${ext}`;
+  // Deliberately a fixed path with no extension, regardless of the source
+  // image's format — Supabase Storage serves the correct Content-Type from
+  // what's set at upload time below, so a file extension isn't functionally
+  // needed for correct rendering. This guarantees every upload for this
+  // school truly overwrites the same file, rather than risking two
+  // different files (logo.png, then logo.jpg) if someone uploads a PNG and
+  // later a JPG — which would silently leave the old one as orphaned
+  // storage while still technically "working" for display.
+  const path = `${schoolId}/logo`;
 
   // Decode base64 -> Uint8Array in a way that works on web + native (same
   // approach as uploadReceiptImage above).

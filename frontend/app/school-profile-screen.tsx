@@ -110,7 +110,17 @@ export default function SchoolProfileScreen() {
     const asset = res.assets[0];
     setUploadingLogo(true);
     try {
-      const url = await uploadSchoolLogo(profile.id, asset.base64!, asset.mimeType || 'image/jpeg');
+      // A hung upload (slow network, large image slipping through, a
+      // one-off backend/storage hiccup) must never leave uploadingLogo
+      // stuck true forever — that permanently disables the button for the
+      // rest of the page's life, blocking any further attempt including
+      // with a different, smaller image. 20s is generous for a small
+      // square logo; a real upload should finish in a couple of seconds.
+      const uploadPromise = uploadSchoolLogo(profile.id, asset.base64!, asset.mimeType || 'image/jpeg');
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Upload timed out after 20 seconds. Please try again.')), 20000),
+      );
+      const url = await Promise.race([uploadPromise, timeoutPromise]);
       setProfile((prev) => (prev ? { ...prev, logo_url: url } : prev));
     } catch (e: any) {
       Alert.alert('Could not upload logo', e?.message || 'Please try again.');

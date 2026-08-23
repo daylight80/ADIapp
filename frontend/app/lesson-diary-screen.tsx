@@ -4,13 +4,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
   ChevronLeft, ChevronRight, Plus, ArrowLeft, AlertTriangle,
-  Calendar, CalendarDays, Ban, Navigation as NavIcon, Route as RouteIcon,
+  Calendar, CalendarDays, CalendarRange, Ban, Info, Navigation as NavIcon, Route as RouteIcon,
   PoundSterling, Trophy,
 } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { Lesson } from '../src/mockDb';
 import {
-  useLessonsForWeek, useStudents, useInstructorProfile, useAvailabilityBlocks,
+  useLessonsForWeek, useLessonsForMonth, useStudents, useInstructorProfile, useAvailabilityBlocks,
   patchLesson,
 } from '../src/useSupabaseData';
 import { type AvailabilityBlock } from '../src/supabaseDb';
@@ -26,8 +26,9 @@ import { openNavigation } from '../src/tools';
 import {
   DAYS, TOP_HOUR, BOTTOM_HOUR, HOURS, HOUR_HEIGHT, TOTAL_HEIGHT, TIME_W, CELL_W,
 } from '../src/diary/constants';
-import { startOfWeek, addDays, formatDateRange, localDateKey, toMin, minutesToTime, snapMinutes } from '../src/diary/dateUtils';
+import { startOfWeek, addDays, formatDateRange, localDateKey, toMin, minutesToTime, snapMinutes, startOfMonthGrid, endOfMonthGrid, addMonths, isSameMonth } from '../src/diary/dateUtils';
 import { styles } from '../src/diary/diaryStyles';
+import { colorForLessonType, LESSON_TYPES } from '../src/diary/lessonTypes';
 import { AddLessonSheet } from '../src/diary/AddLessonSheet';
 import { DraggableLessonBlock } from '../src/diary/DraggableLessonBlock';
 
@@ -35,7 +36,8 @@ export default function LessonDiaryScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const pro = isPaidTier(user?.tier);
-  const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
+  const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('day');
+  const [legendOpen, setLegendOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return d;
   });
@@ -72,6 +74,9 @@ export default function LessonDiaryScreen() {
   };
 
   const { lessons } = useLessonsForWeek(weekStart);
+  const monthGridStart = useMemo(() => startOfMonthGrid(selectedDate), [selectedDate]);
+  const monthGridEnd = useMemo(() => endOfMonthGrid(selectedDate), [selectedDate]);
+  const { lessons: monthLessons } = useLessonsForMonth(monthGridStart, monthGridEnd);
   const { students } = useStudents();
 
   // Availability blocks for the visible window (week start → +7 days).
@@ -127,6 +132,7 @@ export default function LessonDiaryScreen() {
   // (Deliberately NOT re-triggered by selectedDate changes from Prev/Next —
   // that would yank the scroll position out from under someone browsing.)
   useEffect(() => {
+    if (viewMode === 'month') return;
     const today = new Date();
     const isTodayVisible = viewMode === 'day'
       ? selectedDate.toDateString() === today.toDateString()
@@ -140,12 +146,20 @@ export default function LessonDiaryScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode]);
 
-  const goPrev = () => setSelectedDate(addDays(selectedDate, viewMode === 'day' ? -1 : -7));
-  const goNext = () => setSelectedDate(addDays(selectedDate, viewMode === 'day' ? 1 : 7));
+  const goPrev = () => {
+    if (viewMode === 'month') { setSelectedDate(addMonths(selectedDate, -1)); return; }
+    setSelectedDate(addDays(selectedDate, viewMode === 'day' ? -1 : -7));
+  };
+  const goNext = () => {
+    if (viewMode === 'month') { setSelectedDate(addMonths(selectedDate, 1)); return; }
+    setSelectedDate(addDays(selectedDate, viewMode === 'day' ? 1 : 7));
+  };
   const goToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); setSelectedDate(d); };
   const navLabel = viewMode === 'day'
     ? selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })
-    : formatDateRange(weekStart);
+    : viewMode === 'month'
+      ? selectedDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+      : formatDateRange(weekStart);
   const selectedKey = localDateKey(selectedDate);
   const todayKey = localDateKey(new Date());
 
@@ -254,6 +268,15 @@ export default function LessonDiaryScreen() {
         <Text style={styles.title}>Lesson Diary</Text>
         <View style={{ flexDirection: 'row', gap: 4 }}>
           <TouchableOpacity
+            onPress={() => setLegendOpen((v) => !v)}
+            testID="btn-lesson-type-legend"
+            style={styles.iconBtn}
+            accessibilityLabel="Lesson type key"
+            {...webTitle('Lesson type key')}
+          >
+            <Info size={22} color={legendOpen ? theme.colors.primary : theme.colors.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={() => router.push('/route-recorder-screen' as any)}
             testID="btn-route-recorder"
             style={styles.iconBtn}
@@ -300,7 +323,26 @@ export default function LessonDiaryScreen() {
           <CalendarDays size={14} color={viewMode === 'week' ? '#fff' : theme.colors.primary} />
           <Text style={[styles.toggleText, viewMode === 'week' && styles.toggleTextActive]}>Week</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.toggleBtn, viewMode === 'month' && styles.toggleBtnActive]}
+          onPress={() => setViewMode('month')}
+          testID="view-month"
+        >
+          <CalendarRange size={14} color={viewMode === 'month' ? '#fff' : theme.colors.primary} />
+          <Text style={[styles.toggleText, viewMode === 'month' && styles.toggleTextActive]}>Month</Text>
+        </TouchableOpacity>
       </View>
+
+      {legendOpen && (
+        <View style={styles.legendWrap} testID="lesson-type-legend">
+          {LESSON_TYPES.map((t) => (
+            <View key={t.value} style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: t.color }]} />
+              <Text style={styles.legendText}>{t.value}</Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       <View style={styles.weekNav} testID="week-nav">
         <TouchableOpacity onPress={goPrev} style={styles.weekArrow} testID="week-prev">
@@ -316,7 +358,60 @@ export default function LessonDiaryScreen() {
       </View>
 
       <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll} scrollEnabled={!dragScrollLocked}>
-        {viewMode === 'day' ? (
+        {viewMode === 'month' ? (
+          <View style={styles.monthGrid} testID="month-grid">
+            <View style={styles.monthHeaderRow}>
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+                <View key={d} style={styles.monthHeaderCell}>
+                  <Text style={styles.monthHeaderText}>{d}</Text>
+                </View>
+              ))}
+            </View>
+            {Array.from({ length: 6 }).map((_, row) => (
+              <View key={row} style={styles.monthRow}>
+                {Array.from({ length: 7 }).map((__, col) => {
+                  const cellDate = addDays(monthGridStart, row * 7 + col);
+                  const cellKey = localDateKey(cellDate);
+                  const inCurrentMonth = isSameMonth(cellDate, selectedDate);
+                  const isToday = cellKey === todayKey;
+                  const dayLessons = monthLessons.filter((l) => l.date === cellKey);
+                  const visibleLessons = dayLessons.slice(0, 3);
+                  const overflowCount = dayLessons.length - visibleLessons.length;
+                  return (
+                    <TouchableOpacity
+                      key={cellKey}
+                      style={styles.monthCell}
+                      onPress={() => { setSelectedDate(cellDate); setViewMode('day'); }}
+                      testID={`month-cell-${cellKey}`}
+                    >
+                      <View style={[styles.monthDateBadge, isToday && styles.monthDateBadgeToday]}>
+                        <Text style={[
+                          styles.monthDateText,
+                          !inCurrentMonth && styles.monthDateTextDim,
+                          isToday && styles.monthDateTextToday,
+                        ]}>
+                          {cellDate.getDate()}
+                        </Text>
+                      </View>
+                      <View style={styles.monthLessonList}>
+                        {visibleLessons.map((l) => (
+                          <View key={l.id} style={[styles.monthLessonChip, { backgroundColor: colorForLessonType(l.lesson_type) + '33' }]}>
+                            <Text style={styles.monthLessonChipText} numberOfLines={1}>
+                              {l.start_time} {l.topic || 'Lesson'}
+                            </Text>
+                          </View>
+                        ))}
+                        {overflowCount > 0 && (
+                          <Text style={styles.monthMoreText}>+{overflowCount} more</Text>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        ) : viewMode === 'day' ? (
           <View style={styles.dayGrid} testID="day-grid">
             <View style={styles.dayGridHeader}>
               <View style={{ width: TIME_W }} />
@@ -378,6 +473,7 @@ export default function LessonDiaryScreen() {
                         onDrop={(tx, ty) => handleLessonDrop(l, tx, ty)}
                         style={[
                           styles.lessonBlockDay,
+                          { backgroundColor: colorForLessonType(l.lesson_type) },
                           tooTight && styles.lessonBlockWarn,
                           isCancelled && styles.lessonBlockCancelled,
                           { top, height },
@@ -510,6 +606,7 @@ export default function LessonDiaryScreen() {
                             onDrop={(tx, ty) => handleLessonDrop(l, tx, ty)}
                             style={[
                               styles.lessonBlockWeek,
+                              { backgroundColor: colorForLessonType(l.lesson_type) },
                               tooTight && styles.lessonBlockWarn,
                               isCancelled && styles.lessonBlockCancelled,
                               { top, height },

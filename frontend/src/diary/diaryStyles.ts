@@ -268,4 +268,33 @@ export const styles = StyleSheet.create({
   faultCard: { flex: 1, borderRadius: 12, borderWidth: 2, padding: 12, alignItems: 'center' },
   faultValue: { fontSize: 22, fontWeight: '700' },
   faultLabel: { fontSize: 12, color: theme.colors.textMuted },
+
+  // ---- Month view ----
+  monthGrid: { paddingHorizontal: 8, paddingBottom: 16 },
+  monthHeaderRow: { flexDirection: 'row', marginBottom: 4 },
+  monthHeaderCell: { flex: 1, alignItems: 'center', paddingVertical: 6 },
+  monthHeaderText: { fontSize: 12, fontWeight: '600', color: theme.colors.textMuted },
+  monthRow: { flexDirection: 'row', minHeight: 84 },
+  monthCell: {
+    flex: 1, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border,
+    padding: 4, alignItems: 'stretch',
+  },
+  monthDateBadge: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  monthDateBadgeToday: { backgroundColor: theme.colors.primary },
+  monthDateText: { fontSize: 12, fontWeight: '600', color: theme.colors.text },
+  monthDateTextDim: { color: theme.colors.border },
+  monthDateTextToday: { color: '#fff' },
+  monthLessonList: { marginTop: 2, gap: 2 },
+  monthLessonChip: {
+    backgroundColor: theme.colors.lockedBg, borderRadius: 4,
+    paddingHorizontal: 4, paddingVertical: 2,
+  },
+  monthLessonChipText: { fontSize: 10, color: theme.colors.text },
+  monthMoreText: { fontSize: 10, color: theme.colors.textMuted, fontWeight: '600' },
+
+  // ---- Lesson type legend ----
+  legendWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.colors.background },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendDot: { width: 9, height: 9, borderRadius: 4.5 },
+  legendText: { fontSize: 11, color: theme.colors.textMuted },
 });

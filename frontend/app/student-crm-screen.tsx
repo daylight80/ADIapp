@@ -17,7 +17,7 @@ import { Search, Plus, ArrowLeft, Mail, Phone, MapPin, CalendarDays, Check, Crow
 import { theme } from '../src/theme';
 import { mockDb, StudentStatus } from '../src/mockDb';
 import { useStudents, createStudent, ensureDemoStudentsSeeded } from '../src/useSupabaseData';
-import { listStudentBalances } from '../src/supabaseDb';
+import { listStudentBalances, listHoursBalanceForStudents } from '../src/supabaseDb';
 import { explainLimitError, canAddStudent, isPaidTier, tierById, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
 import { Card, ProgressBar, StatusBadge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
@@ -91,6 +91,19 @@ export default function StudentCrmScreen() {
   const [reloadKey, setReloadKey] = useState(0);
 
   const { students, loading: studentsLoading, refresh: refreshStudents } = useStudents();
+
+  // Prepaid-hours balance, fetched in bulk once we know the roster — shown
+  // inline on each row so the instructor sees who needs a top-up or has
+  // credit sitting unused, without opening every profile individually.
+  const [hoursBalances, setHoursBalances] = useState<Record<string, number>>({});
+  React.useEffect(() => {
+    if (students.length === 0) return;
+    let cancelled = false;
+    listHoursBalanceForStudents(students.map((s) => s.id))
+      .then((map) => { if (!cancelled) setHoursBalances(map); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [students]);
 
   // Seed demo students on first login for this instructor (idempotent)
   React.useEffect(() => {
@@ -411,6 +424,24 @@ export default function StudentCrmScreen() {
                   </Text>
                 )}
               </View>
+
+              {/* Prepaid-hours balance / arrears — shown inline so an
+                  instructor sees who needs a top-up or is overdue without
+                  opening every profile. Arrears takes priority when both
+                  are present, since it needs more urgent attention. */}
+              {(balances[s.id] ?? 0) > 0 ? (
+                <View style={styles.metaRow}>
+                  <Text style={[styles.metaText, { color: theme.colors.danger, fontWeight: '600' }]} testID={`arrears-${s.id}`}>
+                    £{(balances[s.id] ?? 0).toFixed(2)} owed
+                  </Text>
+                </View>
+              ) : (hoursBalances[s.id] ?? 0) > 0 ? (
+                <View style={styles.metaRow}>
+                  <Text style={[styles.metaText, { color: theme.colors.success, fontWeight: '600' }]} testID={`balance-${s.id}`}>
+                    {(hoursBalances[s.id] ?? 0).toFixed(1)}h available
+                  </Text>
+                </View>
+              ) : null}
             </Card>
           </TouchableOpacity>
         )}

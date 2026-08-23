@@ -32,10 +32,14 @@ export default function CompetencyDetailScreen() {
   const { competencies: sbComps, loading: compLoading } = useCompetencies(studentId);
   const competency = useMemo(() => {
     if (sbComps && sbComps.length > 0) {
-      return sbComps.find((c) => c.key === key) || sbComps[0];
+      // If the real data exists but this specific category genuinely
+      // hasn't been assessed yet, that's an honest "not tracked" state —
+      // not a reason to silently show a completely different category's
+      // progress under this one's heading.
+      return sbComps.find((c) => c.key === key) || null;
     }
     // Fallback to mock (student-home flow with non-Supabase IDs)
-    return mockDb.getCompetency(studentId, key) || mockDb.getCompetencies(studentId)[0];
+    return mockDb.getCompetency(studentId, key) || null;
   }, [sbComps, studentId, key]);
 
   // Filter related lessons by competency name (legacy heuristic, kept for now).
@@ -95,7 +99,23 @@ export default function CompetencyDetailScreen() {
     );
   }
 
-  if (!competency) return null;
+  if (!competency) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={[styles.header, { justifyContent: 'flex-start' }]}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="btn-back">
+            <ArrowLeft size={22} color={theme.colors.text} />
+          </TouchableOpacity>
+        </View>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 8 }}>
+          <Text style={{ ...theme.font.h3, textAlign: 'center' }}>Not tracked yet</Text>
+          <Text style={{ color: theme.colors.textMuted, textAlign: 'center' }}>
+            This category hasn't been assessed for this student yet.
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   // Defense in depth: both entry points into this screen (student home,
   // instructor lifecycle) already gate access, but this screen is reachable

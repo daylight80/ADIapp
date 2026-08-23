@@ -46,6 +46,35 @@ export function snapMinutes(minutes: number, step = 5): number {
   return Math.round(minutes / step) * step;
 }
 
+/** First day of the calendar month containing d, time zeroed. */
+export function startOfMonth(d: Date): Date {
+  const c = new Date(d.getFullYear(), d.getMonth(), 1);
+  c.setHours(0, 0, 0, 0);
+  return c;
+}
+
+/** The Monday on/before the 1st of the month — start of a clean 6-row grid. */
+export function startOfMonthGrid(d: Date): Date {
+  return startOfWeek(startOfMonth(d));
+}
+
+/** Always 42 days (6 full weeks) so the grid height never jumps between
+ * months — some months only need 5 rows, but a fixed 6 keeps the layout
+ * stable as the user pages back and forth. */
+export function endOfMonthGrid(d: Date): Date {
+  return addDays(startOfMonthGrid(d), 42);
+}
+
+export function addMonths(d: Date, n: number): Date {
+  const c = new Date(d);
+  c.setMonth(c.getMonth() + n);
+  return c;
+}
+
+export function isSameMonth(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+}
+
 /** YYYY-MM-DD key for a Date in the local TZ (matches Supabase lesson.date). */
 export function localDateKey(d: Date): string {
   const y = d.getFullYear();

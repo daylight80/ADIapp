@@ -228,6 +228,26 @@ export function useLessonsForWeek(weekStart: Date) {
   return { lessons, loading };
 }
 
+// Same shape as useLessonsForWeek, but for a full 42-day (6-row) month
+// grid — gridStart/gridEnd already account for padding days from the
+// adjacent months, computed by the caller via startOfMonthGrid/endOfMonthGrid.
+export function useLessonsForMonth(gridStart: Date, gridEnd: Date) {
+  const version = useVersion();
+  const key = `${gridStart.toISOString().slice(0, 10)}_${gridEnd.toISOString().slice(0, 10)}`;
+  const [lessons, setLessons] = useState<db.Lesson[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    db.listLessonsBetween(gridStart.toISOString(), gridEnd.toISOString())
+      .then(setLessons)
+      .catch(() => setLessons([]))
+      .finally(() => setLoading(false));
+  }, [key, version]);
+
+  return { lessons, loading };
+}
+
 // ---------------------------------------------------------------------------
 // Lesson mutations
 // ---------------------------------------------------------------------------

@@ -37,30 +37,34 @@ export default function WalletScreen() {
   );
   const supabaseStudent = isPassedSupabaseUuid ? undefined : (sbStudentByAuth || sbStudentByEmail);
 
-  const studentId = isPassedSupabaseUuid
-    ? passedId
-    : (supabaseStudent?.id
-        || (user?.email ? mockDb.getStudentByEmail(user.email)?.id : undefined)
-        || passedId
-        || 's2');
+  // Same principle as student-home-screen: a real logged-in user (user
+  // exists) whose own link is missing is a genuine problem, not a reason
+  // to silently show them a hardcoded demo student's identity/rate as if
+  // it were their own. Mock only applies for a passed legacy mock id, or
+  // truly no session at all.
+  const mockFallbackId = isPassedSupabaseUuid || user ? undefined : (passedId || 's2');
+  const studentId = isPassedSupabaseUuid ? passedId : (supabaseStudent?.id || mockFallbackId);
+  const noRealLinkFound = !isPassedSupabaseUuid && !!user && !supabaseStudent && !mockFallbackId;
 
-  const mockStudent = mockDb.getStudent(studentId);
+  const mockStudent = studentId ? mockDb.getStudent(studentId) : undefined;
   const student = supabaseStudent
     ? { id: supabaseStudent.id, name: supabaseStudent.name, hourly_rate: supabaseStudent.hourly_rate ?? 38 }
     : mockStudent
       ? { id: mockStudent.id, name: mockStudent.name, hourly_rate: mockStudent.hourly_rate }
-      : { id: studentId, name: user?.name || 'Learner', hourly_rate: 38 };
+      : { id: studentId || '', name: user?.name || 'Learner', hourly_rate: 38 };
 
   // -----------------------------------------------------------------------
   // Live data from Supabase.
   // -----------------------------------------------------------------------
   const { bookings, loading: bookingsLoading } = useBlockBookings(studentId);
-  const { lessons: sbLessons } = useLessonsForStudent(studentId);
+  const { lessons: sbLessons } = useLessonsForStudent(supabaseStudent ? studentId : undefined);
   const lessons = useMemo(() => {
-    if (sbLessons && sbLessons.length > 0) return sbLessons.filter((l) => l.amount_paid);
-    // mockDb fallback (legacy demo)
-    return mockDb.listLessonsForStudent(studentId).filter((l) => l.amount_paid);
-  }, [sbLessons, studentId]);
+    if (supabaseStudent) return (sbLessons || []).filter((l) => l.amount_paid);
+    // mockDb fallback — only reached when there's genuinely no real student
+    // linked at all (see studentId/mockFallbackId above), not as a
+    // substitute for a real student's legitimately-empty lesson history.
+    return studentId ? mockDb.listLessonsForStudent(studentId).filter((l) => l.amount_paid) : [];
+  }, [supabaseStudent, sbLessons, studentId]);
 
   // Wallet balance is derived client-side from the bookings array.
   const wallet = useMemo(() => {
@@ -99,6 +103,19 @@ export default function WalletScreen() {
       setBusy(false);
     }
   };
+
+  if (noRealLinkFound) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 }}>
+          <Text style={{ ...theme.font.h2, textAlign: 'center' }}>We couldn't find your student profile</Text>
+          <Text style={{ color: theme.colors.textMuted, textAlign: 'center' }}>
+            Your account isn't linked to a student record yet. Please contact your instructor.
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>

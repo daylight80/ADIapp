@@ -19,7 +19,11 @@ export default function TheoryTestScreen() {
     !sbStudentByAuth ? user?.email : undefined,
   );
   const supabaseStudent = sbStudentByAuth || sbStudentByEmail;
-  const mockStudent = user?.email ? mockDb.getStudentByEmail(user.email) : mockDb.getStudent('s2');
+  // Same principle as the other student-facing screens: only fall back to
+  // a hardcoded demo student when there's genuinely no real session at
+  // all, not whenever a real logged-in user's own link happens to be
+  // missing.
+  const mockStudent = !user ? mockDb.getStudent('s2') : undefined;
   const student = supabaseStudent || mockStudent;
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [submitted, setSubmitted] = useState(false);

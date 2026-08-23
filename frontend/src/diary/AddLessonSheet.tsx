@@ -11,6 +11,7 @@ import { Lesson, Student } from '../mockDb';
 import { getTravelTime, lessonAddress } from '../maps';
 import { scheduleLessonReminders } from '../notifications';
 import { styles } from './diaryStyles';
+import { LESSON_TYPES } from './lessonTypes';
 
 export type AddLessonCreatedInfo = {
   /** YYYY-MM-DD of the first created lesson */
@@ -57,6 +58,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('11:00');
   const [topic, setTopic] = useState('');
+  const [lessonType, setLessonType] = useState<string>('Standard');
   const [travelMinutes, setTravelMinutes] = useState('15');
 
   // Recurrence — bulk-create across `repeatWeeks` consecutive weeks at the
@@ -256,6 +258,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
           end_time: endTime,
           travel_minutes: parseInt(travelMinutes, 10) || 0,
           topic,
+          lesson_type: lessonType,
           amount_paid: undefined,
           series_id: seriesId,
         });
@@ -372,6 +375,29 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
         placeholderTextColor={theme.colors.textMuted}
         testID="input-lesson-topic"
       />
+
+      <Text style={styles.label}>Lesson type</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+        {LESSON_TYPES.map((t) => {
+          const active = lessonType === t.value;
+          return (
+            <TouchableOpacity
+              key={t.value}
+              style={[
+                styles.chip,
+                active && { backgroundColor: t.color, borderColor: t.color },
+              ]}
+              onPress={() => setLessonType(t.value)}
+              testID={`lesson-type-${t.value}`}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: active ? '#fff' : t.color }} />
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>{t.value}</Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
 
       <Text style={styles.label}>Travel buffer (minutes to next lesson)</Text>
       <TextInput

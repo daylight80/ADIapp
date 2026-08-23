@@ -6,6 +6,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider, useAuth } from '../src/AuthContext';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { theme } from '../src/theme';
+import { useFonts, Archivo_800ExtraBold, Archivo_700Bold } from '@expo-google-fonts/archivo';
+import { Barlow_400Regular, Barlow_500Medium, Barlow_600SemiBold, Barlow_700Bold } from '@expo-google-fonts/barlow';
 
 const AUTH_ROUTE = 'sign-up-login-screen';
 // Routes that don't require an authenticated session. The forgot/reset
@@ -69,6 +71,29 @@ function AuthGate() {
 }
 
 export default function RootLayout() {
+  // Archivo + Barlow — loaded app-wide for the redesigned Lesson Diary
+  // trial (a Claude Design handoff, 23 Aug 2026). Every other screen still
+  // uses the system font via theme.ts; this doesn't change anything
+  // elsewhere. If this becomes the permanent direction across more
+  // screens, worth revisiting whether app-wide load-at-startup is still
+  // the right call vs. lazy-loading per screen.
+  const [fontsLoaded] = useFonts({
+    Archivo_800ExtraBold,
+    Archivo_700Bold,
+    Barlow_400Regular,
+    Barlow_500Medium,
+    Barlow_600SemiBold,
+    Barlow_700Bold,
+  });
+
+  if (!fontsLoaded) {
+    return (
+      <View style={styles.loading} testID="fonts-loading">
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>

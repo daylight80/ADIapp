@@ -297,4 +297,5 @@ export const styles = StyleSheet.create({
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   legendDot: { width: 9, height: 9, borderRadius: 4.5 },
   legendText: { fontSize: 11, color: theme.colors.textMuted },
+  hint: { fontSize: 12, color: theme.colors.textMuted, marginTop: 4, marginBottom: 8 },
 });

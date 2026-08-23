@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Switch, Alert } from 'react-native';
 import { Car } from 'lucide-react-native';
 import { theme } from '../theme';
@@ -58,6 +58,8 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('11:00');
   const [topic, setTopic] = useState('');
+  const [rate, setRate] = useState('');
+  const rateManuallyEdited = useRef(false);
   const [lessonType, setLessonType] = useState<string>('Standard');
   const [travelMinutes, setTravelMinutes] = useState('15');
 
@@ -99,10 +101,28 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, studentId, date, startTime, lessons]);
 
+  // Suggest a lesson rate from the student's own hourly rate × duration —
+  // a genuine head start, not a forced value. Only auto-fills while the
+  // instructor hasn't typed their own figure; once they do, this stops
+  // touching the field so it never overwrites a deliberate override (e.g.
+  // a promotional lesson, a block-booking discount).
+  useEffect(() => {
+    if (!visible || !studentId || rateManuallyEdited.current) return;
+    const s = getStudent(studentId);
+    if (!s?.hourly_rate) return;
+    const [sh, sm] = startTime.split(':').map(Number);
+    const [eh, em] = endTime.split(':').map(Number);
+    const hours = Math.max(0, (eh + em / 60) - (sh + sm / 60));
+    if (hours <= 0) return;
+    setRate((s.hourly_rate * hours).toFixed(2));
+  }, [visible, studentId, startTime, endTime]);
+
   // Reset form on close so re-opens start fresh.
   useEffect(() => {
     if (!visible) {
       setTravelInfo(null);
+      setRate('');
+      rateManuallyEdited.current = false;
     }
   }, [visible]);
 
@@ -260,6 +280,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
           topic,
           lesson_type: lessonType,
           amount_paid: undefined,
+          quoted_amount: rate.trim() ? Number(rate.trim()) : undefined,
           series_id: seriesId,
         });
         if (!firstCreated) firstCreated = row;
@@ -398,6 +419,22 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
           );
         })}
       </ScrollView>
+
+      <Text style={styles.label}>Lesson rate (£)</Text>
+      <TextInput
+        style={styles.input}
+        value={rate}
+        onChangeText={(v) => { rateManuallyEdited.current = true; setRate(v); }}
+        placeholder="e.g. 36.00"
+        placeholderTextColor={theme.colors.textMuted}
+        keyboardType="decimal-pad"
+        testID="input-lesson-rate"
+      />
+      {!!studentId && !!getStudent(studentId)?.hourly_rate && (
+        <Text style={styles.hint}>
+          Suggested from {getStudent(studentId)?.name}&apos;s usual rate — feel free to change it.
+        </Text>
+      )}
 
       <Text style={styles.label}>Travel buffer (minutes to next lesson)</Text>
       <TextInput

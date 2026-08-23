@@ -598,6 +598,7 @@ export type Lesson = {
   dangerous_faults: number;
   grade?: number;
   amount_paid?: number;
+  quoted_amount?: number;
   status: LessonStatus;
   pre_check_completed_at?: string;
   cancellation_charge?: number;
@@ -647,6 +648,7 @@ const lessonFromRow = (r: any): Lesson => {
     dangerous_faults: Number(r.dangerous_faults ?? 0),
     grade: r.grade ?? undefined,
     amount_paid: r.amount_paid != null ? Number(r.amount_paid) : undefined,
+    quoted_amount: r.quoted_amount != null ? Number(r.quoted_amount) : undefined,
     status: (r.status ?? 'Scheduled') as LessonStatus,
     pre_check_completed_at: r.pre_check_completed_at ?? undefined,
     cancellation_charge: r.cancellation_charge != null ? Number(r.cancellation_charge) : undefined,
@@ -696,6 +698,7 @@ export type AddLessonInput = {
   travel_minutes?: number;
   notes?: string;
   amount_paid?: number;
+  quoted_amount?: number;
   vehicle_id?: string; // optional override; otherwise default vehicle is used
   series_id?: string;  // shared uuid stamped on every occurrence of a recurring series
 };
@@ -724,6 +727,7 @@ export async function addLesson(input: AddLessonInput): Promise<Lesson> {
     pickup_address: input.pickup_address || null,
     notes: input.notes || null,
     amount_paid: input.amount_paid ?? null,
+    quoted_amount: input.quoted_amount ?? null,
     status: 'Scheduled' as LessonStatus,
   };
   if (input.series_id) payload.series_id = input.series_id;
@@ -742,6 +746,13 @@ export async function addLesson(input: AddLessonInput): Promise<Lesson> {
     // Same idea for Migration 032 (lesson_type) not being applied yet.
     if (/lesson_type/i.test(error.message || '')) {
       delete payload.lesson_type;
+      const retry = await supabase.from('lessons').insert(payload).select('*').single();
+      if (retry.error) throw retry.error;
+      return lessonFromRow(retry.data);
+    }
+    // Same idea for Migration 033 (quoted_amount) not being applied yet.
+    if (/quoted_amount/i.test(error.message || '')) {
+      delete payload.quoted_amount;
       const retry = await supabase.from('lessons').insert(payload).select('*').single();
       if (retry.error) throw retry.error;
       return lessonFromRow(retry.data);
@@ -765,6 +776,7 @@ export type UpdateLessonInput = Partial<{
   dangerous_faults: number;
   grade: number;
   amount_paid: number;
+  quoted_amount: number;
   payment_method: 'bank_transfer' | 'card' | 'cash' | null;
   status: LessonStatus;
   pre_check_completed_at: string;

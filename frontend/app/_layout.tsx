@@ -18,6 +18,9 @@ const PUBLIC_ROUTES = new Set<string>([
   AUTH_ROUTE,
   'forgot-password-screen',
   'reset-password-screen',
+  // Redesign trial (23 Aug 2026) — must be public, or AuthGate redirects
+  // signed-out visitors away before it can be previewed.
+  'sign-in-v2-screen',
 ]);
 
 function AuthGate() {

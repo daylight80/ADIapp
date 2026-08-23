@@ -701,3 +701,106 @@ export async function removeTestOutcome(id: string) {
   bump();
 }
 
+// ===========================================================================
+// Real instructor home-screen figures (23 Aug 2026) — these replace the
+// mockDb.getKPIs() / getMTDStats() / listTodayLessons() / getEarningsByMonth()
+// calls the home screen was still using, which showed hardcoded demo numbers
+// rather than the signed-in instructor's actual data.
+// ===========================================================================
+
+export type MonthEarning = { label: string; value: number };
+
+/**
+ * Month-to-date totals plus a trailing 6-month earnings series, both derived
+ * from real lessons. "Earned" counts amount_paid (money actually taken);
+ * "unpaid" counts quoted_amount on completed lessons that have no payment
+ * recorded yet — deliberately separate, since conflating them would
+ * overstate income.
+ */
+export function useInstructorEarnings() {
+  const version = useVersion();
+  const [mtdEarned, setMtdEarned] = useState(0);
+  const [mtdUnpaid, setMtdUnpaid] = useState(0);
+  const [mtdLessonCount, setMtdLessonCount] = useState(0);
+  const [byMonth, setByMonth] = useState<MonthEarning[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const now = new Date();
+        const seriesStart = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+        const seriesEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+        const rows = await db.listLessonsBetween(seriesStart.toISOString(), seriesEnd.toISOString());
+        if (cancelled) return;
+
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        let earned = 0;
+        let unpaid = 0;
+        let count = 0;
+        const buckets = new Map<string, number>();
+        for (let i = 5; i >= 0; i--) {
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          buckets.set(`${d.getFullYear()}-${d.getMonth()}`, 0);
+        }
+
+        for (const l of rows) {
+          const d = new Date(`${l.date}T00:00:00`);
+          const key = `${d.getFullYear()}-${d.getMonth()}`;
+          if (buckets.has(key)) buckets.set(key, (buckets.get(key) || 0) + (l.amount_paid || 0));
+          if (d >= monthStart) {
+            earned += l.amount_paid || 0;
+            count += 1;
+            if (!l.amount_paid && l.status === 'Completed') unpaid += l.quoted_amount || 0;
+          }
+        }
+
+        setMtdEarned(earned);
+        setMtdUnpaid(unpaid);
+        setMtdLessonCount(count);
+        setByMonth(
+          Array.from(buckets.entries()).map(([key, value]) => {
+            const [y, m] = key.split('-').map(Number);
+            return { label: new Date(y, m, 1).toLocaleDateString('en-GB', { month: 'short' }), value };
+          }),
+        );
+      } catch {
+        if (!cancelled) { setMtdEarned(0); setMtdUnpaid(0); setMtdLessonCount(0); setByMonth([]); }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [version]);
+
+  return { mtdEarned, mtdUnpaid, mtdLessonCount, byMonth, loading };
+}
+
+/** Today's lessons only, from real data. */
+export function useTodayLessons() {
+  const version = useVersion();
+  const [lessons, setLessons] = useState<db.Lesson[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const start = new Date(); start.setHours(0, 0, 0, 0);
+        const end = new Date(start); end.setDate(end.getDate() + 1);
+        const rows = await db.listLessonsBetween(start.toISOString(), end.toISOString());
+        if (!cancelled) setLessons(rows);
+      } catch {
+        if (!cancelled) setLessons([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [version]);
+
+  return { lessons, loading };
+}

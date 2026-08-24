@@ -1,703 +1,462 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet, useWindowDimensions, Platform, Alert } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import {
-  ChevronLeft, ChevronRight, Plus, ArrowLeft, AlertTriangle,
-  Calendar, CalendarDays, CalendarRange, Ban, Info, Navigation as NavIcon, Route as RouteIcon,
-  PoundSterling, Trophy,
-} from 'lucide-react-native';
-import { theme } from '../src/theme';
-import { Lesson } from '../src/mockDb';
-import {
-  useLessonsForWeek, useLessonsForMonth, useStudents, useInstructorProfile, useAvailabilityBlocks,
-  patchLesson,
-} from '../src/useSupabaseData';
-import { type AvailabilityBlock } from '../src/supabaseDb';
+import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { useLessonsForWeek, useLessonsForMonth, useStudents } from '../src/useSupabaseData';
 import { BottomNav } from '../src/BottomNav';
-import { useAuth } from '../src/AuthContext';
-import { isPaidTier } from '../src/tiers';
 import { LessonToolsSheet } from '../src/LessonToolsSheet';
-import { UnavailabilityModal } from '../src/UnavailabilityModal';
-import { minutesBetween } from '../src/maps';
-import { openNavigation } from '../src/tools';
-
-// Diary-specific extractions
-import {
-  DAYS, TOP_HOUR, BOTTOM_HOUR, HOURS, HOUR_HEIGHT, TOTAL_HEIGHT, TIME_W, CELL_W,
-} from '../src/diary/constants';
-import { startOfWeek, addDays, formatDateRange, localDateKey, toMin, minutesToTime, snapMinutes, startOfMonthGrid, endOfMonthGrid, addMonths, isSameMonth } from '../src/diary/dateUtils';
-import { styles } from '../src/diary/diaryStyles';
+import { Lesson } from '../src/mockDb';
+import { startOfWeek, addDays, localDateKey, startOfMonthGrid, endOfMonthGrid, addMonths, isSameMonth } from '../src/diary/dateUtils';
 import { colorForLessonType, LESSON_TYPES } from '../src/diary/lessonTypes';
 import { AddLessonSheet } from '../src/diary/AddLessonSheet';
-import { DraggableLessonBlock } from '../src/diary/DraggableLessonBlock';
 
-export default function LessonDiaryScreen() {
+/**
+ * Lesson Diary — redesigned visual direction from the Claude Design
+ * handoff (23 Aug 2026), promoted to live on 24 Aug 2026 after review as
+ * lesson-diary-v2-screen. This is now the real, live diary screen.
+ * Real data throughout (useLessonsForWeek, useLessonsForMonth, useStudents)
+ * — the design file's own hardcoded seed data was reference only, never
+ * used here.
+ *
+ * Visual language: "road-signage blocks on warm paper" — Archivo for
+ * numerals/headlines, Barlow for everything else, warm paper background
+ * instead of the previous cool blue/white. Lesson-type colors are
+ * unchanged — they already matched lessonTypes.ts verbatim in the design.
+ *
+ * Month view was ported in as part of promoting this to live (24 Aug
+ * 2026) — the original v2 trial only covered Day/Week, since Month view
+ * was added to the old screen later in the same session, after the trial
+ * had already been built. The design itself never included a month grid,
+ * so this uses the same underlying logic as the old screen's Month view
+ * (startOfMonthGrid/endOfMonthGrid, a 42-day fixed grid) with the new
+ * visual treatment applied, plus new prev/next month controls — this
+ * design has no arrow-based navigation elsewhere (Day/Week rely on
+ * tapping day-pills within the current week), so Month needed its own
+ * navigation added, not just its own grid.
+ *
+ * The lesson-tap interaction reuses the existing, already-working
+ * LessonToolsSheet rather than a rebuilt bottom sheet — carried over
+ * from the trial as a deliberate choice, not a shortcut.
+ */
+
+const C = {
+  pageBg: '#DCD6CA',
+  surface: '#F5F2EC',
+  border: '#E4DED2',
+  text: '#0F172A',
+  textMuted: '#8A8172',
+  textMuted2: '#64748B',
+  track: '#EAE5DA',
+  primary: '#00539F',
+  accent: '#FF6B00',
+  gapDash: '#D6CFC1',
+};
+
+const TOP_MIN = 7 * 60;
+const BOTTOM_MIN = 21 * 60;
+const HOUR_H = 56;
+const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+function hhmm(totalMin: number): string {
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `${h}:${String(m).padStart(2, '0')}`;
+}
+
+function durLabel(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return (h ? `${h}h` : '') + (m ? `${h ? ' ' : ''}${m}m` : '') || '0m';
+}
+
+function toMinutesOfDay(hhmmStr: string): number {
+  const [h, m] = hhmmStr.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function getISOWeek(d: Date): number {
+  const date = new Date(d.getTime());
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
+  const week1 = new Date(date.getFullYear(), 0, 4);
+  return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+}
+
+export default function LessonDiaryV2Screen() {
   const router = useRouter();
-  const { user } = useAuth();
-  const pro = isPaidTier(user?.tier);
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('day');
-  const [legendOpen, setLegendOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return d;
   });
-
-  // On a real phone, this always resolves to CELL_W (the computed available
-  // space is smaller than that), so mobile keeps its existing horizontal-
-  // scroll behavior exactly as before. On a wide desktop browser, columns
-  // grow to fill the window instead of leaving dead space on the right —
-  // capped at 200px so they don't stretch absurdly wide on an ultrawide
-  // monitor.
-  const { width: winWidth } = useWindowDimensions();
-  const weekColWidth = useMemo(() => {
-    const available = winWidth - TIME_W - 32; // minus time gutter + screen padding
-    return Math.min(200, Math.max(CELL_W, Math.floor(available / 7)));
-  }, [winWidth]);
-  const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
-  const [addOpen, setAddOpen] = useState(false);
   const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
 
-  // Instructor's preferred navigation app — drives the one-tap 🧭 button.
-  const { profile: instructorProfile } = useInstructorProfile();
-  const preferredNav = (instructorProfile?.preferred_nav_app || 'google') as 'google' | 'waze' | 'apple';
-
-  // ScrollView ref — used to jump the diary to a newly-added lesson's start
-  // time so it's always visible after a save.
-  const scrollRef = useRef<ScrollView | null>(null);
-
-  /** Scroll the diary so the given HH:mm time lands ~80px from the top. */
-  const scrollToTime = (hhmm: string) => {
-    if (!scrollRef.current) return;
-    const [hh, mm] = hhmm.split(':').map(Number);
-    const offset = Math.max(0, ((hh - TOP_HOUR) + mm / 60) * HOUR_HEIGHT - 80);
-    setTimeout(() => scrollRef.current?.scrollTo({ y: offset, animated: true }), 100);
-  };
-
+  const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
   const { lessons } = useLessonsForWeek(weekStart);
   const monthGridStart = useMemo(() => startOfMonthGrid(selectedDate), [selectedDate]);
   const monthGridEnd = useMemo(() => endOfMonthGrid(selectedDate), [selectedDate]);
   const { lessons: monthLessons } = useLessonsForMonth(monthGridStart, monthGridEnd);
   const { students } = useStudents();
+  const hourlyRate = 38; // reference rate for the "billable" summary figure only
 
-  // Availability blocks for the visible window (week start → +7 days).
-  const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart]);
-  const { blocks: availBlocks } = useAvailabilityBlocks(weekStart, weekEnd);
-
-  // Unavailability modal state.
-  const [unavailOpen, setUnavailOpen] = useState(false);
-  const [editingBlock, setEditingBlock] = useState<AvailabilityBlock | null>(null);
-  const openUnavailNew = () => { setEditingBlock(null); setUnavailOpen(true); };
-  const openUnavailEdit = (b: AvailabilityBlock) => { setEditingBlock(b); setUnavailOpen(true); };
-
-  /**
-   * Project an availability block into the diary's pixel coordinates for a
-   * given visible date. Returns null when the block doesn't intersect that day.
-   */
-  const projectBlock = (b: AvailabilityBlock, dateKey: string): { top: number; height: number; isAllDayBand: boolean } | null => {
-    const dayStart = new Date(`${dateKey}T00:00:00`);
-    const dayEnd = new Date(`${dateKey}T23:59:59`);
-    const bStart = new Date(b.starts_at);
-    const bEnd = new Date(b.ends_at);
-    if (bEnd <= dayStart || bStart >= dayEnd) return null;
-    const visStart = bStart > dayStart ? bStart : dayStart;
-    const visEnd = bEnd < dayEnd ? bEnd : dayEnd;
-    const startMin = visStart.getHours() * 60 + visStart.getMinutes();
-    const endMin = visEnd.getHours() * 60 + visEnd.getMinutes() || 24 * 60;
-    const topHr = Math.max(startMin / 60, TOP_HOUR);
-    const botHr = Math.min(endMin / 60, BOTTOM_HOUR + 1);
-    if (botHr <= topHr) return null;
-    const top = (topHr - TOP_HOUR) * HOUR_HEIGHT;
-    const height = Math.max(20, (botHr - topHr) * HOUR_HEIGHT - 2);
-    return { top, height, isAllDayBand: !!b.all_day };
-  };
-
-  const getStudent = (id: string) => students.find((s) => s.id === id);
-
-  // Visual indicators on the diary grid: a lesson is "paid" if it has any
-  // amount recorded against it, and a "test day" lesson if it falls on the
-  // same calendar date as that student's booked test_date (students table,
-  // Migration 002) — a lesson isn't itself flagged as a test, so this is
-  // the only signal available to spot test-day lessons on the grid.
-  const isLessonPaid = (l: Lesson) => (l.amount_paid ?? 0) > 0;
-  const isLessonTestDay = (l: Lesson, s: ReturnType<typeof getStudent>) =>
-    !!s?.test_date && s.test_date.slice(0, 10) === l.date;
-
-  // Icon-only toolbar buttons have no visible label — fine on mobile where
-  // nothing hovers, but on desktop web a native tooltip on hover is a
-  // near-free usability win. Native mobile ignores an unknown `title` prop.
-  const webTitle = (text: string) => (Platform.OS === 'web' ? { title: text } : {});
-
-  // Scroll to roughly the current hour whenever today is actually visible in
-  // the current view — on mount, and again if the user toggles Day/Week.
-  // (Deliberately NOT re-triggered by selectedDate changes from Prev/Next —
-  // that would yank the scroll position out from under someone browsing.)
-  useEffect(() => {
-    if (viewMode === 'month') return;
-    const today = new Date();
-    const isTodayVisible = viewMode === 'day'
-      ? selectedDate.toDateString() === today.toDateString()
-      : today >= weekStart && today < weekEnd;
-    if (isTodayVisible) {
-      const h = today.getHours();
-      const m = today.getMinutes();
-      const hhmm = `${String(Math.max(h, TOP_HOUR)).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-      setTimeout(() => scrollToTime(hhmm), 400);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode]);
-
-  const goPrev = () => {
-    if (viewMode === 'month') { setSelectedDate(addMonths(selectedDate, -1)); return; }
-    setSelectedDate(addDays(selectedDate, viewMode === 'day' ? -1 : -7));
-  };
-  const goNext = () => {
-    if (viewMode === 'month') { setSelectedDate(addMonths(selectedDate, 1)); return; }
-    setSelectedDate(addDays(selectedDate, viewMode === 'day' ? 1 : 7));
-  };
-  const goToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); setSelectedDate(d); };
-  const navLabel = viewMode === 'day'
-    ? selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })
-    : viewMode === 'month'
-      ? selectedDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
-      : formatDateRange(weekStart);
-  const selectedKey = localDateKey(selectedDate);
+  const selectedDayIdx = Math.round((selectedDate.getTime() - weekStart.getTime()) / 86400000);
   const todayKey = localDateKey(new Date());
 
-  const computePos = (l: Lesson) => {
-    const [sh, sm] = l.start_time.split(':').map(Number);
-    const top = ((sh - TOP_HOUR) + sm / 60) * HOUR_HEIGHT;
-    const height = Math.max(28, l.duration_hours * HOUR_HEIGHT - 2);
-    return { top, height };
-  };
-
-  // ---------------------------------------------------------------------------
-  // Drag-and-drop rescheduling. Both ScrollViews (the outer vertical one via
-  // `scrollRef`, and the horizontal week one) are disabled for the duration
-  // of a drag so gesture-handler has exclusive control of the touch — without
-  // this, dragging vertically fights the vertical scroll, and horizontally
-  // in week view fights the horizontal scroll.
-  // ---------------------------------------------------------------------------
-  const [dragScrollLocked, setDragScrollLocked] = useState(false);
-
-  const workingDayMinutes = (BOTTOM_HOUR - TOP_HOUR) * 60;
-
-  /**
-   * Converts a drag's raw pixel translation into a candidate new date/time,
-   * checks it against working hours and existing lessons for a collision,
-   * and — if clear — persists it. Returns whether the drop was accepted;
-   * the DraggableLessonBlock uses this to decide whether to spring back.
-   */
-  const handleLessonDrop = async (l: Lesson, translationX: number, translationY: number): Promise<boolean> => {
-    const deltaMinutes = snapMinutes((translationY / HOUR_HEIGHT) * 60);
-    const durationMinutes = Math.round(l.duration_hours * 60);
-    const currentStartMin = toMin(l.start_time);
-    const newStartMin = currentStartMin + deltaMinutes;
-
-    if (newStartMin < 0 || newStartMin + durationMinutes > workingDayMinutes) {
-      Alert.alert('Outside diary hours', `That would put the lesson outside the ${TOP_HOUR}:00–${BOTTOM_HOUR}:00 diary window.`);
-      return false;
+  const lessonsByDay = useMemo(() => {
+    const map: Lesson[][] = [[], [], [], [], [], [], []];
+    for (const l of lessons) {
+      const d = new Date(`${l.date}T00:00:00`);
+      const idx = Math.round((d.getTime() - weekStart.getTime()) / 86400000);
+      if (idx >= 0 && idx < 7) map[idx].push(l);
     }
+    for (const day of map) day.sort((a, b) => toMinutesOfDay(a.start_time) - toMinutesOfDay(b.start_time));
+    return map;
+  }, [lessons, weekStart]);
 
-    // Day change only applies in week view — deltaDays stays 0 in day view
-    // since DraggableLessonBlock is told allowDayChange=false there, which
-    // already forces translationX to 0 before this function is even called.
-    const deltaDays = weekColWidth > 0 ? Math.round(translationX / weekColWidth) : 0;
-    const originalDate = new Date(`${l.date}T00:00:00`);
-    const newDateObj = deltaDays !== 0 ? addDays(originalDate, deltaDays) : originalDate;
-    const newDateKey = localDateKey(newDateObj);
+  const dayList = lessonsByDay[selectedDayIdx] || [];
 
-    // Clamp to the currently visible week — dragging further than that
-    // would move it somewhere the user can't currently see land, which is
-    // more confusing than useful for a first version of this.
-    const dayIndexInWeek = Math.round((newDateObj.getTime() - weekStart.getTime()) / 86400000);
-    if (dayIndexInWeek < 0 || dayIndexInWeek > 6) {
-      Alert.alert('Stay within the visible week', 'Scroll to next/previous week first, then drag within it.');
-      return false;
+  const totalMinutesFor = (idx: number) =>
+    (lessonsByDay[idx] || []).reduce((sum, l) => sum + (toMinutesOfDay(l.end_time) - toMinutesOfDay(l.start_time)), 0);
+  const weekMinutes = [0, 1, 2, 3, 4, 5, 6].reduce((sum, i) => sum + totalMinutesFor(i), 0);
+  const weekGapCount = useMemo(() => {
+    let count = 0;
+    for (let i = 0; i < 7; i++) {
+      const list = lessonsByDay[i] || [];
+      for (let k = 1; k < list.length; k++) {
+        if (toMinutesOfDay(list[k].start_time) - toMinutesOfDay(list[k - 1].end_time) >= 60) count++;
+      }
     }
+    return count;
+  }, [lessonsByDay]);
 
-    const newStartTime = minutesToTime(newStartMin);
-    const newEndTime = minutesToTime(newStartMin + durationMinutes);
+  const studentName = (id: string) => students.find((st) => st.id === id)?.name || 'Student';
 
-    const collision = lessons.some((other) =>
-      other.id !== l.id &&
-      other.status !== 'Cancelled' &&
-      other.date === newDateKey &&
-      toMin(other.start_time) < newStartMin + durationMinutes &&
-      toMin(other.end_time) > newStartMin
-    );
-    if (collision) {
-      Alert.alert('Time slot taken', 'Another lesson already occupies that time — pick a different slot.');
-      return false;
-    }
+  const openAddAt = () => setAddOpen(true);
 
-    if (deltaMinutes === 0 && deltaDays === 0) {
-      // Dropped back where it started (e.g. a long-press with no real
-      // movement) — nothing to save, treat as accepted with no-op.
-      return true;
-    }
-
-    try {
-      await patchLesson(l.id, { date: newDateKey, start_time: newStartTime, end_time: newEndTime });
-      return true;
-    } catch (e: any) {
-      Alert.alert('Could not reschedule', e?.message || 'Please try again.');
-      return false;
-    }
-  };
-
-  const prevLessonFor = (l: Lesson) => lessons
-    .filter((x) => x.date === l.date && x.end_time <= l.start_time && x.id !== l.id && x.status !== 'Cancelled')
-    .sort((a, b) => a.end_time.localeCompare(b.end_time))
-    .pop();
-
-  /** Called by the AddLessonSheet after a successful create. */
-  const handleLessonCreated = (info: { firstDate: string; startTime: string; created: number; recurring: boolean }) => {
-    const lessonDate = new Date(`${info.firstDate}T00:00:00`);
-    if (lessonDate.toDateString() !== selectedDate.toDateString()) {
-      setSelectedDate(lessonDate);
-    }
-    scrollToTime(info.startTime);
-  };
+  const hourLines: number[] = [];
+  for (let h = 7; h <= 21; h++) hourLines.push(h);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} testID="btn-back" style={styles.iconBtn}>
-          <ArrowLeft size={22} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Lesson Diary</Text>
-        <View style={{ flexDirection: 'row', gap: 4 }}>
-          <TouchableOpacity
-            onPress={() => setLegendOpen((v) => !v)}
-            testID="btn-lesson-type-legend"
-            style={styles.iconBtn}
-            accessibilityLabel="Lesson type key"
-            {...webTitle('Lesson type key')}
-          >
-            <Info size={22} color={legendOpen ? theme.colors.primary : theme.colors.textMuted} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => router.push('/route-recorder-screen' as any)}
-            testID="btn-route-recorder"
-            style={styles.iconBtn}
-            accessibilityLabel="Record lesson route"
-            {...webTitle('Record lesson route')}
-          >
-            <RouteIcon size={22} color={theme.colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={openUnavailNew}
-            testID="btn-add-unavailability"
-            style={styles.iconBtn}
-            accessibilityLabel="Add unavailability"
-            {...webTitle('Add unavailability')}
-          >
-            <Ban size={22} color={theme.colors.danger} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setAddOpen(true)}
-            testID="btn-add-lesson"
-            style={styles.iconBtn}
-            accessibilityLabel="Add lesson"
-            {...webTitle('Add lesson')}
-          >
-            <Plus size={22} color={theme.colors.primary} />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <View style={styles.toggleRow}>
-        <TouchableOpacity
-          style={[styles.toggleBtn, viewMode === 'day' && styles.toggleBtnActive]}
-          onPress={() => setViewMode('day')}
-          testID="view-day"
-        >
-          <Calendar size={14} color={viewMode === 'day' ? '#fff' : theme.colors.primary} />
-          <Text style={[styles.toggleText, viewMode === 'day' && styles.toggleTextActive]}>Day</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.toggleBtn, viewMode === 'week' && styles.toggleBtnActive]}
-          onPress={() => setViewMode('week')}
-          testID="view-week"
-        >
-          <CalendarDays size={14} color={viewMode === 'week' ? '#fff' : theme.colors.primary} />
-          <Text style={[styles.toggleText, viewMode === 'week' && styles.toggleTextActive]}>Week</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.toggleBtn, viewMode === 'month' && styles.toggleBtnActive]}
-          onPress={() => setViewMode('month')}
-          testID="view-month"
-        >
-          <CalendarRange size={14} color={viewMode === 'month' ? '#fff' : theme.colors.primary} />
-          <Text style={[styles.toggleText, viewMode === 'month' && styles.toggleTextActive]}>Month</Text>
-        </TouchableOpacity>
-      </View>
-
-      {legendOpen && (
-        <View style={styles.legendWrap} testID="lesson-type-legend">
-          {LESSON_TYPES.map((t) => (
-            <View key={t.value} style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: t.color }]} />
-              <Text style={styles.legendText}>{t.value}</Text>
+    <SafeAreaView style={s.outer} edges={['top']}>
+      <View style={s.phoneSurface}>
+        <View style={s.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.eyebrow}>Week {getISOWeek(weekStart)} · {weekStart.toLocaleDateString('en-GB', { month: 'long' })}</Text>
+            <Text style={s.headline} numberOfLines={1}>
+              {viewMode === 'day'
+                ? `${DOW[selectedDayIdx]} ${selectedDate.getDate()} ${selectedDate.toLocaleDateString('en-GB', { month: 'short' })}`
+                : viewMode === 'month'
+                  ? selectedDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+                  : `${weekStart.getDate()} ${weekStart.toLocaleDateString('en-GB', { month: 'short' })} – ${addDays(weekStart, 6).getDate()} ${addDays(weekStart, 6).toLocaleDateString('en-GB', { month: 'short' })}`}
+            </Text>
+          </View>
+          {viewMode === 'month' && (
+            <View style={{ flexDirection: 'row', gap: 6, marginRight: 8 }}>
+              <TouchableOpacity style={s.navBtn} onPress={() => setSelectedDate(addMonths(selectedDate, -1))} testID="v2-month-prev">
+                <ChevronLeft size={17} color={C.text} />
+              </TouchableOpacity>
+              <TouchableOpacity style={s.navBtn} onPress={() => setSelectedDate(addMonths(selectedDate, 1))} testID="v2-month-next">
+                <ChevronRight size={17} color={C.text} />
+              </TouchableOpacity>
             </View>
-          ))}
+          )}
+          <TouchableOpacity style={s.navBtn} onPress={() => router.back()} testID="btn-back-v2">
+            <ArrowLeft size={17} color={C.text} />
+          </TouchableOpacity>
         </View>
-      )}
 
-      <View style={styles.weekNav} testID="week-nav">
-        <TouchableOpacity onPress={goPrev} style={styles.weekArrow} testID="week-prev">
-          <ChevronLeft size={20} color={theme.colors.primary} />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={goToday} testID="btn-today" style={{ alignItems: 'center' }}>
-          <Text style={styles.weekLabel}>{navLabel}</Text>
-          {selectedKey !== todayKey && <Text style={styles.todayHint}>Tap to jump to today</Text>}
-        </TouchableOpacity>
-        <TouchableOpacity onPress={goNext} style={styles.weekArrow} testID="week-next">
-          <ChevronRight size={20} color={theme.colors.primary} />
-        </TouchableOpacity>
-      </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, marginTop: 4 }}>
+          <View style={s.toggleTrack}>
+            <TouchableOpacity style={[s.toggleTab, viewMode === 'day' && s.toggleTabActive]} onPress={() => setViewMode('day')} testID="v2-view-day">
+              <Text style={[s.toggleText, viewMode === 'day' && s.toggleTextActive]}>Day</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.toggleTab, viewMode === 'week' && s.toggleTabActive]} onPress={() => setViewMode('week')} testID="v2-view-week">
+              <Text style={[s.toggleText, viewMode === 'week' && s.toggleTextActive]}>Week</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.toggleTab, viewMode === 'month' && s.toggleTabActive]} onPress={() => setViewMode('month')} testID="v2-view-month">
+              <Text style={[s.toggleText, viewMode === 'month' && s.toggleTextActive]}>Month</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={s.periodSummary} numberOfLines={1}>
+            {viewMode === 'week'
+              ? `${durLabel(weekMinutes)} booked`
+              : viewMode === 'month'
+                ? `${monthLessons.length} lesson${monthLessons.length === 1 ? '' : 's'}`
+                : dayList.length ? `${dayList.length} lessons · ${durLabel(totalMinutesFor(selectedDayIdx))}` : 'Nothing booked'}
+          </Text>
+        </View>
 
-      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll} scrollEnabled={!dragScrollLocked}>
-        {viewMode === 'month' ? (
-          <View style={styles.monthGrid} testID="month-grid">
-            <View style={styles.monthHeaderRow}>
-              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
-                <View key={d} style={styles.monthHeaderCell}>
-                  <Text style={styles.monthHeaderText}>{d}</Text>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }}>
+          {viewMode === 'month' ? (
+            <View style={{ padding: 14 }}>
+              <View style={{ flexDirection: 'row', marginBottom: 4 }}>
+                {DOW.map((d) => (
+                  <View key={d} style={{ flex: 1, alignItems: 'center', paddingVertical: 6 }}>
+                    <Text style={s.monthHeaderText}>{d}</Text>
+                  </View>
+                ))}
+              </View>
+              {Array.from({ length: 6 }).map((_, row) => (
+                <View key={row} style={{ flexDirection: 'row', minHeight: 78 }}>
+                  {Array.from({ length: 7 }).map((__, col) => {
+                    const cellDate = addDays(monthGridStart, row * 7 + col);
+                    const cellKey = localDateKey(cellDate);
+                    const inCurrentMonth = isSameMonth(cellDate, selectedDate);
+                    const isToday = cellKey === todayKey;
+                    const dayLessons = monthLessons.filter((l) => l.date === cellKey);
+                    const visibleLessons = dayLessons.slice(0, 3);
+                    const overflowCount = dayLessons.length - visibleLessons.length;
+                    return (
+                      <TouchableOpacity
+                        key={cellKey}
+                        style={s.monthCell}
+                        onPress={() => { setSelectedDate(cellDate); setViewMode('day'); }}
+                        testID={`v2-month-cell-${cellKey}`}
+                      >
+                        <View style={[s.monthDateBadge, isToday && s.monthDateBadgeToday]}>
+                          <Text style={[s.monthDateText, !inCurrentMonth && s.monthDateTextDim, isToday && s.monthDateTextToday]}>
+                            {cellDate.getDate()}
+                          </Text>
+                        </View>
+                        <View style={{ marginTop: 3, gap: 2 }}>
+                          {visibleLessons.map((l) => (
+                            <View key={l.id} style={[s.monthLessonChip, { backgroundColor: colorForLessonType(l.lesson_type) + '33' }]}>
+                              <Text style={s.monthLessonChipText} numberOfLines={1}>{l.start_time} {l.topic || l.lesson_type}</Text>
+                            </View>
+                          ))}
+                          {overflowCount > 0 && <Text style={s.monthMoreText}>+{overflowCount} more</Text>}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
               ))}
             </View>
-            {Array.from({ length: 6 }).map((_, row) => (
-              <View key={row} style={styles.monthRow}>
-                {Array.from({ length: 7 }).map((__, col) => {
-                  const cellDate = addDays(monthGridStart, row * 7 + col);
-                  const cellKey = localDateKey(cellDate);
-                  const inCurrentMonth = isSameMonth(cellDate, selectedDate);
-                  const isToday = cellKey === todayKey;
-                  const dayLessons = monthLessons.filter((l) => l.date === cellKey);
-                  const visibleLessons = dayLessons.slice(0, 3);
-                  const overflowCount = dayLessons.length - visibleLessons.length;
+          ) : viewMode === 'week' ? (
+            <View style={{ padding: 14 }}>
+              <View style={{ flexDirection: 'row', gap: 5 }}>
+                {DOW.map((d, i) => {
+                  const dayDate = addDays(weekStart, i);
+                  const isToday = localDateKey(dayDate) === todayKey;
+                  const isSelected = i === selectedDayIdx;
+                  const dayLessons = lessonsByDay[i] || [];
                   return (
                     <TouchableOpacity
-                      key={cellKey}
-                      style={styles.monthCell}
-                      onPress={() => { setSelectedDate(cellDate); setViewMode('day'); }}
-                      testID={`month-cell-${cellKey}`}
+                      key={d}
+                      style={[s.weekCol, isSelected && s.weekColActive]}
+                      onPress={() => { setSelectedDate(dayDate); setViewMode('day'); }}
+                      testID={`v2-week-col-${i}`}
                     >
-                      <View style={[styles.monthDateBadge, isToday && styles.monthDateBadgeToday]}>
-                        <Text style={[
-                          styles.monthDateText,
-                          !inCurrentMonth && styles.monthDateTextDim,
-                          isToday && styles.monthDateTextToday,
-                        ]}>
-                          {cellDate.getDate()}
-                        </Text>
+                      <Text style={[s.weekColDow, isToday && { color: C.accent }]}>{d}</Text>
+                      <Text style={s.weekColDate}>{dayDate.getDate()}</Text>
+                      <View style={s.weekColTrack}>
+                        {dayLessons.map((l) => {
+                          const sMin = toMinutesOfDay(l.start_time);
+                          const eMin = toMinutesOfDay(l.end_time);
+                          const top = ((sMin - TOP_MIN) / (BOTTOM_MIN - TOP_MIN)) * 260;
+                          const height = Math.max(6, ((eMin - sMin) / (BOTTOM_MIN - TOP_MIN)) * 260);
+                          return (
+                            <View
+                              key={l.id}
+                              style={{ position: 'absolute', left: 1, right: 1, top, height, backgroundColor: colorForLessonType(l.lesson_type), borderRadius: 4 }}
+                            />
+                          );
+                        })}
                       </View>
-                      <View style={styles.monthLessonList}>
-                        {visibleLessons.map((l) => (
-                          <View key={l.id} style={[styles.monthLessonChip, { backgroundColor: colorForLessonType(l.lesson_type) + '33' }]}>
-                            <Text style={styles.monthLessonChipText} numberOfLines={1}>
-                              {l.start_time} {l.topic || 'Lesson'}
-                            </Text>
-                          </View>
-                        ))}
-                        {overflowCount > 0 && (
-                          <Text style={styles.monthMoreText}>+{overflowCount} more</Text>
-                        )}
-                      </View>
+                      <Text style={[s.weekColFoot, dayLessons.length ? { color: C.primary } : undefined]}>
+                        {dayLessons.length ? `£${Math.round(totalMinutesFor(i) / 60 * hourlyRate)}` : 'Off'}
+                      </Text>
                     </TouchableOpacity>
                   );
                 })}
               </View>
-            ))}
-          </View>
-        ) : viewMode === 'day' ? (
-          <View style={styles.dayGrid} testID="day-grid">
-            <View style={styles.dayGridHeader}>
-              <View style={{ width: TIME_W }} />
-              <View style={styles.dayHeaderCol}>
-                <Text style={styles.dayName}>{selectedDate.toLocaleDateString('en-GB', { weekday: 'short' })}</Text>
-                <Text style={styles.dayNum}>{selectedDate.getDate()}</Text>
+
+              <View style={s.statsCard}>
+                <View style={{ alignItems: 'center', flex: 1 }}>
+                  <Text style={s.statValue}>{durLabel(weekMinutes)}</Text>
+                  <Text style={s.statLabel}>Taught this week</Text>
+                </View>
+                <View style={s.statDivider} />
+                <View style={{ alignItems: 'center', flex: 1 }}>
+                  <Text style={[s.statValue, { color: C.primary }]}>£{Math.round(weekMinutes / 60 * hourlyRate)}</Text>
+                  <Text style={s.statLabel}>Billable</Text>
+                </View>
+                <View style={s.statDivider} />
+                <View style={{ alignItems: 'center', flex: 1 }}>
+                  <Text style={[s.statValue, { color: C.accent }]}>{weekGapCount}</Text>
+                  <Text style={s.statLabel}>Fillable gaps</Text>
+                </View>
               </View>
-            </View>
-            <View style={{ flexDirection: 'row' }}>
-              <View style={{ width: TIME_W }}>
-                {HOURS.slice(0, -1).map((h) => (
-                  <View key={h} style={styles.hourLabelCell}>
-                    <Text style={styles.timeText}>{`${h.toString().padStart(2, '0')}:00`}</Text>
+
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
+                {LESSON_TYPES.map((t) => (
+                  <View key={t.value} style={s.legendChip}>
+                    <View style={{ width: 9, height: 9, borderRadius: 3, backgroundColor: t.color }} />
+                    <Text style={s.legendText}>{t.value}</Text>
                   </View>
                 ))}
               </View>
-              <View style={[styles.dayLessonCol, { height: TOTAL_HEIGHT }]}>
-                <View style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}>
-                  {HOURS.slice(0, -1).map((h) => (
-                    <View key={h} style={styles.hourSlot} />
-                  ))}
-                </View>
-                {/* Availability bands behind lessons */}
-                {availBlocks.map((b) => {
-                  const p = projectBlock(b, selectedKey);
-                  if (!p) return null;
-                  return (
-                    <Pressable
-                      key={`block-${b.id}`}
-                      style={[styles.unavailBand, { top: p.top, height: p.height }]}
-                      onPress={() => openUnavailEdit(b)}
-                      testID={`unavail-band-${b.id}`}
-                      accessibilityLabel={`Unavailable — ${b.category}${b.reason ? `: ${b.reason}` : ''}`}
-                    >
-                      <Text style={styles.unavailBandText} numberOfLines={2}>
-                        🚫 {b.reason || b.category.charAt(0).toUpperCase() + b.category.slice(1)}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-                {lessons
-                  .filter((l) => l.date === selectedKey)
-                  .map((l) => {
-                    const s = getStudent(l.student_id);
-                    const { top, height } = computePos(l);
-                    const isCancelled = l.status === 'Cancelled';
-                    const prev = isCancelled ? null : prevLessonFor(l);
-                    const gapMin = prev ? minutesBetween(prev.end_time, prev.date, l.start_time, l.date) : null;
-                    const needed = l.travel_minutes ?? prev?.travel_minutes ?? 0;
-                    const tooTight = !isCancelled && gapMin !== null && gapMin < needed;
+            </View>
+          ) : (
+            <View style={{ paddingTop: 12 }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingHorizontal: 14, marginBottom: 12 }}>
+                <View style={{ flexDirection: 'row', gap: 5 }}>
+                  {DOW.map((d, i) => {
+                    const dayDate = addDays(weekStart, i);
+                    const isToday = localDateKey(dayDate) === todayKey;
+                    const isSelected = i === selectedDayIdx;
                     return (
-                      <DraggableLessonBlock
-                        key={l.id}
-                        disabled={isCancelled}
-                        allowDayChange={false}
-                        resetKey={`${l.id}-${l.date}-${l.start_time}`}
-                        onDragStart={() => setDragScrollLocked(true)}
-                        onDragEnd={() => setDragScrollLocked(false)}
-                        onDrop={(tx, ty) => handleLessonDrop(l, tx, ty)}
-                        style={[
-                          styles.lessonBlockDay,
-                          { backgroundColor: colorForLessonType(l.lesson_type) },
-                          tooTight && styles.lessonBlockWarn,
-                          isCancelled && styles.lessonBlockCancelled,
-                          { top, height },
-                        ]}
-                        testID={`lesson-block-${l.id}`}
+                      <TouchableOpacity
+                        key={d}
+                        style={[s.dayPill, isSelected && s.dayPillActive]}
+                        onPress={() => setSelectedDate(dayDate)}
+                        testID={`v2-day-pill-${i}`}
                       >
-                        <Pressable
-                          style={{ flex: 1 }}
-                          onPress={() => setDetailLesson(l)}
-                        >
-                        <Text style={[styles.lessonBlockTimeBig, isCancelled && styles.lessonTextCancelled]}>
-                          {l.start_time}–{l.end_time}
-                        </Text>
-                        <Text style={[styles.lessonBlockNameFull, isCancelled && styles.lessonTextCancelled]} numberOfLines={2}>
-                          {s?.name || 'Student'}
-                        </Text>
-                        {height >= HOUR_HEIGHT * 1.2 && (
-                          <Text style={[styles.lessonBlockTopic, isCancelled && styles.lessonTextCancelled]} numberOfLines={1}>
-                            {isCancelled ? (l.cancellation_note || 'Cancelled') : l.topic}
-                          </Text>
-                        )}
-                        {tooTight && (
-                          <View style={styles.warnDot} testID={`gap-warn-${l.id}`}>
-                            <AlertTriangle size={10} color="#fff" />
-                          </View>
-                        )}
-                        {!isCancelled && isLessonTestDay(l, s) && (
-                          <View style={styles.testDayBadge} testID={`test-day-badge-${l.id}`} {...webTitle(`${s?.name || 'Student'}'s test is today`)}>
-                            <Trophy size={10} color="#fff" />
-                          </View>
-                        )}
-                        {!isCancelled && isLessonPaid(l) && (
-                          <View style={styles.paidBadge} testID={`paid-badge-${l.id}`} {...webTitle('Lesson paid')}>
-                            <PoundSterling size={9} color="#fff" />
-                          </View>
-                        )}
-                        {isCancelled && (
-                          <View style={styles.cancelledTag} testID={`cancelled-tag-${l.id}`}>
-                            <Text style={styles.cancelledTagText}>Cancelled</Text>
-                          </View>
-                        )}
-                        {/* One-tap 🧭 — hidden on cancelled lessons */}
-                        {!isCancelled && (
-                          <Pressable
-                            style={styles.navQuickBtn}
-                            onPress={(e: any) => {
-                              if (e?.stopPropagation) e.stopPropagation();
-                              const addr = l.pickup_address || (s ? `${s.address || ''}, ${s.postcode || ''}` : '');
-                              openNavigation(preferredNav, addr);
-                            }}
-                            hitSlop={6}
-                            testID={`nav-quick-${l.id}`}
-                            accessibilityLabel={`Navigate to ${s?.name || 'student'}`}
-                          >
-                            <NavIcon size={14} color="#fff" />
-                          </Pressable>
-                        )}
-                        </Pressable>
-                      </DraggableLessonBlock>
+                        <Text style={[s.dayPillDow, isSelected ? { color: 'rgba(255,255,255,.7)' } : isToday ? { color: C.accent } : undefined]}>{d}</Text>
+                        <Text style={[s.dayPillDate, isSelected && { color: '#fff' }]}>{dayDate.getDate()}</Text>
+                      </TouchableOpacity>
                     );
                   })}
-              </View>
-            </View>
-          </View>
-        ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEnabled={!dragScrollLocked}>
-            <View style={styles.grid} testID="weekly-grid">
-              {/* Header row */}
-              <View style={styles.gridRow}>
-                <View style={[{ width: TIME_W }, styles.headerCell]} />
-                {DAYS.map((d, i) => {
-                  const date = addDays(weekStart, i);
-                  return (
-                    <View key={d} style={[styles.dayHeaderCellWeek, styles.headerCell, { width: weekColWidth }]}>
-                      <Text style={styles.dayName}>{d}</Text>
-                      <Text style={styles.dayNum}>{date.getDate()}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-              {/* Body row: hour labels + 7 day columns with absolute-positioned lessons */}
-              <View style={{ flexDirection: 'row' }}>
-                <View style={{ width: TIME_W }}>
-                  {HOURS.slice(0, -1).map((h) => (
-                    <View key={h} style={styles.hourLabelCell}>
-                      <Text style={styles.timeText}>{`${h.toString().padStart(2, '0')}:00`}</Text>
-                    </View>
-                  ))}
                 </View>
-                {DAYS.map((_, di) => {
-                  const cellDate = localDateKey(addDays(weekStart, di));
-                  const dayLessons = lessons.filter((l) => l.date === cellDate);
-                  const dayBands = availBlocks
-                    .map((b) => ({ b, p: projectBlock(b, cellDate) }))
-                    .filter((x) => !!x.p) as { b: AvailabilityBlock; p: { top: number; height: number } }[];
-                  return (
-                    <View key={di} style={[styles.weekDayCol, { height: TOTAL_HEIGHT, width: weekColWidth }]}>
-                      <View style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}>
-                        {HOURS.slice(0, -1).map((h) => (
-                          <View key={h} style={styles.hourSlot} />
-                        ))}
-                      </View>
-                      {/* Grey unavailability bands for this column */}
-                      {dayBands.map(({ b, p }) => (
-                        <Pressable
-                          key={`block-${b.id}-${cellDate}`}
-                          style={[styles.unavailBandWeek, { top: p.top, height: p.height }]}
-                          onPress={() => openUnavailEdit(b)}
-                          testID={`unavail-band-${b.id}-${cellDate}`}
+              </ScrollView>
+
+              <View style={{ paddingHorizontal: 14 }}>
+                <View style={{ position: 'relative', height: (BOTTOM_MIN - TOP_MIN) / 60 * HOUR_H }}>
+                  {hourLines.map((h) => {
+                    const y = (h * 60 - TOP_MIN) / 60 * HOUR_H;
+                    return (
+                      <React.Fragment key={h}>
+                        <View style={{ position: 'absolute', left: 38, right: 0, top: y, height: 1, backgroundColor: 'rgba(15,23,42,0.07)' }} />
+                        <Text style={{ position: 'absolute', left: 0, top: y - 7, fontFamily: 'Barlow_600SemiBold', fontSize: 11, color: '#A69C8B' }}>
+                          {String(h).padStart(2, '0')}
+                        </Text>
+                      </React.Fragment>
+                    );
+                  })}
+
+                  {dayList.length === 0 ? (
+                    <TouchableOpacity style={[s.gapSlot, { top: 120, height: 70 }]} onPress={openAddAt} testID="v2-empty-day-slot">
+                      <Text style={s.gapMeta}>No lessons booked — rest day</Text>
+                      <Text style={s.gapCta}>+ Book</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    dayList.map((l, k) => {
+                      const sMin = toMinutesOfDay(l.start_time);
+                      const eMin = toMinutesOfDay(l.end_time);
+                      const items = [];
+                      const prev = k > 0 ? dayList[k - 1] : null;
+                      if (prev) {
+                        const prevEnd = toMinutesOfDay(prev.end_time);
+                        if (sMin - prevEnd >= 60) {
+                          const top = (prevEnd - TOP_MIN) / 60 * HOUR_H;
+                          const height = (sMin - prevEnd) / 60 * HOUR_H - 4;
+                          items.push(
+                            <TouchableOpacity key={`gap-${l.id}`} style={[s.gapSlot, { top, height }]} onPress={openAddAt} testID={`v2-gap-${l.id}`}>
+                              <Text style={s.gapMeta}>Free · {durLabel(sMin - prevEnd)} · {hhmm(prevEnd)}–{hhmm(sMin)}</Text>
+                              <Text style={s.gapCta}>+ Book</Text>
+                            </TouchableOpacity>,
+                          );
+                        }
+                      }
+                      const top = (sMin - TOP_MIN) / 60 * HOUR_H;
+                      const height = (eMin - sMin) / 60 * HOUR_H - 4;
+                      items.push(
+                        <TouchableOpacity
+                          key={l.id}
+                          style={[s.lessonBlock, { top, height, backgroundColor: colorForLessonType(l.lesson_type) }]}
+                          onPress={() => setDetailLesson(l)}
+                          testID={`v2-lesson-${l.id}`}
                         >
-                          <Text style={styles.unavailBandTextWeek} numberOfLines={1}>🚫</Text>
-                        </Pressable>
-                      ))}
-                      {dayLessons.map((l) => {
-                        const s = getStudent(l.student_id);
-                        const { top, height } = computePos(l);
-                        const isCancelled = l.status === 'Cancelled';
-                        const prev = isCancelled ? null : prevLessonFor(l);
-                        const gapMin = prev ? minutesBetween(prev.end_time, prev.date, l.start_time, l.date) : null;
-                        const needed = l.travel_minutes ?? prev?.travel_minutes ?? 0;
-                        const tooTight = !isCancelled && gapMin !== null && gapMin < needed;
-                        return (
-                          <DraggableLessonBlock
-                            key={l.id}
-                            disabled={isCancelled}
-                            allowDayChange
-                            resetKey={`${l.id}-${l.date}-${l.start_time}`}
-                            onDragStart={() => setDragScrollLocked(true)}
-                            onDragEnd={() => setDragScrollLocked(false)}
-                            onDrop={(tx, ty) => handleLessonDrop(l, tx, ty)}
-                            style={[
-                              styles.lessonBlockWeek,
-                              { backgroundColor: colorForLessonType(l.lesson_type) },
-                              tooTight && styles.lessonBlockWarn,
-                              isCancelled && styles.lessonBlockCancelled,
-                              { top, height },
-                            ]}
-                            testID={`lesson-block-${l.id}`}
-                          >
-                            <Pressable
-                              style={{ flex: 1 }}
-                              onPress={() => setDetailLesson(l)}
-                            >
-                            <Text style={[styles.lessonBlockTime, isCancelled && styles.lessonTextCancelled]}>
-                              {l.start_time}–{l.end_time}
-                            </Text>
-                            <Text
-                              style={[styles.lessonBlockNameWeek, isCancelled && styles.lessonTextCancelled]}
-                              numberOfLines={2}
-                            >
-                              {s?.name || 'Student'}
-                            </Text>
-                            {tooTight && (
-                              <View style={styles.warnDot} testID={`gap-warn-${l.id}`}>
-                                <AlertTriangle size={10} color="#fff" />
-                              </View>
-                            )}
-                            {!isCancelled && isLessonTestDay(l, s) && (
-                              <View style={styles.testDayBadgeWeek} testID={`test-day-badge-${l.id}`} {...webTitle(`${s?.name || 'Student'}'s test is today`)}>
-                                <Trophy size={8} color="#fff" />
-                              </View>
-                            )}
-                            {!isCancelled && isLessonPaid(l) && (
-                              <View style={styles.paidBadgeWeek} testID={`paid-badge-${l.id}`} {...webTitle('Lesson paid')}>
-                                <PoundSterling size={7} color="#fff" />
-                              </View>
-                            )}
-                            {/* One-tap 🧭 navigation — hidden when cancelled */}
-                            {!isCancelled && (
-                              <Pressable
-                                style={styles.navQuickBtnWeek}
-                                onPress={(e: any) => {
-                                  if (e?.stopPropagation) e.stopPropagation();
-                                  const addr = l.pickup_address || (s ? `${s.address || ''}, ${s.postcode || ''}` : '');
-                                  openNavigation(preferredNav, addr);
-                                }}
-                                hitSlop={6}
-                                testID={`nav-quick-${l.id}`}
-                              >
-                                <NavIcon size={11} color="#fff" />
-                              </Pressable>
-                            )}
-                            </Pressable>
-                          </DraggableLessonBlock>
-                        );
-                      })}
-                    </View>
-                  );
-                })}
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={s.lessonBlockName} numberOfLines={1}>{studentName(l.student_id)}</Text>
+                            <Text style={s.lessonBlockMeta} numberOfLines={1}>{hhmm(sMin)}–{hhmm(eMin)} · {l.topic || l.lesson_type}</Text>
+                          </View>
+                          <Text style={s.lessonBlockTag}>{durLabel(eMin - sMin)}</Text>
+                        </TouchableOpacity>,
+                      );
+                      return items;
+                    })
+                  )}
+                </View>
               </View>
             </View>
-          </ScrollView>
-        )}
-      </ScrollView>
+          )}
+        </ScrollView>
 
-      <BottomNav role="instructor" />
+        <TouchableOpacity style={s.fab} onPress={openAddAt} testID="v2-fab-add">
+          <Text style={s.fabText}>+ Add lesson</Text>
+        </TouchableOpacity>
 
-      {/* Add Lesson Sheet — extracted to its own module to keep this screen lean. */}
-      <AddLessonSheet
-        visible={addOpen}
-        onClose={() => setAddOpen(false)}
-        students={students}
-        lessons={lessons}
-        availBlocks={availBlocks}
-        pro={pro}
-        onCreated={handleLessonCreated}
-      />
+        <BottomNav role="instructor" />
+      </View>
 
-      {/* Lesson Tools Sheet */}
       <LessonToolsSheet
         visible={!!detailLesson}
         onClose={() => setDetailLesson(null)}
         lesson={detailLesson}
         onChanged={() => setSelectedDate(new Date(selectedDate))}
       />
-
-      {/* Add / Edit Unavailability */}
-      <UnavailabilityModal
-        visible={unavailOpen}
-        block={editingBlock}
-        initialDate={selectedKey}
-        onClose={() => setUnavailOpen(false)}
-        onSaved={() => { /* hook auto-refreshes via bump() */ }}
+      <AddLessonSheet
+        visible={addOpen}
+        onClose={() => setAddOpen(false)}
+        students={students}
+        lessons={lessons}
+        availBlocks={[]}
+        pro
+        onCreated={() => { setAddOpen(false); setSelectedDate(new Date(selectedDate)); }}
       />
     </SafeAreaView>
   );
 }
+
+const s = StyleSheet.create({
+  outer: { flex: 1, backgroundColor: C.pageBg },
+  phoneSurface: { flex: 1, backgroundColor: C.surface },
+  header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4, gap: 10 },
+  eyebrow: { fontFamily: 'Barlow_600SemiBold', fontSize: 12, letterSpacing: 2, textTransform: 'uppercase', color: C.textMuted },
+  headline: { fontFamily: 'Archivo_800ExtraBold', fontSize: 27, letterSpacing: -0.6, color: C.text, marginTop: 1 },
+  navBtn: { width: 38, height: 38, borderRadius: 11, borderWidth: 1, borderColor: C.border, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  toggleTrack: { flexDirection: 'row', padding: 3, backgroundColor: '#EAE5DA', borderRadius: 11 },
+  toggleTab: { minWidth: 62, minHeight: 34, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, borderRadius: 9 },
+  toggleTabActive: { backgroundColor: '#fff' },
+  toggleText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: C.textMuted },
+  toggleTextActive: { color: C.text },
+  periodSummary: { flex: 1, textAlign: 'right', fontFamily: 'Barlow_600SemiBold', fontSize: 13, color: C.textMuted },
+  weekCol: { flex: 1, alignItems: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: 3, borderRadius: 13, borderWidth: 1, borderColor: 'transparent' },
+  weekColActive: { backgroundColor: '#fff', borderColor: C.text, borderWidth: 1.5 },
+  weekColDow: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1, textTransform: 'uppercase', color: C.textMuted },
+  weekColDate: { fontFamily: 'Archivo_700Bold', fontSize: 15, color: C.text },
+  weekColTrack: { position: 'relative', width: '100%', height: 260, marginTop: 4, borderRadius: 6, backgroundColor: C.track },
+  weekColFoot: { fontFamily: 'Barlow_600SemiBold', fontSize: 10.5, color: '#B8AF9E', marginTop: 2 },
+  statsCard: { marginTop: 14, padding: 13, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 16, flexDirection: 'row', alignItems: 'center' },
+  statValue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 24, color: C.text },
+  statLabel: { fontFamily: 'Barlow_600SemiBold', fontSize: 11.5, color: C.textMuted, marginTop: 1 },
+  statDivider: { width: 1, height: 38, backgroundColor: C.border },
+  legendChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 9, paddingVertical: 5, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 999 },
+  legendText: { fontFamily: 'Barlow_600SemiBold', fontSize: 11.5, color: C.textMuted2 },
+  dayPill: { width: 46, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: 2, borderWidth: 1, borderColor: C.border, borderRadius: 13, backgroundColor: '#fff' },
+  dayPillActive: { backgroundColor: C.primary, borderWidth: 0 },
+  dayPillDow: { fontFamily: 'Barlow_700Bold', fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: C.textMuted },
+  dayPillDate: { fontFamily: 'Archivo_700Bold', fontSize: 16, color: C.text },
+  gapSlot: { position: 'absolute', left: 38, right: 0, borderWidth: 1.5, borderStyle: 'dashed', borderColor: C.gapDash, borderRadius: 11, backgroundColor: 'rgba(255,255,255,0.4)', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 13 },
+  gapMeta: { fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: '#A69C8B' },
+  gapCta: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: C.accent },
+  lessonBlock: { position: 'absolute', left: 38, right: 0, borderRadius: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingHorizontal: 13, shadowColor: '#0F172A', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 3 },
+  lessonBlockName: { fontFamily: 'Barlow_700Bold', fontSize: 14.5, color: '#fff' },
+  lessonBlockMeta: { fontFamily: 'Barlow_500Medium', fontSize: 12, color: 'rgba(255,255,255,0.78)' },
+  lessonBlockTag: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1, color: 'rgba(255,255,255,0.85)' },
+  fab: { position: 'absolute', right: 20, bottom: 96, height: 52, paddingHorizontal: 20, borderRadius: 999, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center', shadowColor: C.accent, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.4, shadowRadius: 20, elevation: 8 },
+  fabText: { fontFamily: 'Barlow_700Bold', fontSize: 15, color: '#fff' },
+
+  monthHeaderText: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: C.textMuted },
+  monthCell: { flex: 1, borderWidth: 0.5, borderColor: C.border, padding: 4, alignItems: 'stretch' },
+  monthDateBadge: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  monthDateBadgeToday: { backgroundColor: C.primary },
+  monthDateText: { fontFamily: 'Barlow_700Bold', fontSize: 12, color: C.text },
+  monthDateTextDim: { color: C.gapDash },
+  monthDateTextToday: { color: '#fff' },
+  monthLessonChip: { borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2 },
+  monthLessonChipText: { fontFamily: 'Barlow_500Medium', fontSize: 10, color: C.text },
+  monthMoreText: { fontFamily: 'Barlow_700Bold', fontSize: 10, color: C.textMuted },
+});

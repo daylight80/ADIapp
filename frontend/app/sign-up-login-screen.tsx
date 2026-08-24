@@ -1,38 +1,55 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
-  Image,
-  useWindowDimensions,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Image, useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Mail, Lock, User as UserIcon, IdCard, MailCheck, Briefcase, GraduationCap, Eye, EyeOff } from 'lucide-react-native';
-import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
-import { api } from '../src/api';
-
-type Tab = 'signin' | 'signup';
 
 /**
- * Premium auth-screen colour tokens. We hold these locally (rather than in
- * the global theme) because the task spec asks for a specific palette here
- * that's intentionally a touch lighter and crisper than the in-app screens:
- *   • #F3F4F6 — neutral light-grey backdrop
- *   • #FFFFFF — pure white card surfaces
- *   • #6B7280 — accessible placeholder-text colour (WCAG AA on white)
+ * Sign In — redesigned visual direction from the Claude Design handoff
+ * (23 Aug 2026), promoted to live on 24 Aug 2026 after review as
+ * sign-in-v2-screen. This is now the real, live sign-in screen.
  *
- * British English note: variable named `PLACEHOLDER_COLOUR` deliberately.
+ * Every real auth behaviour from the original screen was preserved
+ * exactly during the trial and carried over here: the invite-token
+ * base64 decode + locked name/email fields, the Sign In / Register
+ * segmented tabs, password reveal, the same validation ORDER
+ * (name -> password >= 6 -> ADI >= 4), the students-cannot-self-register
+ * note, forgotten-password link, and the tablet max-width layout.
+ *
+ * Deliberately NOT carried over: the `demoLogin` helper from the source
+ * file — it's defined there but never actually called by any button, so
+ * it's dead code rather than a feature worth reproducing.
+ *
+ * The design replaces the source file's local AUTH_BG (#F3F4F6) /
+ * PLACEHOLDER_COLOUR (#6B7280) palette — which was deliberately "lighter
+ * and crisper than the in-app screens" — with the warm-paper system used
+ * across the rest of this redesign. Worth a look at whether losing that
+ * intentional contrast matters to you.
  */
-const AUTH_BG = '#F3F4F6';
-const PLACEHOLDER_COLOUR = '#6B7280';
+
+const C = {
+  pageBg: '#DCD6CA',
+  surface: '#F5F2EC',
+  card: '#FFFFFF',
+  border: '#E4DED2',
+  locked: '#EFEBE2',
+  text: '#0F172A',
+  textMuted: '#8A8172',
+  textMuted2: '#64748B',
+  primary: '#00539F',
+  tabTrack: '#EAE5DA',
+  inviteBg: '#D1FAE5',
+  inviteBorder: '#10B981',
+  inviteText: '#047857',
+  errorBg: '#FEE2E2',
+  errorBorder: '#FECACA',
+  errorText: '#B91C1C',
+};
+
+type Tab = 'signin' | 'signup';
 
 type InvitePreview = {
   email: string;
@@ -42,7 +59,7 @@ type InvitePreview = {
   expires_at: string;
 };
 
-export default function SignUpLoginScreen() {
+export default function SignInV2Screen() {
   const params = useLocalSearchParams();
   const router = useRouter();
   const inviteToken = (params.invite as string) || '';
@@ -54,10 +71,7 @@ export default function SignUpLoginScreen() {
   const [adi, setAdi] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Whether the password field is currently revealed. Toggled by the eye icon.
   const [showPassword, setShowPassword] = useState(false);
-
-  // Invite state
   const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
 
@@ -65,9 +79,6 @@ export default function SignUpLoginScreen() {
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
 
-  // Fetch invite preview if invite token provided.
-  // The token is a base64-encoded JSON payload: { email, name, instructor_name, instructor_adi, school_id }.
-  // (FastAPI invite endpoint is being decommissioned in favour of Supabase Auth.)
   useEffect(() => {
     if (!inviteToken) return;
     setInviteLoading(true);
@@ -95,21 +106,13 @@ export default function SignUpLoginScreen() {
 
   const handleSignUp = async () => {
     setError(null);
-    if (!name.trim()) {
-      setError('Please enter your full name');
-      return;
-    }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
-      return;
-    }
+    if (!name.trim()) { setError('Please enter your full name'); return; }
+    if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
     setBusy(true);
     let r;
     if (invitePreview) {
-      // Student accepts an invite
       r = await acceptInvite(inviteToken, password);
     } else {
-      // Instructor self-registers
       if (!adi.trim() || adi.trim().length < 4) {
         setBusy(false);
         setError('Please enter your DVSA ADI number');
@@ -121,397 +124,235 @@ export default function SignUpLoginScreen() {
     if (!r.ok) setError(r.error || 'Registration failed');
   };
 
-  const demoLogin = async (which: 'instructor' | 'student') => {
-    setError(null);
-    setBusy(true);
-    const creds =
-      which === 'instructor'
-        ? { email: 'instructor@demo.uk', password: 'password123', name: 'Demo Instructor', adi: '123456' }
-        : { email: 'student@demo.uk', password: 'password123', name: 'Demo Student', adi: '' };
-    setEmail(creds.email);
-    setPassword(creds.password);
-
-    // 1) try sign-in
-    let r = await signIn(creds.email, creds.password);
-
-    // 2) if email confirmation is still on, surface the clear instruction
-    if (!r.ok && /email\s*not\s*confirmed|confirm/i.test(r.error || '')) {
-      setError('Email confirmation is enabled in Supabase. Disable it under Authentication → Providers → Email, then try again. (If you can\u2019t disable it, manually confirm `' + creds.email + '` in the Supabase Authentication → Users panel.)');
-      setBusy(false);
-      return;
-    }
-
-    // 3) if account does not exist, auto-create then retry
-    if (!r.ok && /invalid|credentials|user|not.*found/i.test(r.error || '')) {
-      const up = await signUp(creds.email, creds.password, creds.name, creds.adi || '000000');
-      if (up.needs_confirmation) {
-        setError('Email confirmation is enabled in Supabase. Disable it under Authentication → Providers → Email, then try again.');
-        setBusy(false);
-        return;
-      }
-      if (up.ok) r = await signIn(creds.email, creds.password);
-      else r = up;
-    }
-    setBusy(false);
-    if (!r.ok) setError(r.error || 'Demo login failed');
-  };
-
   const isInvite = !!invitePreview;
+  const isSignIn = !isInvite && tab === 'signin';
+  const isRegister = !isInvite && tab === 'signup';
+
+  const Field = ({
+    label, value, onChangeText, placeholder, locked, secure, toggle, helper, keyboardType, autoCapitalize, testID,
+  }: {
+    label: string; value: string; onChangeText?: (v: string) => void; placeholder?: string;
+    locked?: boolean; secure?: boolean; toggle?: boolean; helper?: string;
+    keyboardType?: any; autoCapitalize?: any; testID?: string;
+  }) => (
+    <View style={{ gap: 6 }}>
+      <Text style={s.fieldLabel}>{label}</Text>
+      <View style={[s.fieldWrap, locked && { backgroundColor: C.locked }]}>
+        <TextInput
+          style={[s.fieldInput, locked && { color: C.textMuted2 }]}
+          value={value}
+          onChangeText={locked ? undefined : onChangeText}
+          editable={!locked}
+          placeholder={placeholder}
+          placeholderTextColor={C.textMuted}
+          secureTextEntry={secure && !showPassword}
+          keyboardType={keyboardType}
+          autoCapitalize={autoCapitalize}
+          testID={testID}
+        />
+        {toggle && (
+          <TouchableOpacity style={s.revealBtn} onPress={() => setShowPassword((v) => !v)} testID="v2-toggle-password">
+            <Text style={s.revealBtnText}>{showPassword ? 'Hide' : 'Show'}</Text>
+          </TouchableOpacity>
+        )}
+        {locked && <Text style={s.lockNote}>Locked</Text>}
+      </View>
+      {!!helper && <Text style={s.fieldHelper}>{helper}</Text>}
+    </View>
+  );
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={s.safe} edges={['top']}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView
-          contentContainerStyle={[styles.scroll, isTablet && styles.scrollTablet]}
+          contentContainerStyle={[s.scroll, isTablet && { maxWidth: 520, alignSelf: 'center', width: '100%' }]}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={[styles.card, isTablet && styles.cardTablet]} testID="auth-card">
-            <View style={styles.brand}>
+          <View style={s.brand}>
+            <View style={s.logoRing}>
               <Image
                 source={require('../assets/images/adi-pro-logo.png')}
-                style={styles.brandLogo}
+                style={{ width: '100%', height: '100%' }}
                 resizeMode="contain"
               />
-              <Text style={styles.brandTitle}>ADI Pro</Text>
-              <Text style={styles.brandSub}>Instructor & Student Portal</Text>
             </View>
+            <Text style={s.brandTitle}>ADI Pro</Text>
+            <Text style={s.brandSub}>Instructor &amp; student portal</Text>
+          </View>
 
-            {isInvite && (
-              <View style={styles.inviteBanner} testID="invite-banner">
-                <MailCheck size={20} color={theme.colors.success} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.inviteTitle}>You&apos;ve been invited!</Text>
-                  <Text style={styles.inviteSub}>
-                    {invitePreview!.instructor_name} (ADI {invitePreview!.instructor_adi}) has invited you to join ADI Pro as a student.
-                  </Text>
-                </View>
-              </View>
-            )}
+          {inviteLoading && (
+            <View style={{ alignItems: 'center', paddingVertical: 12 }}>
+              <ActivityIndicator color={C.primary} />
+            </View>
+          )}
 
-            {!isInvite && (
-              <View style={styles.formPanel}>
-                <View style={styles.tabs}>
-                  <TouchableOpacity
-                    style={[styles.tab, tab === 'signin' && styles.tabActive]}
-                    onPress={() => setTab('signin')}
-                    testID="tab-signin"
-                  >
-                    <Text style={[styles.tabText, tab === 'signin' && styles.tabTextActive]}>Sign In</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.tab, tab === 'signup' && styles.tabActive]}
-                    onPress={() => setTab('signup')}
-                    testID="tab-signup"
-                  >
-                    {/* Shortened from "Create Instructor Account" to "Register"
-                        so the label fits a single line at narrow phone widths. */}
-                    <Text style={[styles.tabText, tab === 'signup' && styles.tabTextActive]}>Register</Text>
-                  </TouchableOpacity>
-                </View>
+          {isInvite && (
+            <View style={s.inviteCard} testID="v2-invite-banner">
+              <Text style={s.inviteLabel}>You&apos;ve been invited</Text>
+              <Text style={s.inviteLine}>
+                {invitePreview?.instructor_name || 'Your instructor'}
+                {invitePreview?.instructor_adi ? ` (ADI ${invitePreview.instructor_adi})` : ''} has invited you to join
+                ADI Pro as a student. Choose a password to finish setting up your account.
+              </Text>
+            </View>
+          )}
 
-                {tab === 'signup' && (
-                  <View style={styles.field}>
-                    <UserIcon size={18} color={PLACEHOLDER_COLOUR} />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Full name"
-                      placeholderTextColor={PLACEHOLDER_COLOUR}
-                      value={name}
-                      onChangeText={setName}
-                      editable={!isInvite}
-                      testID="input-name"
-                    />
-                  </View>
-                )}
+          {!isInvite && (
+            <View style={s.tabTrack}>
+              <TouchableOpacity
+                style={[s.tab, tab === 'signin' && s.tabActive]}
+                onPress={() => { setTab('signin'); setError(null); }}
+                testID="v2-tab-signin"
+              >
+                <Text style={[s.tabText, tab === 'signin' && s.tabTextActive]}>Sign in</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.tab, tab === 'signup' && s.tabActive]}
+                onPress={() => { setTab('signup'); setError(null); }}
+                testID="v2-tab-register"
+              >
+                <Text style={[s.tabText, tab === 'signup' && s.tabTextActive]}>Register</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
-                <View style={styles.field}>
-                  <Mail size={18} color={PLACEHOLDER_COLOUR} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Email address"
-                    placeholderTextColor={PLACEHOLDER_COLOUR}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    value={email}
-                    onChangeText={setEmail}
-                    editable={!isInvite || tab === 'signin'}
-                    testID="input-email"
-                  />
-                </View>
-
-                <View style={[styles.field, styles.fieldTight]}>
-                  <Lock size={18} color={PLACEHOLDER_COLOUR} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Password"
-                    placeholderTextColor={PLACEHOLDER_COLOUR}
-                    secureTextEntry={!showPassword}
-                    value={password}
-                    onChangeText={setPassword}
-                    testID="input-password"
-                  />
-                  <TouchableOpacity
-                    onPress={() => setShowPassword((v) => !v)}
-                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                    accessibilityRole="button"
-                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-                    testID="btn-toggle-password"
-                  >
-                    {showPassword
-                      ? <EyeOff size={18} color={PLACEHOLDER_COLOUR} />
-                      : <Eye   size={18} color={PLACEHOLDER_COLOUR} />}
-                  </TouchableOpacity>
-                </View>
-
-                {tab === 'signup' && !isInvite && (
-                  <>
-                    <View style={styles.field}>
-                      <IdCard size={18} color={PLACEHOLDER_COLOUR} />
-                      <TextInput
-                        style={styles.input}
-                        placeholder="DVSA ADI number (e.g. 123456)"
-                        placeholderTextColor={PLACEHOLDER_COLOUR}
-                        keyboardType="numeric"
-                        value={adi}
-                        onChangeText={setAdi}
-                        testID="input-adi"
-                      />
-                    </View>
-                    <Text style={styles.helper}>
-                      Your ADI number is the unique reference that secures your account and all your students.
-                    </Text>
-                  </>
-                )}
-
-                {error && (
-                  <Text style={styles.error} testID="auth-error">{error}</Text>
-                )}
-
-                <TouchableOpacity
-                  style={[styles.primaryBtn, busy && styles.btnDisabled]}
-                  onPress={tab === 'signin' ? handleSignIn : handleSignUp}
-                  disabled={busy || inviteLoading}
-                  testID={tab === 'signin' ? 'btn-signin' : 'btn-signup'}
-                >
-                  {busy ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.primaryBtnText}>
-                      {tab === 'signin' ? 'Sign In' : 'Register'}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* ------------------------------------------------------------
-                Invite flow — unchanged layout, just uses the new colours.
-                ------------------------------------------------------------ */}
-            {isInvite && (
+          <View style={{ gap: 14 }}>
+            {isInvite ? (
               <>
-                <View style={styles.field}>
-                  <UserIcon size={18} color={PLACEHOLDER_COLOUR} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Full name"
-                    placeholderTextColor={PLACEHOLDER_COLOUR}
-                    value={name}
-                    onChangeText={setName}
-                    editable={!isInvite}
-                    testID="input-name"
-                  />
-                </View>
-
-                <View style={styles.field}>
-                  <Mail size={18} color={PLACEHOLDER_COLOUR} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Email address"
-                    placeholderTextColor={PLACEHOLDER_COLOUR}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    value={email}
-                    onChangeText={setEmail}
-                    editable={false}
-                    testID="input-email"
-                  />
-                </View>
-
-                <View style={[styles.field, styles.fieldTight]}>
-                  <Lock size={18} color={PLACEHOLDER_COLOUR} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Password"
-                    placeholderTextColor={PLACEHOLDER_COLOUR}
-                    secureTextEntry={!showPassword}
-                    value={password}
-                    onChangeText={setPassword}
-                    testID="input-password"
-                  />
-                  <TouchableOpacity
-                    onPress={() => setShowPassword((v) => !v)}
-                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-                    testID="btn-toggle-password"
-                  >
-                    {showPassword
-                      ? <EyeOff size={18} color={PLACEHOLDER_COLOUR} />
-                      : <Eye   size={18} color={PLACEHOLDER_COLOUR} />}
-                  </TouchableOpacity>
-                </View>
-
-                {error && (
-                  <Text style={styles.error} testID="auth-error">{error}</Text>
-                )}
-
-                <TouchableOpacity
-                  style={[styles.primaryBtn, busy && styles.btnDisabled]}
-                  onPress={handleSignUp}
-                  disabled={busy || inviteLoading}
-                  testID="btn-signup"
-                >
-                  {busy ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.primaryBtnText}>Accept invite &amp; create account</Text>
-                  )}
-                </TouchableOpacity>
+                <Field label="Full name" value={name} locked testID="v2-input-name" />
+                <Field label="Email address" value={email} locked testID="v2-input-email" />
+                <Field
+                  label="Choose a password" value={password} onChangeText={setPassword}
+                  placeholder="At least 6 characters" secure toggle testID="v2-input-password"
+                />
+              </>
+            ) : isSignIn ? (
+              <>
+                <Field
+                  label="Email address" value={email} onChangeText={setEmail}
+                  placeholder="you@example.co.uk" keyboardType="email-address" autoCapitalize="none"
+                  testID="v2-input-email"
+                />
+                <Field
+                  label="Password" value={password} onChangeText={setPassword}
+                  placeholder="Your password" secure toggle testID="v2-input-password"
+                />
+              </>
+            ) : (
+              <>
+                <Field label="Full name" value={name} onChangeText={setName} placeholder="Dave Fletcher" testID="v2-input-name" />
+                <Field
+                  label="Email address" value={email} onChangeText={setEmail}
+                  placeholder="you@example.co.uk" keyboardType="email-address" autoCapitalize="none"
+                  testID="v2-input-email"
+                />
+                <Field
+                  label="Password" value={password} onChangeText={setPassword}
+                  placeholder="At least 6 characters" secure toggle testID="v2-input-password"
+                />
+                <Field
+                  label="DVSA ADI number" value={adi} onChangeText={setAdi}
+                  placeholder="e.g. 123456" keyboardType="number-pad"
+                  helper="Your ADI number is the unique reference that secures your account and all your students."
+                  testID="v2-input-adi"
+                />
               </>
             )}
-
-            {tab === 'signin' && !isInvite && (
-              <TouchableOpacity
-                style={styles.forgotLink}
-                onPress={() => router.push('/forgot-password-screen')}
-                testID="link-forgot-password"
-              >
-                <Text style={styles.forgotLinkText}>Forgotten your password?</Text>
-              </TouchableOpacity>
-            )}
-
-            {!isInvite && tab === 'signup' && (
-              <Text style={styles.studentNote}>
-                Students cannot self-register. Ask your instructor for an invite link.
-              </Text>
-            )}
-
-            <View style={styles.legal}>
-              <Text style={styles.legalText}>
-                By continuing you agree to our{' '}
-                <Text style={styles.legalLink} testID="link-tos">Terms of Service</Text>
-                {' '}and{' '}
-                <Text style={styles.legalLink} testID="link-privacy">Privacy Policy</Text>.
-              </Text>
-            </View>
           </View>
+
+          {!!error && (
+            <View style={s.errorCard} testID="v2-auth-error">
+              <Text style={s.errorText}>{error}</Text>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[s.cta, busy && { opacity: 0.6 }]}
+            onPress={isSignIn ? handleSignIn : handleSignUp}
+            disabled={busy}
+            testID="v2-btn-submit"
+          >
+            {busy
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={s.ctaText}>{isInvite ? 'Accept invite & create account' : isSignIn ? 'Sign in' : 'Register'}</Text>}
+          </TouchableOpacity>
+
+          {isSignIn && (
+            <TouchableOpacity
+              style={{ alignItems: 'center', paddingTop: 14 }}
+              onPress={() => router.push('/forgot-password-screen')}
+              testID="v2-link-forgot-password"
+            >
+              <Text style={s.forgotLink}>Forgotten your password?</Text>
+            </TouchableOpacity>
+          )}
+
+          {isRegister && (
+            <Text style={s.registerNote}>
+              Students cannot self-register. Ask your instructor for an invite link.
+            </Text>
+          )}
+
+          <Text style={s.legal}>
+            By continuing you agree to our Terms of Service and Privacy Policy.
+          </Text>
+
+          <View style={{ height: 34 }} />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  // ----- Backdrop --------------------------------------------------------
-  safe: { flex: 1, backgroundColor: AUTH_BG },
-  scroll: { padding: 24, flexGrow: 1, justifyContent: 'center' },
-  scrollTablet: { alignItems: 'center', padding: 32 },
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: C.surface },
+  scroll: { paddingHorizontal: 20, paddingTop: 8 },
 
-  // ----- Outer card (logo + brand + form panel) --------------------------
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    padding: 24,
-    // Soft, diffused drop shadow for elevation. Uses `boxShadow` string
-    // (RN new arch cross-platform), backed by `elevation` on Android.
-    boxShadow: '0px 8px 24px rgba(15, 23, 42, 0.08)',
-    elevation: 4,
-  },
-  cardTablet: { width: 480, maxWidth: '100%' },
-
-  brand: { alignItems: 'center', marginBottom: 24 },
-  brandLogo: { width: 96, height: 96, marginBottom: 8 },
-  brandTitle: { ...theme.font.h1 },
-  // Softer grey so the main "ADI Pro" header dominates the visual hierarchy.
-  brandSub: { ...theme.font.caption, marginTop: 4, color: '#9CA3AF' },
-
-  // ----- Inner form panel ------------------------------------------------
-  // Holds tabs, fields, and the primary button. Visually identical to the
-  // outer card here (white surface) but kept as a structural wrapper so we
-  // can later swap in a subtle inner-shadow / border without touching the
-  // outer layout.
-  formPanel: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-  },
-
-  // ----- Segmented control ----------------------------------------------
-  tabs: {
-    flexDirection: 'row',
-    backgroundColor: AUTH_BG,
-    borderRadius: 8,
-    padding: 4,
-    marginBottom: 24,
-  },
-  tab: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 6 },
-  // Crisp white background + subtle shadow on the active tab.
-  tabActive: {
-    backgroundColor: '#FFFFFF',
-    boxShadow: '0px 1px 4px rgba(15, 23, 42, 0.08)',
-    elevation: 2,
-  },
-  tabText: { ...theme.font.body, color: PLACEHOLDER_COLOUR, fontWeight: '600', fontSize: 14 },
-  tabTextActive: { color: theme.colors.text },
-
-  // ----- Invite banner --------------------------------------------------
-  inviteBanner: { flexDirection: 'row', gap: 10, padding: 14, borderRadius: 12, backgroundColor: theme.colors.successLight, borderWidth: 1, borderColor: theme.colors.success, marginBottom: 16 },
-  inviteTitle: { fontWeight: '700', color: theme.colors.success, fontSize: 15 },
-  inviteSub: { color: theme.colors.text, fontSize: 13, marginTop: 4 },
-
-  // ----- Inputs ---------------------------------------------------------
-  // 8pt grid: 56 px tall pills, 16 px gap between fields. The password field
-  // uses `fieldTight` (8 px gap above the primary button) so email + password
-  // sit close together while the CTA has clear breathing room above it.
-  field: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    borderWidth: 1, borderColor: '#E5E7EB',
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    height: 56,
-    marginBottom: 16,
-  },
-  fieldTight: { marginBottom: 8 },
-  input: { flex: 1, fontSize: 15, color: theme.colors.text, paddingVertical: 0 },
-  helper: { fontSize: 12, color: PLACEHOLDER_COLOUR, marginBottom: 16, marginTop: -8 },
-  error: { color: theme.colors.danger, marginBottom: 8, fontSize: 14 },
-
-  // ----- Primary CTA ----------------------------------------------------
-  // 24 px breathing room above to separate it from the input cluster.
-  primaryBtn: {
-    height: 56,
-    borderRadius: 8,
-    backgroundColor: theme.colors.primary,
+  brand: { alignItems: 'center', gap: 9, paddingVertical: 26 },
+  logoRing: {
+    width: 78, height: 78, borderRadius: 999, backgroundColor: '#fff',
+    borderWidth: 1, borderColor: C.border, overflow: 'hidden',
     alignItems: 'center', justifyContent: 'center',
-    marginTop: 24,
-    boxShadow: `0px 4px 12px ${theme.colors.primary}2E`,
-    elevation: 3,
   },
-  btnDisabled: { opacity: 0.6 },
-  primaryBtnText: { ...theme.font.button },
+  brandTitle: { fontFamily: 'Archivo_800ExtraBold', fontSize: 34, letterSpacing: -1, color: C.text },
+  brandSub: { fontFamily: 'Barlow_600SemiBold', fontSize: 12, letterSpacing: 1.7, textTransform: 'uppercase', color: C.textMuted, marginTop: 2 },
 
-  // ----- Misc -----------------------------------------------------------
-  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 20, gap: 12 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: theme.colors.border },
-  dividerText: { ...theme.font.caption },
-  demoPanel: { gap: 10 },
-  demoBtn: { height: 48, borderRadius: 8, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
-  demoBtnInstructor: { backgroundColor: theme.colors.accent },
-  demoBtnStudent: { backgroundColor: theme.colors.primary },
-  demoBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  studentNote: { textAlign: 'center', color: PLACEHOLDER_COLOUR, fontSize: 12, marginTop: 16, fontStyle: 'italic' },
-  forgotLink: { alignSelf: 'center', paddingVertical: 12, paddingHorizontal: 16, marginTop: 8 },
-  forgotLinkText: { color: theme.colors.primary, fontSize: 14, fontWeight: '600' },
-  legal: { marginTop: 24 },
-  legalText: { ...theme.font.caption, textAlign: 'center', color: PLACEHOLDER_COLOUR },
-  legalLink: { color: theme.colors.primary, fontWeight: '600' },
+  inviteCard: { backgroundColor: C.inviteBg, borderWidth: 1, borderColor: C.inviteBorder, borderRadius: 16, padding: 14, marginBottom: 16 },
+  inviteLabel: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1.5, textTransform: 'uppercase', color: C.inviteText },
+  inviteLine: { fontFamily: 'Barlow_400Regular', fontSize: 13.5, lineHeight: 19.5, color: C.text, marginTop: 8 },
+
+  tabTrack: { flexDirection: 'row', padding: 4, backgroundColor: C.tabTrack, borderRadius: 13, marginBottom: 20 },
+  tab: { flex: 1, minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 10 },
+  tabActive: { backgroundColor: '#fff' },
+  tabText: { fontFamily: 'Barlow_700Bold', fontSize: 14, color: C.textMuted },
+  tabTextActive: { color: C.text },
+
+  fieldLabel: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1.5, textTransform: 'uppercase', color: C.textMuted },
+  fieldWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 9, minHeight: 54,
+    paddingLeft: 14, paddingRight: 8, borderWidth: 1, borderColor: C.border,
+    borderRadius: 13, backgroundColor: '#fff',
+  },
+  fieldInput: { flex: 1, minWidth: 0, fontFamily: 'Barlow_500Medium', fontSize: 15, color: C.text },
+  revealBtn: {
+    minWidth: 56, height: 36, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: C.border, borderRadius: 9, backgroundColor: '#fff',
+  },
+  revealBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 11.5, color: C.primary },
+  lockNote: { fontFamily: 'Barlow_700Bold', fontSize: 10, letterSpacing: 1.2, textTransform: 'uppercase', color: '#A69C8B' },
+  fieldHelper: { fontFamily: 'Barlow_400Regular', fontSize: 12, lineHeight: 16.8, color: C.textMuted2, marginTop: 1 },
+
+  errorCard: { marginTop: 14, backgroundColor: C.errorBg, borderWidth: 1, borderColor: C.errorBorder, borderRadius: 12, padding: 11 },
+  errorText: { fontFamily: 'Barlow_600SemiBold', fontSize: 13, lineHeight: 18.2, color: C.errorText },
+
+  cta: {
+    minHeight: 56, marginTop: 22, borderRadius: 14, backgroundColor: C.primary,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: C.primary, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.45, shadowRadius: 22, elevation: 6,
+  },
+  ctaText: { fontFamily: 'Barlow_700Bold', fontSize: 16.5, color: '#fff' },
+
+  forgotLink: { fontFamily: 'Barlow_600SemiBold', fontSize: 14, color: C.primary },
+  registerNote: { fontFamily: 'Barlow_400Regular', fontSize: 12.5, lineHeight: 18, color: C.textMuted2, textAlign: 'center', fontStyle: 'italic', marginTop: 16 },
+  legal: { fontFamily: 'Barlow_400Regular', fontSize: 12.5, lineHeight: 18.75, color: C.textMuted2, textAlign: 'center', marginTop: 24 },
 });

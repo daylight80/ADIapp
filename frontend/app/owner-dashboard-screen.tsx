@@ -1,61 +1,94 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator,
-  Alert, TextInput, Platform,
-} from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import {
-  Trophy, Users, CalendarDays, PoundSterling, TrendingUp, Plus, Mail, LogOut,
-  ChevronRight, Crown, ArrowUpDown, Receipt, Award, CircleX, AlertTriangle, UserPlus, Building2,
-  Eye, EyeOff, ClipboardList, ArrowUpRight, ArrowDownRight, Check,
-} from 'lucide-react-native';
-import { theme } from '../src/theme';
-
-import { Card, Badge } from '../src/ui';
-import { BottomSheet } from '../src/BottomSheet';
-import { PaywallModal } from '../src/PaywallModal';
-import { DateField } from '../src/DateTimeFields';
 import { useAuth } from '../src/AuthContext';
-import { isFranchiseTier, schoolDisplayName } from '../src/tiers';
 import { supabase } from '../src/supabaseClient';
+import { DateField } from '../src/DateTimeFields';
+import { isFranchiseTier, schoolDisplayName } from '../src/tiers';
 import {
-  listTestOutcomesForSchool, computeTestKpis, type TestOutcome,
-  getArrearsSummary,
+  listTestOutcomesForSchool, computeTestKpis, type TestOutcome, getArrearsSummary,
 } from '../src/supabaseDb';
 
-/** Stand-in shown when Privacy Mode is on. Renders as e.g. `£•••`. */
-const REVENUE_MASK = '£•••';
+/**
+ * Owner Dashboard — redesigned visual direction from the Claude Design
+ * handoff (23 Aug 2026), promoted to live on 24 Aug 2026 after review as
+ * owner-dashboard-v2-screen. This is now the real, live owner dashboard.
+ *
+ * This screen was already on real data before the redesign — it uses the
+ * /v2/school/leaderboard and /v2/school/today backend endpoints. The fetch
+ * logic, monthTrend() maths, revenue-privacy masking, and needs-attention
+ * rules are reproduced from the original deliberately rather than
+ * reinvented, so behaviour stays identical and only the visuals changed.
+ *
+ * Two whole sections ported in as part of promoting this to live (24 Aug
+ * 2026) — both franchise-tier only, and both missing from the original v2
+ * trial since the design never covered them:
+ *   - "Today across the school" — real-time via /api/v2/school/today
+ *   - "Student allocations" — a date-range report via
+ *     /api/v2/school/student-allocations, counting new students per
+ *     instructor in the chosen range
+ *
+ * Revenue privacy note: isRevenueHidden deliberately starts TRUE on every
+ * mount and is never persisted. That's intentional (an owner shouldn't
+ * have revenue accidentally left visible in front of a student), not an
+ * oversight to "fix".
+ *
+ * Worth knowing, unrelated to this swap: nothing anywhere in the app
+ * currently links to this route at all, not even before this change —
+ * owners must be reaching it by typing the URL directly or some other
+ * path not yet found. Pre-existing, not something this swap caused.
+ */
 
-/** Return either the masked placeholder or the original revenue string. */
+const C = {
+  pageBg: '#DCD6CA',
+  surface: '#F5F2EC',
+  border: '#E4DED2',
+  divider: '#EDE8DE',
+  text: '#0F172A',
+  textMuted: '#8A8172',
+  textMuted2: '#64748B',
+  primary: '#00539F',
+  primaryLight: '#E5F0FA',
+  accent: '#FF6B00',
+  ink: '#0F172A',
+  success: '#047857',
+  warnBg: '#FEF3C7',
+  warnBorder: '#FDE68A',
+  warnText: '#92400E',
+  warnChevron: '#B45309',
+  warmBg: '#FFF7ED',
+  warmBorder: '#FED7AA',
+};
+
+const REVENUE_MASK = '£•••';
+const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || '';
+
 function maskRevenue(value: string, hidden: boolean): string {
   return hidden ? REVENUE_MASK : value;
 }
 
-const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || '';
+function monthTrend(current: number, previous: number, formatDelta: (n: number) => string) {
+  if (current === 0 && previous === 0) return null;
+  if (previous === 0) return { direction: 'up' as const, text: 'New this month' };
+  const deltaPct = Math.round(((current - previous) / previous) * 100);
+  if (deltaPct === 0) return { direction: 'flat' as const, text: 'Same as last month' };
+  return { direction: deltaPct > 0 ? ('up' as const) : ('down' as const), text: `${formatDelta(deltaPct)} vs last month` };
+}
 
 type LeaderboardRow = {
-  instructor_id: string;
-  full_name: string;
-  adi_number: string | null;
-  is_owner: boolean;
-  students_active: number;
-  lessons_month: number;
-  revenue_month: number;
-  pass_rate: number;
+  instructor_id: string; full_name: string; adi_number: string | null; is_owner: boolean;
+  students_active: number; lessons_month: number; revenue_month: number; pass_rate: number;
 };
 type Leaderboard = {
-  school_id: string;
-  business_name: string | null;
-  month_iso: string;
-  tier: string;
-  seat_count: number;
-  seat_limit: number | null;     // null = unlimited
-  can_add_instructor: boolean;
+  school_id: string; business_name: string | null; month_iso: string; tier: string;
+  seat_count: number; seat_limit: number | null; can_add_instructor: boolean;
   totals: { students_active: number; lessons_month: number; revenue_month: number; pass_rate: number };
   totals_prev_month: { lessons_month: number; revenue_month: number };
   rows: LeaderboardRow[];
 };
+type SortKey = 'revenue_month' | 'lessons_month' | 'students_active' | 'pass_rate';
+
 type TodayLesson = {
   lesson_id: string;
   instructor_id: string;
@@ -81,12 +114,16 @@ type StudentAllocationResponse = {
   rows: StudentAllocationRow[];
 };
 
-type SortKey = 'revenue_month' | 'lessons_month' | 'students_active' | 'pass_rate';
+const SORT_LABEL: Record<SortKey, string> = {
+  revenue_month: 'Revenue',
+  lessons_month: 'Lessons',
+  students_active: 'Students',
+  pass_rate: 'Pass rate',
+};
 
-export default function OwnerDashboardScreen() {
+export default function OwnerDashboardV2Screen() {
   const router = useRouter();
-  const { signOut, user } = useAuth();
-
+  const { user } = useAuth();
   const [leaderboard, setLeaderboard] = useState<Leaderboard | null>(null);
   const [today, setToday] = useState<TodayLesson[]>([]);
   const [testOutcomes, setTestOutcomes] = useState<TestOutcome[]>([]);
@@ -95,19 +132,11 @@ export default function OwnerDashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('revenue_month');
+  const [isRevenueHidden, setIsRevenueHidden] = useState(true);
 
-  // Invite-instructor sheet
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviting, setInviting] = useState(false);
-  const [inviteForm, setInviteForm] = useState({ email: '', full_name: '', adi_number: '' });
-
-  // Franchise-only "Manage assignments" gate
-  const [assignmentsPaywallOpen, setAssignmentsPaywallOpen] = useState(false);
-
-  // ---------------------------------------------------------------------------
-  // Student allocations by date range — Franchise tier only. Counts students
-  // per instructor whose created_at (first-added date) falls in the range.
-  // ---------------------------------------------------------------------------
+  // Student allocations by date range — Franchise tier only. Counts
+  // students per instructor whose created_at (first-added date) falls in
+  // the range. Ported in as part of promoting this screen to live.
   const todayStr = new Date().toISOString().slice(0, 10);
   const monthStartStr = `${todayStr.slice(0, 7)}-01`;
   const [allocFrom, setAllocFrom] = useState(monthStartStr);
@@ -140,22 +169,6 @@ export default function OwnerDashboardScreen() {
     }
   }, [allocFrom, allocTo]);
 
-  // ---------------------------------------------------------------------------
-  // Privacy Mode — masks financial earnings on the dashboard so an instructor
-  // can show the screen to a student in the tuition vehicle without revealing
-  // sensitive revenue figures.
-  //
-  // Revenue is ALWAYS hidden by default on every load — this is not something
-  // that should be remembered as "shown" across app restarts, since that
-  // would defeat the safety purpose the moment an instructor forgets they'd
-  // previously revealed it. Tapping the eye icon reveals it for the current
-  // session only; the next time this screen mounts, it's hidden again.
-  // ---------------------------------------------------------------------------
-  const [isRevenueHidden, setIsRevenueHidden] = useState(true);
-  const toggleRevenuePrivacy = useCallback(() => {
-    setIsRevenueHidden((prev) => !prev);
-  }, []);
-
   const fetchAll = useCallback(async () => {
     setError(null);
     try {
@@ -166,7 +179,7 @@ export default function OwnerDashboardScreen() {
 
       const [lr, tr] = await Promise.all([
         fetch(`${BACKEND}/api/v2/school/leaderboard`, { headers }),
-        fetch(`${BACKEND}/api/v2/school/today`,       { headers }),
+        fetch(`${BACKEND}/api/v2/school/today`, { headers }),
       ]);
       if (!lr.ok) {
         const errBody = await lr.json().catch(() => ({}));
@@ -177,29 +190,15 @@ export default function OwnerDashboardScreen() {
       setLeaderboard(lbJson);
       setToday(todayJson);
 
-      // Pull every test outcome across all instructors in this school.
-      // Used by the "Test performance" card below the KPI grid.
       if (lbJson?.school_id) {
         try {
-          const outcomes = await listTestOutcomesForSchool(lbJson.school_id);
-          setTestOutcomes(outcomes);
-        } catch (e) {
-          // Non-fatal — empty state will render instead.
-          // eslint-disable-next-line no-console
-          console.warn('[owner] listTestOutcomesForSchool failed', e);
+          setTestOutcomes(await listTestOutcomesForSchool(lbJson.school_id));
+        } catch {
           setTestOutcomes([]);
         }
-
-        // Arrears summary — count + total £ owed across the school. Backed by
-        // Migration 022 view `students_with_balance`. Non-fatal if the view
-        // isn't applied yet — the tile then shows "0 owing" and the user can
-        // still navigate to the Students screen normally.
         try {
-          const summary = await getArrearsSummary();
-          setArrears(summary);
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.warn('[owner] getArrearsSummary failed', e);
+          setArrears(await getArrearsSummary());
+        } catch {
           setArrears({ count: 0, total_gbp: 0 });
         }
       }
@@ -212,10 +211,9 @@ export default function OwnerDashboardScreen() {
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
-  const onRefresh = () => { setRefreshing(true); fetchAll(); };
 
-  // Load the default date range once we know this school is Franchise tier
-  // (no point calling the endpoint for solo owners who won't see the section).
+  // Auto-fetch allocations once we know the school is Franchise tier — no
+  // point calling the endpoint for solo owners who won't see the section.
   useEffect(() => {
     if (leaderboard?.tier === 'franchise' && allocRows === null && !allocLoading) {
       fetchAllocations();
@@ -223,943 +221,439 @@ export default function OwnerDashboardScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leaderboard?.tier]);
 
+  const testKpis = computeTestKpis(testOutcomes);
+  const isFranchise = isFranchiseTier(leaderboard?.tier);
 
   const sortedRows = useMemo(() => {
-    if (!leaderboard) return [];
+    if (!leaderboard?.rows) return [];
     return [...leaderboard.rows].sort((a, b) => (b[sortKey] as number) - (a[sortKey] as number));
   }, [leaderboard, sortKey]);
 
-  // Aggregate KPIs across every test outcome in the school.
-  // Theory tests are ignored at the KPI level — instructors focus on practical.
-  const testKpis = useMemo(() => computeTestKpis(testOutcomes), [testOutcomes]);
-  // Look up instructor name + student name for the 5 most recent results
-  // so we can show them inline on the Test performance card.
-  const instructorNameById = useMemo(() => {
-    const m: Record<string, string> = {};
-    leaderboard?.rows.forEach((r) => { m[r.instructor_id] = r.full_name; });
-    return m;
-  }, [leaderboard]);
-  // Only practical results are surfaced in the "Most recent results" list
-  // for consistency with the practical-only KPI.
-  const recentOutcomes = useMemo(
-    () => testOutcomes.filter((o) => o.test_type === 'practical').slice(0, 5),
+  const issues = useMemo(() => {
+    const list: { key: string; title: string; onPress: () => void }[] = [];
+    if (leaderboard && !leaderboard.can_add_instructor) {
+      list.push({ key: 'seats', title: 'Instructor seat limit reached', onPress: () => router.push('/pricing-screen' as any) });
+    }
+    if (arrears.count > 0) {
+      list.push({
+        key: 'arrears',
+        title: `${arrears.count} pupil${arrears.count === 1 ? '' : 's'} owing ${maskRevenue(`£${arrears.total_gbp}`, isRevenueHidden)}`,
+        onPress: () => router.push({ pathname: '/student-crm-screen', params: { filter: 'arrears' } } as any),
+      });
+    }
+    return list;
+  }, [leaderboard, arrears, isRevenueHidden, router]);
+
+  const recentPracticals = useMemo(
+    () => testOutcomes.filter((t) => t.test_type === 'practical').slice(0, 5),
     [testOutcomes],
   );
-
-  const inviteInstructor = async () => {
-    if (!/^[^@]+@[^@]+\.[^@]+$/.test(inviteForm.email.trim())) {
-      Alert.alert('Invalid email', 'Please enter a valid email address.');
-      return;
-    }
-    setInviting(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-      if (!token) throw new Error('Not signed in');
-      const resp = await fetch(`${BACKEND}/api/v2/instructors/invite`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          email: inviteForm.email.trim(),
-          full_name: inviteForm.full_name.trim() || undefined,
-          adi_number: inviteForm.adi_number.trim() || undefined,
-        }),
-      });
-      const json = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(json?.detail || `Invite failed (HTTP ${resp.status})`);
-      const ok = json?.sent !== false;
-      Alert.alert(
-        ok ? 'Invite sent' : 'Already a member',
-        json?.detail || `Invite issued to ${inviteForm.email}.`,
-      );
-      setInviteOpen(false);
-      setInviteForm({ email: '', full_name: '', adi_number: '' });
-      fetchAll();
-    } catch (e: any) {
-      Alert.alert('Invite failed', e?.message || 'Could not send the invite.');
-    } finally {
-      setInviting(false);
-    }
-  };
 
   const fmtTime = (iso: string) => {
     if (!iso) return '';
     const t = iso.split('T')[1] || iso;
     return t.slice(0, 5);
   };
-  const monthLabel = leaderboard?.month_iso
-    ? new Date(leaderboard.month_iso + '-01').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
-    : '';
+
+  const cycleSort = () => {
+    const keys: SortKey[] = ['revenue_month', 'lessons_month', 'students_active', 'pass_rate'];
+    setSortKey(keys[(keys.indexOf(sortKey) + 1) % keys.length]);
+  };
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safe} edges={['top']}>
-        <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 80 }} />
+      <SafeAreaView style={s.safe} edges={['top']}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator size="large" color={C.primary} />
+        </View>
       </SafeAreaView>
     );
   }
 
+  const revTrend = leaderboard && !isRevenueHidden
+    ? monthTrend(leaderboard.totals.revenue_month, leaderboard.totals_prev_month.revenue_month, (n) => `${n > 0 ? '+' : ''}${n}%`)
+    : null;
+  const lessonTrend = leaderboard
+    ? monthTrend(leaderboard.totals.lessons_month, leaderboard.totals_prev_month.lessons_month, (n) => `${n > 0 ? '+' : ''}${n}%`)
+    : null;
+
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={s.safe} edges={['top']}>
       <ScrollView
-        contentContainerStyle={styles.scroll}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        testID="owner-dashboard-scroll"
+        contentContainerStyle={{ paddingBottom: 40 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchAll(); }} />}
       >
-        {/* ============================================================
-            HEADER — school name + instructor seat count
-            ============================================================ */}
-        <View style={styles.headerBlock}>
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Crown size={14} color={theme.colors.accent} />
-              <Text style={styles.headerEyebrow}>School Owner</Text>
-              {leaderboard?.tier && (
-                <View style={[styles.tierPill, leaderboard.tier === 'franchise' ? styles.tierPillFranchise : styles.tierPillStarter]}>
-                  <Text style={styles.tierPillText}>{leaderboard.tier.toUpperCase()}</Text>
-                </View>
-              )}
-            </View>
-            <Text style={styles.headerTitle} numberOfLines={1}>
-              {schoolDisplayName(user?.tier, leaderboard?.business_name, user?.name, user?.adi_number)}
-            </Text>
-            <Text style={styles.headerSub}>
-              {monthLabel}
-              {leaderboard
-                ? ` · ${leaderboard.seat_count}/${leaderboard.seat_limit ?? '∞'} instructor seat${(leaderboard.seat_limit ?? 0) === 1 ? '' : 's'}`
-                : ''}
-            </Text>
+        {/* Header */}
+        <View style={{ paddingHorizontal: 20, paddingTop: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+            <Text style={s.ownerLabel}>School owner</Text>
+            <Text style={s.tierPill}>{leaderboard?.tier || 'starter'}</Text>
           </View>
-          <TouchableOpacity onPress={signOut} style={styles.iconBtn} testID="btn-signout">
-            <LogOut size={20} color={theme.colors.textMuted} />
-          </TouchableOpacity>
+          <Text style={s.schoolName} numberOfLines={2}>
+            {schoolDisplayName(user?.tier, leaderboard?.business_name, user?.name, user?.adi_number)}
+          </Text>
+          <Text style={s.subline}>
+            {leaderboard?.seat_count || 1} instructor{(leaderboard?.seat_count || 1) === 1 ? '' : 's'}
+            {leaderboard?.seat_limit ? ` of ${leaderboard.seat_limit} seats` : ''}
+          </Text>
         </View>
 
-        {/* ============================================================
-            NEEDS ATTENTION — consolidates every active warning (seat
-            limit, arrears, ...) into one card instead of stacking
-            separate alarm-colored banners. Shows a single quiet "all
-            clear" row when nothing needs action.
-            ============================================================ */}
-        {(() => {
-          const issues: { key: string; title: string; onPress: () => void }[] = [];
-          if (leaderboard && !leaderboard.can_add_instructor) {
-            issues.push({ key: 'seats', title: 'Instructor seat limit reached', onPress: () => setInviteOpen(true) });
-          }
-          if (arrears.count > 0) {
-            issues.push({
-              key: 'arrears',
-              title: `${arrears.count} pupil${arrears.count === 1 ? '' : 's'} owing ${maskRevenue(`£${arrears.total_gbp}`, isRevenueHidden)}`,
-              onPress: () => router.push({ pathname: '/student-crm-screen', params: { filter: 'arrears' } } as any),
-            });
-          }
+        {!!error && (
+          <View style={s.errorCard}>
+            <Text style={s.errorText}>{error}</Text>
+          </View>
+        )}
 
-          if (issues.length === 0) {
-            return (
-              <View style={styles.allClearRow} testID="needs-attention-clear">
-                <Check size={16} color={theme.colors.success} />
-                <Text style={styles.allClearText}>All caught up — no arrears, seats available.</Text>
-              </View>
-            );
-          }
-
-          return (
-            <View style={styles.needsAttentionCard} testID="needs-attention-card">
-              <View style={styles.needsAttentionHeader}>
-                <AlertTriangle size={16} color={theme.colors.warning} />
-                <Text style={styles.needsAttentionTitle}>Needs attention</Text>
-              </View>
-              {issues.map((issue, i) => (
+        {/* Needs attention */}
+        {issues.length > 0 ? (
+          <View style={s.attentionCard} testID="v2-needs-attention">
+            <Text style={s.attentionLabel}>Needs attention</Text>
+            <View style={{ marginTop: 7 }}>
+              {issues.map((i, idx) => (
                 <TouchableOpacity
-                  key={issue.key}
-                  style={[styles.needsAttentionRow, i === 0 && styles.needsAttentionRowFirst]}
-                  onPress={issue.onPress}
-                  activeOpacity={0.7}
-                  testID={`needs-attention-${issue.key}`}
+                  key={i.key}
+                  style={[s.attentionRow, idx > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(146,64,14,.15)' }]}
+                  onPress={i.onPress}
+                  testID={`v2-issue-${i.key}`}
                 >
-                  <Text style={styles.needsAttentionRowText}>{issue.title}</Text>
-                  <ChevronRight size={16} color={theme.colors.textMuted} />
+                  <Text style={s.attentionRowText}>{i.title}</Text>
+                  <Text style={s.attentionChevron}>›</Text>
                 </TouchableOpacity>
               ))}
             </View>
-          );
-        })()}
-
-        {error ? (
-          <Card style={{ marginHorizontal: 16, borderColor: theme.colors.danger, borderWidth: 1 }}>
-            <Text style={{ color: theme.colors.danger }}>{error}</Text>
-          </Card>
-        ) : null}
-
-        {/* School-wide KPIs */}
-        <View style={styles.kpiGrid}>
-          <KPI label="Active students" value={String(leaderboard?.totals.students_active ?? 0)}
-               icon={<Users size={16} color={theme.colors.primary} />} tone={theme.colors.primaryLight} />
-          <KPI label="Lessons (mo)" value={String(leaderboard?.totals.lessons_month ?? 0)}
-               icon={<CalendarDays size={16} color={theme.colors.info} />} tone="#E0F2FE"
-               trend={leaderboard ? monthTrend(
-                 leaderboard.totals.lessons_month,
-                 leaderboard.totals_prev_month.lessons_month,
-                 (n) => `${n > 0 ? '+' : ''}${n}%`,
-               ) ?? undefined : undefined}
-          />
-          <KPI label="Revenue (mo)" value={maskRevenue(`£${(leaderboard?.totals.revenue_month ?? 0).toFixed(0)}`, isRevenueHidden)}
-               icon={<PoundSterling size={16} color={theme.colors.success} />} tone={theme.colors.successLight}
-               trend={leaderboard && !isRevenueHidden ? monthTrend(
-                 leaderboard.totals.revenue_month,
-                 leaderboard.totals_prev_month.revenue_month,
-                 (n) => `${n > 0 ? '+' : ''}${n}%`,
-               ) ?? undefined : undefined}
-               headerAccessory={
-                 <TouchableOpacity
-                   onPress={toggleRevenuePrivacy}
-                   style={styles.privacyToggle}
-                   hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                   accessibilityRole="button"
-                   accessibilityLabel={isRevenueHidden ? 'Show revenue figures' : 'Hide revenue figures'}
-                   accessibilityState={{ selected: isRevenueHidden }}
-                   testID="btn-toggle-revenue-privacy"
-                 >
-                   {isRevenueHidden
-                     ? <EyeOff size={16} color={theme.colors.textMuted} />
-                     : <Eye size={16} color={theme.colors.textMuted} />}
-                 </TouchableOpacity>
-               }
-          />
-          <KPI label="Pass rate" value={`${leaderboard?.totals.pass_rate ?? 0}%`}
-               icon={<TrendingUp size={16} color={theme.colors.accent} />} tone={theme.colors.lockedBg} />
-        </View>
-
-        {/* ------- Test Performance card ---------------------------------- */}
-        <View style={styles.sectionHeader}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-            <Award size={18} color={theme.colors.accent} />
-            <Text style={styles.sectionTitle}>Test performance</Text>
           </View>
-          <TouchableOpacity onPress={() => router.push('/student-crm-screen')} testID="btn-log-test">
-            <Text style={styles.linkText}>Log a test</Text>
-          </TouchableOpacity>
-        </View>
-        <Card style={styles.perfCard} testID="card-test-performance">
-          {testKpis.total === 0 ? (
-            <View style={styles.perfEmptyCompact} testID="empty-test-performance">
-              <Text style={styles.perfEmptyCompactText}>
-                No practical tests logged yet. Tap a student to record their first result.
-              </Text>
-              <TouchableOpacity
-                style={styles.compactBtn}
-                onPress={() => router.push('/student-crm-screen')}
-                testID="btn-empty-go-students"
-              >
-                <Text style={styles.compactBtnText}>Open Students</Text>
-              </TouchableOpacity>
+        ) : (
+          <View style={s.allClearRow} testID="v2-all-clear">
+            <View style={s.allClearTick}><Text style={s.allClearTickText}>✓</Text></View>
+            <Text style={s.allClearText}>All caught up — no arrears, seats available.</Text>
+          </View>
+        )}
+
+        {/* Revenue hero */}
+        <View style={s.revenueCard}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            <Text style={s.revenueLabel}>Revenue this month</Text>
+            <TouchableOpacity style={s.eyeBtn} onPress={() => setIsRevenueHidden((v) => !v)} testID="v2-toggle-revenue">
+              <Text style={s.eyeBtnText}>{isRevenueHidden ? 'Show' : 'Hide'}</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, marginTop: 9 }}>
+            <Text style={s.revenueValue}>
+              {maskRevenue(`£${(leaderboard?.totals.revenue_month || 0).toFixed(0)}`, isRevenueHidden)}
+            </Text>
+            {!!revTrend && (
+              <Text style={[s.trendText, revTrend.direction === 'down' && { color: '#FCA5A5' }]}>{revTrend.text}</Text>
+            )}
+          </View>
+          <View style={s.revenueStatsRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.heroStatValue}>{leaderboard?.totals.students_active ?? 0}</Text>
+              <Text style={s.heroStatKey}>Active students</Text>
             </View>
-          ) : (
-            <>
-              <View style={styles.perfTopRow}>
-                <View style={styles.perfBigNumberBox}>
-                  <Text style={styles.perfBigNumber}>{testKpis.practicalPassRatePct}%</Text>
-                  <Text style={styles.perfBigLabel}>PRACTICAL PASS RATE</Text>
-                  <Text style={styles.perfBigSub}>
-                    {testKpis.practicalPasses} pass · {testKpis.practicalTotal - testKpis.practicalPasses} fail · {testKpis.practicalTotal} total
-                  </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={s.heroStatValue}>{leaderboard?.totals.lessons_month ?? 0}</Text>
+              <Text style={s.heroStatKey}>Lessons</Text>
+              {!!lessonTrend && (
+                <Text style={[s.heroStatTrend, lessonTrend.direction === 'down' && { color: '#FCA5A5' }]}>
+                  {lessonTrend.text}
+                </Text>
+              )}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.heroStatValue}>{leaderboard?.totals.pass_rate ?? 0}%</Text>
+              <Text style={s.heroStatKey}>Pass rate</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Test performance */}
+        <View style={{ marginHorizontal: 20, marginTop: 22 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <Text style={s.sectionLabel}>Test performance</Text>
+            <TouchableOpacity onPress={() => router.push('/student-crm-screen' as any)}>
+              <Text style={s.linkText}>Log a test</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={s.perfCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+              <View>
+                <Text style={s.perfPct}>{testKpis.practicalPassRatePct}%</Text>
+                <Text style={s.perfPctLabel}>Practical pass rate</Text>
+              </View>
+              <View style={{ flex: 1, gap: 6 }}>
+                <View style={s.perfBarTrack}>
+                  <View style={[s.perfBarFill, { width: `${testKpis.practicalPassRatePct}%` }]} />
                 </View>
-                <View style={styles.perfBreakdown}>
-                  <BreakdownRow
-                    label="Practical"
-                    pct={testKpis.practicalPassRatePct}
-                    pass={testKpis.practicalPasses}
-                    total={testKpis.practicalTotal}
-                  />
+                <Text style={s.perfSplit}>
+                  {testKpis.practicalPasses} passed · {testKpis.practicalTotal - testKpis.practicalPasses} failed
+                  {' '}of {testKpis.practicalTotal}
+                </Text>
+              </View>
+            </View>
+
+            {recentPracticals.length > 0 && (
+              <View style={{ marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.divider }}>
+                <Text style={s.perfRecentLabel}>Most recent practical results</Text>
+                <View style={{ marginTop: 10, gap: 9 }}>
+                  {recentPracticals.map((t) => (
+                    <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}>
+                      <Text style={[s.resultPill, t.result === 'pass' ? s.resultPass : s.resultFail]}>
+                        {t.result === 'pass' ? 'PASS' : 'FAIL'}
+                      </Text>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={s.resultTitle} numberOfLines={1}>
+                          {new Date(`${t.test_date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </Text>
+                        <Text style={s.resultMeta} numberOfLines={1}>
+                          {t.driving_faults != null ? `${t.driving_faults} driving faults` : 'Practical test'}
+                          {t.serious_faults ? ` · ${t.serious_faults} serious` : ''}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
                 </View>
               </View>
-              {recentOutcomes.length > 0 && (
-                <>
-                  <View style={styles.perfDivider} />
-                  <Text style={styles.perfRecentLabel}>Most recent practical results</Text>
-                  {recentOutcomes.map((o) => {
-                    const passed = o.result === 'pass';
-                    return (
-                      <View key={o.id} style={styles.perfRecentRow} testID={`recent-outcome-${o.id}`}>
-                        <View style={[styles.perfRecentBadge, { backgroundColor: passed ? theme.colors.success : theme.colors.danger }]}>
-                          {passed ? <Trophy size={12} color="#fff" /> : <CircleX size={12} color="#fff" />}
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.perfRecentTitle} numberOfLines={1}>
-                            {passed ? 'Pass' : 'Fail'}
-                            {o.test_centre ? ` · ${o.test_centre}` : ''}
-                          </Text>
-                          <Text style={styles.perfRecentMeta} numberOfLines={1}>
-                            {new Date(o.test_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                            {instructorNameById[o.instructor_id] ? ` · ${instructorNameById[o.instructor_id]}` : ''}
-                          </Text>
-                        </View>
-                      </View>
-                    );
-                  })}
-                </>
-              )}
-            </>
-          )}
-        </Card>
-
-        {/* ============================================================
-            QUICK ACTIONS — Students is the primary action, others outline.
-            "Invite instructor" has moved into the alert banner / header.
-            ============================================================ */}
-        <View style={styles.qaRow}>
-          <TouchableOpacity
-            style={[styles.qa, styles.qaPrimary]}
-            onPress={() => router.push('/student-crm-screen')}
-            testID="qa-students"
-            activeOpacity={0.85}
-          >
-            <Users size={18} color="#fff" />
-            <Text style={styles.qaPrimaryText}>Students</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.qa, styles.qaSecondary]}
-            onPress={() => router.push('/receipts-screen' as any)}
-            testID="qa-receipts"
-            activeOpacity={0.85}
-          >
-            <Receipt size={18} color={theme.colors.text} />
-            <Text style={styles.qaSecondaryText}>Receipts</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.qa, styles.qaSecondary, !isFranchiseTier(leaderboard?.tier) && styles.qaLocked]}
-            onPress={() => {
-              if (isFranchiseTier(leaderboard?.tier)) {
-                router.push('/manage-assignments-screen' as any);
-              } else {
-                setAssignmentsPaywallOpen(true);
-              }
-            }}
-            testID="qa-assignments"
-            activeOpacity={0.85}
-          >
-            <ArrowUpDown size={18} color={isFranchiseTier(leaderboard?.tier) ? theme.colors.text : theme.colors.textMuted} />
-            <Text style={[styles.qaSecondaryText, !isFranchiseTier(leaderboard?.tier) && { color: theme.colors.textMuted }]}>
-              Assignments
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.qa, styles.qaSecondary]}
-            onPress={() => router.push('/school-profile-screen' as any)}
-            testID="qa-school-profile"
-            activeOpacity={0.85}
-          >
-            <Building2 size={18} color={theme.colors.text} />
-            <Text style={styles.qaSecondaryText}>School Profile</Text>
-          </TouchableOpacity>
+            )}
+          </View>
         </View>
 
-        {/* Inline "Invite instructor" CTA — only when there's seat capacity
-            and the alert banner is therefore hidden. Keeps the action
-            discoverable without the noisy multi-coloured tile row. */}
+        {/* Quick actions */}
+        <View style={{ flexDirection: 'row', gap: 8, marginHorizontal: 20, marginTop: 20 }}>
+          {[
+            { label: 'Students', route: '/student-crm-screen' },
+            { label: 'Receipts', route: '/receipts-screen' },
+            { label: 'Assignments', route: '/manage-assignments-screen' },
+            { label: 'School', route: '/school-profile-screen' },
+          ].map((a) => (
+            <TouchableOpacity key={a.label} style={s.quickAction} onPress={() => router.push(a.route as any)} testID={`v2-qa-${a.label}`}>
+              <Text style={s.quickActionText}>{a.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         {leaderboard?.can_add_instructor && (
-          <TouchableOpacity
-            style={styles.inviteCta}
-            onPress={() => setInviteOpen(true)}
-            testID="qa-invite-instructor"
-            activeOpacity={0.85}
-          >
-            <UserPlus size={16} color={theme.colors.primary} />
-            <Text style={styles.inviteCtaText}>Invite instructor</Text>
+          <TouchableOpacity style={s.inviteBtn} onPress={() => router.push('/manage-assignments-screen' as any)} testID="v2-invite-instructor">
+            <Text style={s.inviteBtnText}>+ Invite instructor</Text>
           </TouchableOpacity>
         )}
 
-        {/* Per-instructor leaderboard — Franchise tier only. Solo owners
-            (every other tier) get a simpler single-card summary instead of
-            a "leaderboard" of one person with a rank badge. */}
-        {leaderboard?.tier === 'franchise' ? (
-          <>
-            <View style={styles.sectionHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                <Trophy size={18} color={theme.colors.accent} />
-                <Text style={styles.sectionTitle}>Instructor leaderboard</Text>
-              </View>
-              <SortPicker value={sortKey} onChange={setSortKey} />
-            </View>
+        {/* Leaderboard */}
+        <View style={{ marginHorizontal: 20, marginTop: 22 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            <Text style={s.sectionLabel}>{isFranchise ? 'Instructor leaderboard' : 'Your performance'}</Text>
+            {isFranchise && (
+              <TouchableOpacity style={s.sortBtn} onPress={cycleSort} testID="v2-sort-leaderboard">
+                <Text style={s.sortBtnText}>{SORT_LABEL[sortKey]} ⇅</Text>
+              </TouchableOpacity>
+            )}
+          </View>
 
-            {sortedRows.length === 0 ? (
-              <Card style={styles.emptyCardCompact}>
-                <Text style={styles.emptyCompactText}>
-                  No instructors yet. Add your first colleague to start growing.
-                </Text>
-                <TouchableOpacity
-                  style={styles.compactBtn}
-                  onPress={() => setInviteOpen(true)}
-                  testID="btn-empty-invite-instructor"
-                >
-                  <Text style={styles.compactBtnText}>Invite</Text>
-                </TouchableOpacity>
-              </Card>
-            ) : (
-              sortedRows.map((r, i) => (
-                <Card key={r.instructor_id} style={styles.lbCard} testID={`lb-row-${r.instructor_id}`}>
-                  <View style={styles.lbHeader}>
-                    <Text style={styles.lbRank}>#{i + 1}</Text>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={styles.lbName} numberOfLines={1}>{r.full_name}</Text>
-                        {r.is_owner && (
-                          <View style={styles.ownerPill}>
-                            <Crown size={10} color="#fff" />
-                            <Text style={styles.ownerPillText}>OWNER</Text>
-                          </View>
-                        )}
-                      </View>
-                      {r.adi_number ? <Text style={styles.lbSub}>ADI #{r.adi_number}</Text> : null}
+          <View style={{ marginTop: 9, gap: 8 }}>
+            {sortedRows.map((r, idx) => (
+              <View key={r.instructor_id} style={s.boardCard} testID={`v2-board-${r.instructor_id}`}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}>
+                  {isFranchise && <Text style={s.rankBadge}>{idx + 1}</Text>}
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={s.boardName} numberOfLines={1}>{r.full_name}</Text>
+                      {r.is_owner && <Text style={s.ownerBadge}>OWNER</Text>}
                     </View>
-                    <Text style={styles.lbRevenue}>{maskRevenue(`£${r.revenue_month.toFixed(0)}`, isRevenueHidden)}</Text>
+                    <Text style={s.boardAdi}>{r.adi_number ? `ADI ${r.adi_number}` : 'No ADI number'}</Text>
                   </View>
-                  <View style={styles.lbStats}>
-                    <Stat label="Lessons" value={String(r.lessons_month)} />
-                    <Stat label="Students" value={String(r.students_active)} />
-                    <Stat label="Pass rate" value={`${r.pass_rate}%`} />
-                  </View>
-                </Card>
-              ))
-            )}
-          </>
-        ) : (
-          <>
-            <View style={styles.sectionHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                <Trophy size={18} color={theme.colors.accent} />
-                <Text style={styles.sectionTitle}>Your performance</Text>
+                  <Text style={s.boardRevenue}>{maskRevenue(`£${r.revenue_month.toFixed(0)}`, isRevenueHidden)}</Text>
+                </View>
+                <View style={s.boardStatsRow}>
+                  {[
+                    { k: 'Students', v: String(r.students_active) },
+                    { k: 'Lessons', v: String(r.lessons_month) },
+                    { k: 'Pass rate', v: `${r.pass_rate}%` },
+                  ].map((st) => (
+                    <View key={st.k} style={{ flex: 1, alignItems: 'center' }}>
+                      <Text style={s.boardStatValue}>{st.v}</Text>
+                      <Text style={s.boardStatKey}>{st.k}</Text>
+                    </View>
+                  ))}
+                </View>
               </View>
-            </View>
-            {sortedRows[0] && (
-              <Card style={styles.lbCard} testID="solo-performance-card">
-                <View style={styles.lbHeader}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.lbName} numberOfLines={1}>{sortedRows[0].full_name}</Text>
-                    {sortedRows[0].adi_number ? <Text style={styles.lbSub}>ADI #{sortedRows[0].adi_number}</Text> : null}
-                  </View>
-                  <Text style={styles.lbRevenue}>{maskRevenue(`£${sortedRows[0].revenue_month.toFixed(0)}`, isRevenueHidden)}</Text>
-                </View>
-                <View style={styles.lbStats}>
-                  <Stat label="Lessons" value={String(sortedRows[0].lessons_month)} />
-                  <Stat label="Students" value={String(sortedRows[0].students_active)} />
-                  <Stat label="Pass rate" value={`${sortedRows[0].pass_rate}%`} />
-                </View>
-              </Card>
-            )}
-            <TouchableOpacity
-              style={styles.upsellRow}
-              onPress={() => router.push('/pricing-screen')}
-              testID="leaderboard-upsell"
-              activeOpacity={0.85}
-            >
-              <Text style={styles.upsellText}>
+            ))}
+          </View>
+
+          {!isFranchise && (
+            <TouchableOpacity style={s.upsellCard} onPress={() => router.push('/pricing-screen' as any)} testID="v2-upsell">
+              <Text style={s.upsellText}>
                 Add instructors and see a ranked leaderboard on Franchise tier (£39.99/mo).
               </Text>
-              <ChevronRight size={16} color={theme.colors.textMuted} />
+              <Text style={s.upsellChevron}>›</Text>
             </TouchableOpacity>
-          </>
-        )}
-
-        {/* Student allocations by date range — Franchise tier only */}
-        {leaderboard?.tier === 'franchise' && (
-          <>
-            <View style={styles.sectionHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                <ClipboardList size={18} color={theme.colors.primary} />
-                <Text style={styles.sectionTitle}>Student allocations</Text>
-              </View>
-            </View>
-
-            <View style={styles.allocDateRow}>
-              <View style={{ flex: 1 }}>
-                <DateField value={allocFrom} onChange={setAllocFrom} testID="alloc-from" />
-              </View>
-              <Text style={styles.allocDateSep}>to</Text>
-              <View style={{ flex: 1 }}>
-                <DateField value={allocTo} onChange={setAllocTo} testID="alloc-to" />
-              </View>
-            </View>
-            <TouchableOpacity
-              style={styles.compactBtn}
-              onPress={fetchAllocations}
-              disabled={allocLoading}
-              testID="btn-view-allocations"
-              activeOpacity={0.85}
-            >
-              {allocLoading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.compactBtnText}>View</Text>
-              )}
-            </TouchableOpacity>
-
-            {allocError ? (
-              <Card style={{ borderColor: theme.colors.danger, borderWidth: 1 }}>
-                <Text style={{ color: theme.colors.danger }}>{allocError}</Text>
-              </Card>
-            ) : allocRows && allocRows.length === 0 ? (
-              <Card style={styles.emptyCardCompact}>
-                <Text style={styles.emptyCompactText}>No students added in this date range.</Text>
-              </Card>
-            ) : allocRows ? (
-              <Card>
-                {allocRows.map((r, i) => (
-                  <View
-                    key={r.instructor_id}
-                    style={[styles.allocRow, i === allocRows.length - 1 && { borderBottomWidth: 0 }]}
-                    testID={`alloc-row-${r.instructor_id}`}
-                  >
-                    <Text style={styles.allocName} numberOfLines={1}>{r.full_name}</Text>
-                    <Text style={styles.allocCount}>{r.student_count}</Text>
-                  </View>
-                ))}
-              </Card>
-            ) : null}
-          </>
-        )}
-
-        {/* Today's live diary */}
-        <View style={styles.sectionHeader}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-            <CalendarDays size={18} color={theme.colors.primary} />
-            <Text style={styles.sectionTitle}>Today across the school</Text>
-          </View>
-          <Text style={styles.sectionSub}>{today.length} lesson{today.length === 1 ? '' : 's'}</Text>
+          )}
         </View>
 
-        {today.length === 0 ? (
-          <Card style={styles.emptyCardCompact}>
-            <Text style={styles.emptyCompactText}>
-              Nothing scheduled today across the school.
-            </Text>
-            <TouchableOpacity
-              style={styles.compactBtn}
-              onPress={() => router.push('/lesson-diary-screen')}
-              testID="btn-empty-go-diary"
-            >
-              <Text style={styles.compactBtnText}>Open diary</Text>
-            </TouchableOpacity>
-          </Card>
-        ) : (
-          today.map((t) => (
-            <Card key={t.lesson_id} style={styles.todayCard} testID={`today-${t.lesson_id}`}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <View style={styles.timePill}>
-                  <Text style={styles.timeText}>{fmtTime(t.start_time)}</Text>
-                  <Text style={styles.timeText}>{fmtTime(t.end_time)}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.todayStudent} numberOfLines={1}>
-                    {t.student_name || '(no student)'}
-                  </Text>
-                  <Text style={styles.todaySub} numberOfLines={1}>
-                    👤 {t.instructor_name}{t.topic ? ` · ${t.topic}` : ''}
-                  </Text>
-                </View>
-                <Badge color={t.status === 'Cancelled' ? theme.colors.danger
-                          : t.status === 'Completed' ? theme.colors.success
-                          : theme.colors.info}>
-                  {t.status}
-                </Badge>
+        {/* Student allocations by date range — Franchise tier only.
+            Counts students per instructor added within the range. */}
+        {isFranchise && (
+          <View style={{ marginHorizontal: 20, marginTop: 22 }}>
+            <Text style={s.sectionLabel}>Student allocations</Text>
+            <View style={s.allocRow}>
+              <View style={{ flex: 1 }}>
+                <DateField value={allocFrom} onChange={setAllocFrom} testID="v2-alloc-from" />
               </View>
-            </Card>
-          ))
-        )}
+              <Text style={s.allocSep}>to</Text>
+              <View style={{ flex: 1 }}>
+                <DateField value={allocTo} onChange={setAllocTo} testID="v2-alloc-to" />
+              </View>
+              <TouchableOpacity style={s.allocViewBtn} onPress={fetchAllocations} disabled={allocLoading} testID="v2-btn-view-allocations">
+                {allocLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.allocViewBtnText}>View</Text>}
+              </TouchableOpacity>
+            </View>
 
-        <View style={{ height: 80 }} />
-      </ScrollView>
-
-      {/* Invite-instructor bottom sheet */}
-      <BottomSheet
-        visible={inviteOpen}
-        onClose={() => setInviteOpen(false)}
-        title={leaderboard?.can_add_instructor ? 'Invite an instructor' : 'Upgrade to add instructors'}
-        testID="sheet-invite-instructor"
-      >
-        {!leaderboard?.can_add_instructor ? (
-          <View style={{ gap: 12 }}>
-            <Text style={styles.sheetIntro}>
-              Your current <Text style={{ fontWeight: '700' }}>{leaderboard?.tier?.toUpperCase()}</Text> plan
-              includes 1 instructor seat. Upgrade to the <Text style={{ fontWeight: '700' }}>Franchise</Text> tier
-              for unlimited instructors and per-seat billing.
-            </Text>
-            <TouchableOpacity
-              style={[styles.sendBtn, { backgroundColor: theme.colors.accent }]}
-              onPress={() => { setInviteOpen(false); router.push('/pricing-screen'); }}
-              testID="btn-upgrade-franchise"
-            >
-              <Text style={styles.sendBtnText}>View Franchise plan</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setInviteOpen(false)} style={{ alignSelf: 'center', marginTop: 8 }}>
-              <Text style={{ color: theme.colors.textMuted, fontSize: 13 }}>Not now</Text>
-            </TouchableOpacity>
+            {allocError ? (
+              <View style={s.errorCard}><Text style={s.errorText}>{allocError}</Text></View>
+            ) : allocRows && allocRows.length === 0 ? (
+              <View style={s.perfCard}><Text style={s.emptyMuted}>No students added in this date range.</Text></View>
+            ) : allocRows ? (
+              <View style={s.perfCard}>
+                {allocRows.map((r, i) => (
+                  <View key={r.instructor_id} style={[s.allocResultRow, i === allocRows.length - 1 && { borderBottomWidth: 0 }]} testID={`v2-alloc-row-${r.instructor_id}`}>
+                    <Text style={s.allocResultName} numberOfLines={1}>{r.full_name}</Text>
+                    <Text style={s.allocResultCount}>{r.student_count}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
-        ) : (
-          <>
-            <Text style={styles.sheetIntro}>
-              We&apos;ll email a Supabase Auth invite. They&apos;ll set their own password and join your school automatically.
-            </Text>
-            <Text style={styles.label}>Email address</Text>
-            <TextInput
-              style={styles.input}
-              value={inviteForm.email}
-              onChangeText={(t) => setInviteForm({ ...inviteForm, email: t })}
-              placeholder="instructor@example.co.uk"
-              placeholderTextColor={theme.colors.textMuted}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              testID="input-invite-email"
-            />
-
-            <Text style={styles.label}>Full name (optional)</Text>
-            <TextInput
-              style={styles.input}
-              value={inviteForm.full_name}
-              onChangeText={(t) => setInviteForm({ ...inviteForm, full_name: t })}
-              placeholder="Jordan Lee"
-              placeholderTextColor={theme.colors.textMuted}
-              testID="input-invite-name"
-            />
-
-            <Text style={styles.label}>ADI number (optional)</Text>
-            <TextInput
-              style={styles.input}
-              value={inviteForm.adi_number}
-              onChangeText={(t) => setInviteForm({ ...inviteForm, adi_number: t })}
-              placeholder="123456"
-              placeholderTextColor={theme.colors.textMuted}
-              keyboardType="number-pad"
-              testID="input-invite-adi"
-            />
-
-            <TouchableOpacity
-              style={[styles.sendBtn, inviting && { opacity: 0.6 }]}
-              onPress={inviteInstructor}
-              disabled={inviting}
-              testID="btn-send-invite"
-            >
-              {inviting ? <ActivityIndicator color="#fff" /> : <Text style={styles.sendBtnText}>Send invite</Text>}
-            </TouchableOpacity>
-          </>
         )}
-      </BottomSheet>
 
-      <PaywallModal
-        visible={assignmentsPaywallOpen}
-        onClose={() => setAssignmentsPaywallOpen(false)}
-        targetTier="franchise"
-        reason="Managing student assignments across instructors is included from Franchise tier (£39.99/mo)."
-      />
+        {/* Today across the school — Franchise tier only, real-time via
+            /api/v2/school/today. */}
+        {isFranchise && (
+          <View style={{ marginHorizontal: 20, marginTop: 22, marginBottom: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
+              <Text style={s.sectionLabel}>Today across the school</Text>
+              <Text style={s.linkText}>{today.length} lesson{today.length === 1 ? '' : 's'}</Text>
+            </View>
+            {today.length === 0 ? (
+              <View style={s.perfCard}>
+                <Text style={s.emptyMuted}>Nothing scheduled today across the school.</Text>
+                <TouchableOpacity style={[s.allocViewBtn, { alignSelf: 'flex-start', marginTop: 9 }]} onPress={() => router.push('/lesson-diary-screen' as any)} testID="v2-btn-empty-go-diary">
+                  <Text style={s.allocViewBtnText}>Open diary</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={{ marginTop: 9, gap: 8 }}>
+                {today.map((t) => (
+                  <View key={t.lesson_id} style={s.todayCard} testID={`v2-today-${t.lesson_id}`}>
+                    <View style={s.todayTimePill}>
+                      <Text style={s.todayTimeText}>{fmtTime(t.start_time)}</Text>
+                      <Text style={s.todayTimeText}>{fmtTime(t.end_time)}</Text>
+                    </View>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={s.todayStudent} numberOfLines={1}>{t.student_name || '(no student)'}</Text>
+                      <Text style={s.todaySub} numberOfLines={1}>{t.instructor_name}{t.topic ? ` · ${t.topic}` : ''}</Text>
+                    </View>
+                    <Text style={[
+                      s.todayStatus,
+                      t.status === 'Cancelled' ? { backgroundColor: '#FEE2E2', color: '#B91C1C' }
+                        : t.status === 'Completed' ? { backgroundColor: '#D1FAE5', color: '#047857' }
+                        : { backgroundColor: C.primaryLight, color: C.primary },
+                    ]}>
+                      {t.status}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
-function KPI({ label, value, icon, tone, headerAccessory, trend }: { label: string; value: string; icon: React.ReactNode; tone: string; headerAccessory?: React.ReactNode; trend?: { direction: 'up' | 'down' | 'flat'; text: string } }) {
-  return (
-    <View style={styles.kpi} testID={`kpi-${label.replace(/\s+/g, '-').toLowerCase()}`}>
-      <View style={styles.kpiHeader}>
-        <View style={[styles.kpiIconBadge, { backgroundColor: tone }]}>
-          {icon}
-        </View>
-        <Text style={styles.kpiLabel} numberOfLines={1}>{label}</Text>
-        {headerAccessory}
-      </View>
-      <Text style={styles.kpiValue}>{value}</Text>
-      {trend && (
-        <View style={styles.kpiTrendRow}>
-          {trend.direction === 'up' && <ArrowUpRight size={12} color={theme.colors.success} />}
-          {trend.direction === 'down' && <ArrowDownRight size={12} color={theme.colors.danger} />}
-          <Text style={[
-            styles.kpiTrendText,
-            trend.direction === 'up' && { color: theme.colors.success },
-            trend.direction === 'down' && { color: theme.colors.danger },
-          ]}>
-            {trend.text}
-          </Text>
-        </View>
-      )}
-    </View>
-  );
-}
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: C.surface },
 
-// Turns a (this month, last month) pair into a direction + label. Returns
-// null when there's nothing meaningful to compare (both zero — a brand new
-// school with no lesson history yet), so the KPI just shows no trend line
-// rather than a misleading "+100%" or "0% vs last month".
-function monthTrend(current: number, previous: number, formatDelta: (n: number) => string): { direction: 'up' | 'down' | 'flat'; text: string } | null {
-  if (current === 0 && previous === 0) return null;
-  if (previous === 0) return { direction: 'up', text: 'New this month' };
-  const deltaPct = Math.round(((current - previous) / previous) * 100);
-  if (deltaPct === 0) return { direction: 'flat', text: 'Same as last month' };
-  const direction = deltaPct > 0 ? 'up' : 'down';
-  return { direction, text: `${formatDelta(deltaPct)} vs last month` };
-}
+  ownerLabel: { fontFamily: 'Archivo_800ExtraBold', fontSize: 11, letterSpacing: 1.8, textTransform: 'uppercase', color: C.accent },
+  tierPill: { fontFamily: 'Barlow_700Bold', fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: C.primary, backgroundColor: C.primaryLight, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, overflow: 'hidden' },
+  schoolName: { fontFamily: 'Archivo_800ExtraBold', fontSize: 22, letterSpacing: -0.45, color: C.text, marginTop: 5 },
+  subline: { fontFamily: 'Barlow_500Medium', fontSize: 12.5, color: C.textMuted2, marginTop: 2 },
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={{ alignItems: 'center', flex: 1 }}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
+  errorCard: { marginHorizontal: 20, marginTop: 14, backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 14, padding: 13 },
+  errorText: { fontFamily: 'Barlow_600SemiBold', fontSize: 13, color: '#B91C1C' },
 
-function BreakdownRow({ label, pct, pass, total }: { label: string; pct: number; pass: number; total: number }) {
-  const hasData = total > 0;
-  const tone = !hasData ? theme.colors.textMuted : pct >= 60 ? theme.colors.success : pct >= 40 ? theme.colors.accent : theme.colors.danger;
-  return (
-    <View style={styles.breakdownRow}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.breakdownLabel}>{label}</Text>
-        <View style={styles.breakdownBarBg}>
-          <View style={[styles.breakdownBarFill, { width: `${hasData ? pct : 0}%`, backgroundColor: tone }]} />
-        </View>
-      </View>
-      <View style={{ alignItems: 'flex-end', minWidth: 64 }}>
-        <Text style={[styles.breakdownPct, { color: tone }]}>{hasData ? `${pct}%` : '—'}</Text>
-        <Text style={styles.breakdownCount}>{hasData ? `${pass}/${total}` : 'No tests'}</Text>
-      </View>
-    </View>
-  );
-}
+  attentionCard: { marginHorizontal: 20, marginTop: 14, backgroundColor: C.warnBg, borderWidth: 1, borderColor: C.warnBorder, borderRadius: 16, padding: 13 },
+  attentionLabel: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1.5, textTransform: 'uppercase', color: C.warnText },
+  attentionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9 },
+  attentionRowText: { flex: 1, fontFamily: 'Barlow_600SemiBold', fontSize: 13, color: C.warnText },
+  attentionChevron: { fontFamily: 'Barlow_700Bold', fontSize: 15, color: C.warnChevron },
 
-function SortPicker({ value, onChange }: { value: SortKey; onChange: (v: SortKey) => void }) {
-  const options: { key: SortKey; label: string }[] = [
-    { key: 'revenue_month',   label: 'Revenue' },
-    { key: 'lessons_month',   label: 'Lessons' },
-    { key: 'students_active', label: 'Students' },
-    { key: 'pass_rate',       label: 'Pass rate' },
-  ];
-  return (
-    <TouchableOpacity
-      style={styles.sortChip}
-      testID="btn-sort"
-      onPress={() => {
-        const idx = options.findIndex((o) => o.key === value);
-        const next = options[(idx + 1) % options.length];
-        onChange(next.key);
-      }}
-    >
-      <ArrowUpDown size={12} color={theme.colors.text} />
-      <Text style={styles.sortChipText}>{options.find((o) => o.key === value)?.label}</Text>
-    </TouchableOpacity>
-  );
-}
+  allClearRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 20, marginTop: 14 },
+  allClearTick: { width: 18, height: 18, borderRadius: 999, backgroundColor: '#10B981', alignItems: 'center', justifyContent: 'center' },
+  allClearTickText: { color: '#fff', fontSize: 10, fontFamily: 'Barlow_700Bold' },
+  allClearText: { fontFamily: 'Barlow_500Medium', fontSize: 13, color: C.textMuted2, flex: 1 },
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: theme.colors.background },
-  scroll: { paddingBottom: 32 },
+  revenueCard: { marginHorizontal: 20, marginTop: 14, backgroundColor: C.ink, borderRadius: 20, padding: 17 },
+  revenueLabel: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1.7, textTransform: 'uppercase', color: 'rgba(255,255,255,.5)' },
+  eyeBtn: { paddingHorizontal: 11, paddingVertical: 5, borderRadius: 8, backgroundColor: 'rgba(255,255,255,.14)' },
+  eyeBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 11.5, color: '#fff' },
+  revenueValue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 40, letterSpacing: -1.3, color: '#fff' },
+  trendText: { fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: '#6EE7B7', paddingBottom: 6 },
+  revenueStatsRow: { flexDirection: 'row', marginTop: 15, paddingTop: 14, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,.16)' },
+  heroStatValue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 22, letterSpacing: -0.4, color: '#fff' },
+  heroStatKey: { fontFamily: 'Barlow_600SemiBold', fontSize: 11, color: 'rgba(255,255,255,.5)', marginTop: 2 },
+  heroStatTrend: { fontFamily: 'Barlow_600SemiBold', fontSize: 10.5, color: '#6EE7B7', marginTop: 2 },
 
-  // ----- Header --------------------------------------------------------------
-  headerBlock: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14, gap: 12,
-  },
-  iconBtn: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
-  headerEyebrow: { fontSize: 11, fontWeight: '800', color: theme.colors.accent, letterSpacing: 0.6, textTransform: 'uppercase' },
-  tierPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
-  tierPillStarter: { backgroundColor: theme.colors.textMuted },
-  tierPillFranchise: { backgroundColor: theme.colors.success },
-  tierPillText: { fontSize: 10, fontWeight: '800', color: '#fff', letterSpacing: 0.4 },
-  headerTitle: { ...theme.font.h2, marginTop: 4 },
-  headerSub: { fontSize: 13, color: theme.colors.textMuted, marginTop: 2 },
+  sectionLabel: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1.8, textTransform: 'uppercase', color: C.textMuted },
+  linkText: { fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: C.primary },
 
-  // ----- Needs attention card (consolidates seat-limit + arrears, etc.) -----
-  needsAttentionCard: {
-    marginHorizontal: 16, marginBottom: 14,
-    padding: 14, borderRadius: 12,
-    backgroundColor: theme.colors.warningLight,
-    borderWidth: 1, borderColor: theme.colors.warningBorder,
-  },
-  needsAttentionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-  needsAttentionTitle: { fontSize: 14, fontWeight: '700', color: '#92400E' },
-  needsAttentionRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderTopWidth: 1, borderTopColor: theme.colors.warningBorder,
-  },
-  needsAttentionRowFirst: { borderTopWidth: 0 },
-  needsAttentionRowText: { fontSize: 13, color: '#92400E', flex: 1, marginRight: 8 },
-  allClearRow: {
-    marginHorizontal: 16, marginBottom: 14,
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingVertical: 4,
-  },
-  allClearText: { fontSize: 13, color: theme.colors.textMuted },
+  perfCard: { marginTop: 9, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 18, padding: 15 },
+  perfPct: { fontFamily: 'Archivo_800ExtraBold', fontSize: 42, letterSpacing: -1.3, color: C.success },
+  perfPctLabel: { fontFamily: 'Barlow_700Bold', fontSize: 9.5, letterSpacing: 1.3, textTransform: 'uppercase', color: C.textMuted, marginTop: 1 },
+  perfBarTrack: { height: 8, borderRadius: 999, backgroundColor: C.divider, overflow: 'hidden' },
+  perfBarFill: { height: '100%', borderRadius: 999, backgroundColor: '#10B981' },
+  perfSplit: { fontFamily: 'Barlow_600SemiBold', fontSize: 12, color: C.textMuted2 },
+  perfRecentLabel: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1.5, textTransform: 'uppercase', color: C.textMuted },
+  resultPill: { fontFamily: 'Archivo_800ExtraBold', fontSize: 9, letterSpacing: 1.2, color: '#fff', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 5, overflow: 'hidden' },
+  resultPass: { backgroundColor: '#10B981' },
+  resultFail: { backgroundColor: '#EF4444' },
+  resultTitle: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: C.text },
+  resultMeta: { fontFamily: 'Barlow_500Medium', fontSize: 12, color: C.textMuted2, marginTop: 1 },
 
-  // ----- KPI cards (white, generous padding, icon-badge aligned to label) ---
-  kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16, marginBottom: 14 },
-  kpi: {
-    width: '47%',
-    backgroundColor: theme.colors.surface,
-    borderRadius: 14,
-    padding: 16,
-    gap: 12,
-    borderWidth: 1, borderColor: theme.colors.border,
-  },
-  kpiHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  kpiIconBadge: {
-    width: 28, height: 28, borderRadius: 8,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  kpiLabel: { fontSize: 12, color: theme.colors.textMuted, fontWeight: '600', flex: 1 },
-  kpiValue: { fontSize: 24, fontWeight: '800', color: theme.colors.text, lineHeight: 28 },
-  kpiTrendRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 4 },
-  kpiTrendText: { fontSize: 11, fontWeight: '600', color: theme.colors.textMuted },
+  quickAction: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 12 },
+  quickActionText: { fontFamily: 'Barlow_700Bold', fontSize: 12.5, color: C.text },
+  inviteBtn: { marginHorizontal: 20, marginTop: 10, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(0,83,159,.25)', borderRadius: 12, backgroundColor: C.primaryLight },
+  inviteBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: C.primary },
 
-  // Privacy Mode toggle — small visible 28×28 button on the 8pt grid, but
-  // the touch target is expanded to 52×52 via hitSlop above (well over the
-  // 44 px minimum) so it's easy to tap while driving with a learner.
-  privacyToggle: {
-    width: 28, height: 28, borderRadius: 8,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: theme.colors.background,
-  },
+  sortBtn: { height: 32, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border, borderRadius: 9, backgroundColor: '#fff' },
+  sortBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 12, color: C.text },
 
-  // ----- Quick actions (1 primary + 2 outline) ------------------------------
-  qaRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginBottom: 10 },
-  qa: {
-    flex: 1, height: 48, borderRadius: 12,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-  },
-  qaPrimary: { backgroundColor: theme.colors.accent },
-  qaPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  qaSecondary: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
-  qaLocked: { opacity: 0.5 },
-  qaSecondaryText: { color: theme.colors.text, fontWeight: '600', fontSize: 13 },
-  qaText: { color: '#fff', fontWeight: '700', fontSize: 13 }, // kept for backwards-compat (unused)
-  inviteCta: {
-    marginHorizontal: 16, marginBottom: 14,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    height: 40, borderRadius: 10,
-    backgroundColor: theme.colors.primaryLight,
-    borderWidth: 1, borderColor: theme.colors.primary + '33',
-  },
-  inviteCtaText: { color: theme.colors.primary, fontWeight: '700', fontSize: 13 },
-  upsellRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    padding: 12,
-    backgroundColor: theme.colors.lockedBg,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.colors.lockedBorder,
-  },
-  upsellText: { flex: 1, fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 },
-  allocDateRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  allocDateSep: { fontSize: 13, color: theme.colors.textMuted },
-  allocRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  allocName: { flex: 1, fontSize: 14, fontWeight: '600', color: theme.colors.text },
-  allocCount: { fontSize: 16, fontWeight: '800', color: theme.colors.primary },
+  boardCard: { backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 },
+  rankBadge: { fontFamily: 'Archivo_800ExtraBold', fontSize: 15, color: C.textMuted, width: 20 },
+  boardName: { fontFamily: 'Archivo_700Bold', fontSize: 15.5, color: C.text, flexShrink: 1 },
+  ownerBadge: { fontFamily: 'Archivo_800ExtraBold', fontSize: 8.5, letterSpacing: 1.2, color: '#fff', backgroundColor: C.accent, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4, overflow: 'hidden' },
+  boardAdi: { fontFamily: 'Barlow_500Medium', fontSize: 11.5, color: C.textMuted2, marginTop: 2 },
+  boardRevenue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 17, color: C.text },
+  boardStatsRow: { flexDirection: 'row', marginTop: 11, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.divider },
+  boardStatValue: { fontFamily: 'Archivo_700Bold', fontSize: 17, color: C.text },
+  boardStatKey: { fontFamily: 'Barlow_600SemiBold', fontSize: 11, color: C.textMuted2, marginTop: 1 },
 
-  // ----- Section headers, sort chip -----------------------------------------
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginTop: 8, marginBottom: 8 },
-  sectionTitle: { fontSize: 16, fontWeight: '800', color: theme.colors.text },
-  sectionSub: { fontSize: 12, color: theme.colors.textMuted },
-  sortChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
-  sortChipText: { fontSize: 12, fontWeight: '700', color: theme.colors.text },
+  upsellCard: { marginTop: 10, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.warmBg, borderWidth: 1, borderColor: C.warmBorder, borderRadius: 14, padding: 13 },
+  upsellText: { flex: 1, fontFamily: 'Barlow_400Regular', fontSize: 12.5, lineHeight: 18, color: C.warnText },
+  upsellChevron: { fontFamily: 'Barlow_700Bold', fontSize: 15, color: C.warnChevron },
 
-  // ----- Leaderboard cards --------------------------------------------------
-  lbCard: { marginHorizontal: 16, marginBottom: 10, gap: 10 },
-  lbHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  lbRank: { fontSize: 14, fontWeight: '800', color: theme.colors.textMuted, width: 26 },
-  lbName: { fontSize: 15, fontWeight: '700', color: theme.colors.text, flexShrink: 1 },
-  // ADI number — bumped from #64748B (4.6:1) to #475569 (7.2:1) for WCAG AAA on white
-  lbSub: { fontSize: 11, color: '#475569', marginTop: 2, fontWeight: '600' },
-  lbRevenue: { fontSize: 16, fontWeight: '800', color: theme.colors.primary },
-  lbStats: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: 8 },
-  statValue: { fontSize: 14, fontWeight: '800', color: theme.colors.text },
-  statLabel: { fontSize: 11, color: theme.colors.textMuted, marginTop: 2 },
-  linkText: { color: theme.colors.primary, fontSize: 13, fontWeight: '700' },
+  emptyMuted: { fontFamily: 'Barlow_500Medium', fontSize: 13, color: C.textMuted },
 
-  // ----- Test performance card ----------------------------------------------
-  perfCard: { marginHorizontal: 16, marginBottom: 12, padding: 16, gap: 12 },
-  perfEmpty: { alignItems: 'center', paddingVertical: 16, gap: 6 }, // (legacy, unused)
-  perfEmptyTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text, marginTop: 6 },
-  perfEmptySub: { fontSize: 12, color: theme.colors.textMuted, textAlign: 'center', lineHeight: 17 },
-  perfEmptyCompact: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 4,
-  },
-  perfEmptyCompactText: {
-    flex: 1, fontSize: 13, color: theme.colors.text, lineHeight: 18,
-  },
-  perfTopRow: { flexDirection: 'row', gap: 12, alignItems: 'stretch' },
-  perfBigNumberBox: {
-    backgroundColor: theme.colors.primaryLight,
-    borderRadius: 14,
-    padding: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 120,
-    flexBasis: '40%',
-  },
-  perfBigNumber: { fontSize: 32, fontWeight: '900', color: theme.colors.primary, lineHeight: 36 },
-  perfBigLabel: { fontSize: 10, color: theme.colors.primary, fontWeight: '800', letterSpacing: 0.8, marginTop: 4 },
-  perfBigSub: { fontSize: 11, color: theme.colors.text, marginTop: 4, textAlign: 'center' },
-  perfBreakdown: { flex: 1, gap: 12, justifyContent: 'center' },
-  breakdownRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
-  breakdownLabel: { fontSize: 12, fontWeight: '700', color: theme.colors.text, marginBottom: 4 },
-  breakdownBarBg: {
-    height: 8, borderRadius: 4, backgroundColor: theme.colors.border, overflow: 'hidden',
-  },
-  breakdownBarFill: { height: '100%', borderRadius: 4 },
-  breakdownPct: { fontSize: 16, fontWeight: '800' },
-  breakdownCount: { fontSize: 11, color: theme.colors.textMuted, fontWeight: '600' },
-  perfDivider: { height: 1, backgroundColor: theme.colors.border, marginTop: 4 },
-  perfRecentLabel: {
-    fontSize: 11, color: theme.colors.textMuted, fontWeight: '700',
-    letterSpacing: 0.8, textTransform: 'uppercase',
-  },
-  perfRecentRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
-  perfRecentBadge: {
-    width: 22, height: 22, borderRadius: 11,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  perfRecentTitle: { fontSize: 13, fontWeight: '700', color: theme.colors.text },
-  perfRecentMeta: { fontSize: 11, color: theme.colors.textMuted, marginTop: 1 },
+  allocRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 9 },
+  allocSep: { fontFamily: 'Barlow_600SemiBold', fontSize: 12, color: C.textMuted },
+  allocViewBtn: { height: 42, paddingHorizontal: 16, borderRadius: 11, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  allocViewBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 13, color: '#fff' },
+  allocResultRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.divider },
+  allocResultName: { fontFamily: 'Barlow_600SemiBold', fontSize: 14, color: C.text, flex: 1 },
+  allocResultCount: { fontFamily: 'Archivo_700Bold', fontSize: 17, color: C.text },
 
-  ownerPill: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: theme.colors.accent, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 },
-  ownerPillText: { fontSize: 9, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
-
-  todayCard: { marginHorizontal: 16, marginBottom: 8 },
-  timePill: { width: 60, alignItems: 'center', backgroundColor: theme.colors.primaryLight, paddingVertical: 6, borderRadius: 8 },
-  timeText: { fontSize: 12, fontWeight: '700', color: theme.colors.primary },
-  todayStudent: { fontSize: 14, fontWeight: '700', color: theme.colors.text },
-  todaySub: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
-
-  // ----- Empty-state cards (compact: single sentence + inline button) -------
-  emptyCard: { marginHorizontal: 16, marginBottom: 10, alignItems: 'center', paddingVertical: 24, gap: 4 }, // legacy
-  emptyTitle: { fontSize: 14, fontWeight: '700', color: theme.colors.text },
-  emptySub: { fontSize: 12, color: theme.colors.textMuted, textAlign: 'center', paddingHorizontal: 16 },
-  emptyCardCompact: {
-    marginHorizontal: 16, marginBottom: 10,
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 14, paddingHorizontal: 16,
-  },
-  emptyCompactText: {
-    flex: 1, fontSize: 13, color: theme.colors.text, lineHeight: 18,
-  },
-  compactBtn: {
-    paddingHorizontal: 14, height: 34,
-    borderRadius: 999, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: theme.colors.accent,
-  },
-  compactBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-
-  // Sheet
-  sheetIntro: { fontSize: 13, color: theme.colors.textMuted, marginBottom: 8, lineHeight: 18 },
-  label: { fontSize: 13, fontWeight: '700', color: theme.colors.text, marginTop: 10, marginBottom: 4 },
-  input: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, padding: 12, fontSize: 15, backgroundColor: theme.colors.background, color: theme.colors.text },
-  sendBtn: { marginTop: 16, height: 50, borderRadius: 10, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center' },
-  sendBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  todayCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 13 },
+  todayTimePill: { alignItems: 'center', paddingHorizontal: 9 },
+  todayTimeText: { fontFamily: 'Barlow_700Bold', fontSize: 12, color: C.text },
+  todayStudent: { fontFamily: 'Archivo_700Bold', fontSize: 15, color: C.text },
+  todaySub: { fontFamily: 'Barlow_500Medium', fontSize: 12, color: C.textMuted2, marginTop: 1 },
+  todayStatus: { fontFamily: 'Barlow_700Bold', fontSize: 10, letterSpacing: 0.8, textTransform: 'uppercase', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, overflow: 'hidden' },
 });

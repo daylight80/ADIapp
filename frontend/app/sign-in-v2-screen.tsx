@@ -50,6 +50,52 @@ const C = {
 
 type Tab = 'signin' | 'signup';
 
+// IMPORTANT: this must live at module scope, not inside the screen
+// component. Defining it inline there was the root cause of a real bug —
+// every keystroke changes state (email/password/etc), which re-renders
+// the parent, which would redefine Field as a brand-new function/component
+// reference each time. React then treats the TextInput as an entirely
+// different component on every render, unmounting and remounting it —
+// which loses focus and closes the keyboard after every single character.
+// Moving it out here makes it a stable reference across renders, so React
+// just re-renders the same TextInput in place instead.
+function Field({
+  label, value, onChangeText, placeholder, locked, secure, toggle, helper, keyboardType, autoCapitalize, testID,
+  showPassword, onToggleShowPassword,
+}: {
+  label: string; value: string; onChangeText?: (v: string) => void; placeholder?: string;
+  locked?: boolean; secure?: boolean; toggle?: boolean; helper?: string;
+  keyboardType?: any; autoCapitalize?: any; testID?: string;
+  showPassword?: boolean; onToggleShowPassword?: () => void;
+}) {
+  return (
+    <View style={{ gap: 6 }}>
+      <Text style={s.fieldLabel}>{label}</Text>
+      <View style={[s.fieldWrap, locked && { backgroundColor: C.locked }]}>
+        <TextInput
+          style={[s.fieldInput, locked && { color: C.textMuted2 }]}
+          value={value}
+          onChangeText={locked ? undefined : onChangeText}
+          editable={!locked}
+          placeholder={placeholder}
+          placeholderTextColor={C.textMuted}
+          secureTextEntry={secure && !showPassword}
+          keyboardType={keyboardType}
+          autoCapitalize={autoCapitalize}
+          testID={testID}
+        />
+        {toggle && (
+          <TouchableOpacity style={s.revealBtn} onPress={onToggleShowPassword} testID="v2-toggle-password">
+            <Text style={s.revealBtnText}>{showPassword ? 'Hide' : 'Show'}</Text>
+          </TouchableOpacity>
+        )}
+        {locked && <Text style={s.lockNote}>Locked</Text>}
+      </View>
+      {!!helper && <Text style={s.fieldHelper}>{helper}</Text>}
+    </View>
+  );
+}
+
 type InvitePreview = {
   email: string;
   name: string;
@@ -127,39 +173,6 @@ export default function SignInV2Screen() {
   const isSignIn = !isInvite && tab === 'signin';
   const isRegister = !isInvite && tab === 'signup';
 
-  const Field = ({
-    label, value, onChangeText, placeholder, locked, secure, toggle, helper, keyboardType, autoCapitalize, testID,
-  }: {
-    label: string; value: string; onChangeText?: (v: string) => void; placeholder?: string;
-    locked?: boolean; secure?: boolean; toggle?: boolean; helper?: string;
-    keyboardType?: any; autoCapitalize?: any; testID?: string;
-  }) => (
-    <View style={{ gap: 6 }}>
-      <Text style={s.fieldLabel}>{label}</Text>
-      <View style={[s.fieldWrap, locked && { backgroundColor: C.locked }]}>
-        <TextInput
-          style={[s.fieldInput, locked && { color: C.textMuted2 }]}
-          value={value}
-          onChangeText={locked ? undefined : onChangeText}
-          editable={!locked}
-          placeholder={placeholder}
-          placeholderTextColor={C.textMuted}
-          secureTextEntry={secure && !showPassword}
-          keyboardType={keyboardType}
-          autoCapitalize={autoCapitalize}
-          testID={testID}
-        />
-        {toggle && (
-          <TouchableOpacity style={s.revealBtn} onPress={() => setShowPassword((v) => !v)} testID="v2-toggle-password">
-            <Text style={s.revealBtnText}>{showPassword ? 'Hide' : 'Show'}</Text>
-          </TouchableOpacity>
-        )}
-        {locked && <Text style={s.lockNote}>Locked</Text>}
-      </View>
-      {!!helper && <Text style={s.fieldHelper}>{helper}</Text>}
-    </View>
-  );
-
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
@@ -223,6 +236,7 @@ export default function SignInV2Screen() {
                 <Field
                   label="Choose a password" value={password} onChangeText={setPassword}
                   placeholder="At least 6 characters" secure toggle testID="v2-input-password"
+                  showPassword={showPassword} onToggleShowPassword={() => setShowPassword((v) => !v)}
                 />
               </>
             ) : isSignIn ? (
@@ -235,6 +249,7 @@ export default function SignInV2Screen() {
                 <Field
                   label="Password" value={password} onChangeText={setPassword}
                   placeholder="Your password" secure toggle testID="v2-input-password"
+                  showPassword={showPassword} onToggleShowPassword={() => setShowPassword((v) => !v)}
                 />
               </>
             ) : (
@@ -248,6 +263,7 @@ export default function SignInV2Screen() {
                 <Field
                   label="Password" value={password} onChangeText={setPassword}
                   placeholder="At least 6 characters" secure toggle testID="v2-input-password"
+                  showPassword={showPassword} onToggleShowPassword={() => setShowPassword((v) => !v)}
                 />
                 <Field
                   label="DVSA ADI number" value={adi} onChangeText={setAdi}

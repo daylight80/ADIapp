@@ -1,35 +1,87 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Platform } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Mail, Phone, MapPin, CalendarDays, PoundSterling, Download, Crown, Pencil, Trash2, Trophy, CircleX, Plus, UserCheck, UserX, UserPlus, AlertTriangle, CreditCard, MessageSquare, Navigation as NavIcon, Star } from 'lucide-react-native';
-import { theme } from '../src/theme';
-import { mockDb } from '../src/mockDb';
-import {
-  useStudent,
-  patchStudent,
-  passStudent,
-  removeStudent,
-  useLessonsForStudent,
-  useCompetencies,
-  useTestOutcomesForStudent,
-  useMockTestAttempts,
-  removeTestOutcome,
-  setStudentStatusAsync,
-  removeStudentViaApi,
-} from '../src/useSupabaseData';
-import { getPendingDeletionRequestForStudent, type GdprDeletionRequest, getMySchoolProfile, listLessonNotesForStudent, listMyLessonNoteQuestions, type InstructorLessonNote, type LessonNoteQuestion } from '../src/supabaseDb';
-import { Card, ProgressBar, StatusBadge, Badge, LockedFeature } from '../src/ui';
-import { BottomSheet } from '../src/BottomSheet';
-import { SimpleBarChart } from '../src/SimpleBarChart';
+import { ArrowLeft } from 'lucide-react-native';
 import { useAuth } from '../src/AuthContext';
-import { isPaidTier } from '../src/tiers';
-import { PaywallModal } from '../src/PaywallModal';
-import { buildInvoiceHtml, generateAndShareInvoicePdf } from '../src/invoice';
+import { mockDb } from '../src/mockDb';
+import { BottomSheet } from '../src/BottomSheet';
 import { TestOutcomeModal } from '../src/TestOutcomeModal';
+import {
+  useStudent, patchStudent, passStudent, useLessonsForStudent, useCompetencies,
+  useTestOutcomesForStudent, useMockTestAttempts, setStudentStatusAsync, removeStudentViaApi,
+} from '../src/useSupabaseData';
+import {
+  getPendingDeletionRequestForStudent, type GdprDeletionRequest, getMySchoolProfile,
+  listLessonNotesForStudent, listMyLessonNoteQuestions, type InstructorLessonNote, type LessonNoteQuestion,
+} from '../src/supabaseDb';
+import { isPaidTier } from '../src/tiers';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { openSmsComposer } from '../src/tools';
-import { fireInstantNotification } from '../src/notifications';
+import { colorForLessonType } from '../src/diary/lessonTypes';
+
+/**
+ * Student Profile — redesigned visual direction from the Claude Design
+ * handoff (23 Aug 2026), promoted to live on 24 Aug 2026 after review as
+ * student-profile-v2-screen. This is now the real, live student profile —
+ * the biggest, most-layered screen in the app.
+ *
+ * The handoff's own comment said it covered "the same content blocks that
+ * screen renders" — but checked against the real source, it was missing
+ * three genuinely real, working features built later in this session: the
+ * GDPR pending-deletion banner, customizable instructor lesson notes, and
+ * the "Request a Google review" button. Confirmed with Grant before
+ * building; all three included using the new visual language.
+ *
+ * Three more things fixed as part of promoting this to live (24 Aug 2026):
+ *   - Amend, the instructor notes editor, and Log test were all wrongly
+ *     built as navigation to another screen in the original v2 trial. The
+ *     real screen never left this one at all — all three are genuinely
+ *     local bottom sheets, ported in properly here. Log test reuses the
+ *     existing, already-working TestOutcomeModal component.
+ *   - A real bug: the competency-detail-screen link passed studentId/
+ *     category_key, but that screen actually reads params.id/params.key
+ *     — every tap would have landed with a missing student and always
+ *     defaulted to the "controls" category regardless of what was tapped.
+ *     Fixed here, and in student-app-v2-screen.tsx too (same bug, found
+ *     while checking this one, fixed ahead of its own swap).
+ *
+ * Real "Driving readiness" criteria, same approach as student-app-v2:
+ * genuinely computed, not the design's example numbers.
+ */
+
+const C = {
+  pageBg: '#DCD6CA',
+  surface: '#F5F2EC',
+  border: '#E4DED2',
+  divider: '#EDE8DE',
+  text: '#0F172A',
+  textMuted: '#8A8172',
+  textMuted2: '#64748B',
+  faint: '#A69C8B',
+  primary: '#00539F',
+  accent: '#FF6B00',
+  ink: '#0F172A',
+  warmBg: '#FFF7ED',
+  warmBorder: '#FED7AA',
+  warmText: '#C2410C',
+  dangerBg: '#FEF2F2',
+  dangerBorder: '#FECACA',
+  dangerText: '#B91C1C',
+};
+
+const STATUS_STYLE: Record<string, { bg: string; fg: string; solid: string }> = {
+  New: { bg: '#E5F0FA', fg: '#00539F', solid: '#00539F' },
+  Active: { bg: '#D1FAE5', fg: '#047857', solid: '#047857' },
+  'Test Ready': { bg: '#FFF7ED', fg: '#C2410C', solid: '#C2410C' },
+  Passed: { bg: '#0F172A', fg: '#fff', solid: '#0F172A' },
+  Inactive: { bg: '#EDE8DE', fg: '#8A8172', solid: '#A69C8B' },
+  Waitlist: { bg: '#FEF3C7', fg: '#92400E', solid: '#92400E' },
+};
+
+const MANOEUVRE_KEYS = ['parallel_park', 'bay_park_forward', 'bay_park_reverse', 'pull_up_right', 'emergency_stop'];
+const MIN_LESSONS = 25;
+const READY_LEVEL = 4;
 
 type Tab = 'overview' | 'lessons' | 'competency' | 'earnings';
 const TABS: { key: Tab; label: string }[] = [
@@ -39,67 +91,68 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'earnings', label: 'Earnings' },
 ];
 
-// Human-friendly British-English relative time. Falls back to an absolute
-// date once we're more than a week out, so "Updated 14 Jun 2026, 09:30"
-// always wins for very old notes.
-function formatRelativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (!Number.isFinite(then)) return '';
-  const diffSec = Math.round((Date.now() - then) / 1000);
-  if (diffSec < 30) return 'just now';
-  if (diffSec < 60) return `${diffSec} seconds ago`;
-  const diffMin = Math.round(diffSec / 60);
-  if (diffMin === 1) return '1 minute ago';
-  if (diffMin < 60) return `${diffMin} minutes ago`;
-  const diffHr = Math.round(diffMin / 60);
-  if (diffHr === 1) return '1 hour ago';
-  if (diffHr < 24) return `${diffHr} hours ago`;
-  const diffDay = Math.round(diffHr / 24);
-  if (diffDay === 1) return 'yesterday';
-  if (diffDay < 7) return `${diffDay} days ago`;
-  return new Date(iso).toLocaleDateString('en-GB', {
-    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  });
+function initialsOf(name: string): string {
+  return name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
-export default function StudentLifecycleScreen() {
+export default function StudentProfileV2Screen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { user } = useAuth();
   const pro = isPaidTier(user?.tier);
-  const [paywallOpen, setPaywallOpen] = useState(false);
-  const [paywallReason, setPaywallReason] = useState<string | undefined>(undefined);
-  const [busyInvoice, setBusyInvoice] = useState(false);
-  const [testOutcomeOpen, setTestOutcomeOpen] = useState(false);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const id = (params.id as string) || '';
+
+  const [tab, setTab] = useState<Tab>('overview');
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
+  // ---- Amend / Notes / Log test — all three genuinely local, ported in
+  // (24 Aug 2026) from the real student-lifecycle-screen. The original
+  // v2 trial wrongly assumed these navigated to another screen; the real
+  // screen opens local sheets and never left this one at all. ----
+  const [amendOpen, setAmendOpen] = useState(false);
+  const [aName, setAName] = useState('');
+  const [aEmail, setAEmail] = useState('');
+  const [aPhone, setAPhone] = useState('');
+  const [aAddress, setAAddress] = useState('');
+  const [aPostcode, setAPostcode] = useState('');
+  const [aHourlyRate, setAHourlyRate] = useState('');
+  const [aTestDate, setATestDate] = useState('');
+  const [aLicence, setALicence] = useState('');
+  const [savingAmend, setSavingAmend] = useState(false);
+
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesDraft, setNotesDraft] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
+
+  const [testOutcomeOpen, setTestOutcomeOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [snack, setSnack] = useState<{ message: string; undoTo: 'Active' | 'Inactive' | 'Waitlist' | null } | null>(null);
+  const snackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const { student: sbStudent, loading: studentLoading } = useStudent(id);
-  // Fall back to mockDb ONLY when there's genuinely no real, Supabase-linked
-  // student for this id (offline/demo mode) — never to a random unrelated
-  // student. The previous `|| mockDb.listStudents()[0]` here was a real bug:
-  // if the real fetch was ever slow or briefly empty, it would silently
-  // substitute whichever mock student happened to be first in the seed
-  // list, showing the wrong person's data.
   const student = sbStudent || mockDb.getStudent(id);
+
   const { lessons: sbLessons } = useLessonsForStudent(student?.id);
-  // Once we have a REAL student, always trust their real (possibly
-  // genuinely empty) lessons — a new student legitimately having zero
-  // lessons is a valid state, not a reason to fall back to mock data.
   const lessons = useMemo(
     () => (sbStudent ? (sbLessons || []) : (student ? mockDb.listLessonsForStudent(student.id) : [])),
     [sbStudent, sbLessons, student?.id],
   );
-  // DVSA Competency Tracker — live from Supabase (dvsa_syllabus_tracking)
-  const { competencies: sbCompetencies, loading: compLoading } = useCompetencies(student?.id);
-  const { rows: testOutcomes } = useTestOutcomesForStudent(student?.id);
-  const { attempts: mockAttempts, loading: mockAttemptsLoading } = useMockTestAttempts(student?.id);
 
-  // Instructor's own custom-question lesson notes for this student.
+  const { competencies: sbCompetencies } = useCompetencies(sbStudent ? student?.id : undefined);
+  const competencies = useMemo(
+    () => (sbStudent ? (sbCompetencies || []) : (student ? mockDb.getCompetencies(student.id) : [])),
+    [sbStudent, sbCompetencies, student?.id],
+  );
+
+  const { rows: testOutcomes } = useTestOutcomesForStudent(student?.id);
+  const { attempts: mockAttempts } = useMockTestAttempts(student?.id);
+
+  const [pendingGdprRequest, setPendingGdprRequest] = useState<GdprDeletionRequest | null>(null);
   const [lessonNotesHistory, setLessonNotesHistory] = useState<InstructorLessonNote[]>([]);
   const [lessonNoteQuestions, setLessonNoteQuestions] = useState<LessonNoteQuestion[]>([]);
   useEffect(() => {
     if (!student?.id) return;
+    getPendingDeletionRequestForStudent(student.id).then(setPendingGdprRequest).catch(() => {});
     listLessonNotesForStudent(student.id).then(setLessonNotesHistory).catch(() => {});
     if (user?.instructor_id) {
       listMyLessonNoteQuestions(user.instructor_id).then(setLessonNoteQuestions).catch(() => {});
@@ -109,126 +162,84 @@ export default function StudentLifecycleScreen() {
     () => Object.fromEntries(lessonNoteQuestions.map((q) => [q.id, q.question_text])),
     [lessonNoteQuestions],
   );
-
-  // A "request review" text only makes sense once the student has actually
-  // passed — either the lifecycle status has been set to Passed, or there's
-  // a logged real practical test outcome with result 'pass'. Checking both
-  // rather than just one, since instructors may update these at slightly
-  // different times.
-  const hasPassedPracticalTest = student.status === 'Passed'
+  const hasPassedPracticalTest = student?.status === 'Passed'
     || testOutcomes.some((o) => o.test_type === 'practical' && o.result === 'pass');
 
   const handleRequestReview = async () => {
     let schoolProfile: Awaited<ReturnType<typeof getMySchoolProfile>> = null;
-    try {
-      schoolProfile = await getMySchoolProfile();
-    } catch {
-      // fall through — treated the same as "not set" below
-    }
+    try { schoolProfile = await getMySchoolProfile(); } catch { /* treated as not-set below */ }
     const reviewUrl = schoolProfile?.google_review_url;
     if (!reviewUrl) {
       Alert.alert(
         'No review link set',
         "You haven't added a Google review link yet. Set one in School Profile first, then come back to send this.",
-        [
-          { text: 'Not now', style: 'cancel' },
-          { text: 'Go to School Profile', onPress: () => router.push('/school-profile-screen' as any) },
-        ],
+        [{ text: 'Not now', style: 'cancel' }, { text: 'Go to School Profile', onPress: () => router.push('/school-profile-screen' as any) }],
       );
       return;
     }
-    const body = `Hi ${student.name.split(' ')[0]}, congratulations on passing your driving test, I knew you could do it! \u{1F697} It has been an absolute pleasure teaching you. If you have a spare minute, I would really appreciate it if you could leave a quick review about your experience. It truly helps other learners find me. Here is the link: ${reviewUrl}. See you out on the road!\n\nP.s. It really helps if you could include your pass photo with the review.`;
-    const ok = await openSmsComposer(student.phone, body);
-    if (!ok) {
-      Alert.alert(
-        "Couldn't open messages",
-        `Your device didn't open a text message to ${student.name}. You can text them directly at ${student.phone}.`,
-      );
-    }
+    const firstName = (student?.name || 'there').split(' ')[0];
+    const message = `Hi ${firstName}, congratulations again on passing! If you have a moment, we'd love a Google review: ${reviewUrl}\n\nP.s. include your pass photo!`;
+    openSmsComposer(student?.phone || '', message);
   };
 
-  // GDPR — has this student submitted a formal deletion request? Surfaced
-  // here rather than a separate "requests inbox" screen, since the Danger
-  // Zone is exactly where the instructor would act on it.
-  const [pendingGdprRequest, setPendingGdprRequest] = useState<GdprDeletionRequest | null>(null);
-  useEffect(() => {
-    if (!student?.id) return;
-    getPendingDeletionRequestForStudent(student.id).then(setPendingGdprRequest).catch(() => {});
-  }, [student?.id]);
-  const competencies = useMemo(
-    () => (sbStudent ? (sbCompetencies || []) : (student ? mockDb.getCompetencies(student.id) : [])),
-    [sbStudent, sbCompetencies, student?.id]
-  );
+  const levelByKey = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const c of competencies) map[c.category_key] = c.level;
+    return map;
+  }, [competencies]);
 
-  const [tab, setTab] = useState<Tab>('overview');
+  const readiness = useMemo(() => {
+    const completed = lessons.filter((l) => l.status === 'Completed');
+    const hasMockPass = mockAttempts.some((a) => a.passed);
+    const hasTheoryOutcome = testOutcomes.some((o) => o.test_type === 'theory' && o.result === 'pass');
+    const manoeuvresReady = MANOEUVRE_KEYS.every((k) => (levelByKey[k] || 0) >= READY_LEVEL);
+    const independentReady = (levelByKey.independent_driving || 0) >= READY_LEVEL;
+    const criteria = [
+      { key: 'lessons', label: `Minimum ${MIN_LESSONS} lessons`, met: completed.length >= MIN_LESSONS },
+      { key: 'mock_test', label: 'Mock test passed', met: hasMockPass },
+      { key: 'theory', label: 'Theory test passed', met: hasTheoryOutcome },
+      { key: 'manoeuvres', label: 'All manoeuvres at Level 4+', met: manoeuvresReady },
+      { key: 'independent', label: 'Independent driving (Level 4+)', met: independentReady },
+    ];
+    const met = criteria.filter((c) => c.met).length;
+    return { criteria, met, total: criteria.length, pct: Math.round((met / criteria.length) * 100) };
+  }, [lessons, mockAttempts, testOutcomes, levelByKey]);
 
-  // ---------------------------------------------------------------------------
-  // Profile-level quick actions (Directions / I've arrived / Record route) —
-  // same three actions as the per-lesson tools sheet, but not tied to
-  // opening a specific lesson first. When the student has a scheduled
-  // upcoming lesson, "I've arrived" and "Record route" link to it (same as
-  // the lesson-tools version); otherwise they still work, just unlinked/
-  // generic — useful for an ad-hoc drive that isn't in the diary at all.
-  // ---------------------------------------------------------------------------
-  const nextLesson = useMemo(() => {
-    const now = new Date();
-    return lessons
-      .filter((l) => l.status === 'Scheduled' && new Date(`${l.date}T${l.start_time}:00`) >= now)
-      .sort((a, b) => `${a.date}${a.start_time}`.localeCompare(`${b.date}${b.start_time}`))[0] || null;
-  }, [lessons]);
-
-  const onArrivedFromProfile = async () => {
-    const body = nextLesson
-      ? `Hi ${student.name.split(' ')[0]}, I've arrived for your ${nextLesson.start_time} lesson. See you in a moment! — Your instructor.`
-      : `Hi ${student.name.split(' ')[0]}, I've arrived. See you in a moment! — Your instructor.`;
-    const ok = await openSmsComposer(student.phone, body);
-    if (ok) {
-      await fireInstantNotification('Arrival message sent', `Notified ${student.name}`);
-    } else {
-      Alert.alert(
-        "Couldn't open messages",
-        `Your device didn't open a text message to ${student.name}. You can text them directly at ${student.phone}.`,
-      );
-    }
+  const showSnack = (message: string, undoTo: 'Active' | 'Inactive' | 'Waitlist' | null) => {
+    if (snackTimeoutRef.current) clearTimeout(snackTimeoutRef.current);
+    setSnack({ message, undoTo });
+    snackTimeoutRef.current = setTimeout(() => setSnack(null), 5000);
   };
 
-  // Amend (edit) sheet state
-  const [amendOpen, setAmendOpen] = useState(false);
-  const [aName, setAName] = useState(student.name);
-  const [aEmail, setAEmail] = useState(student.email);
-  const [aPhone, setAPhone] = useState(student.phone);
-  const [aAddress, setAAddress] = useState(student.address);
-  const [aPostcode, setAPostcode] = useState(student.postcode);
-  const [aHourlyRate, setAHourlyRate] = useState(String(student.hourly_rate));
-  const [aTestDate, setATestDate] = useState(student.test_date ? student.test_date.slice(0, 10) : '');
-  const [aLicence, setALicence] = useState(student.provisional_licence || '');
-
-  // Instructor notes editor sheet
-  const [notesOpen, setNotesOpen] = useState(false);
-  const [notesDraft, setNotesDraft] = useState<string>((student as any).notes || '');
-  const [savingNotes, setSavingNotes] = useState(false);
-  const openNotesEditor = () => {
-    setNotesDraft((student as any).notes || '');
-    setNotesOpen(true);
-  };
-  const saveNotes = async () => {
-    setSavingNotes(true);
+  const runStatusChange = async (next: 'Active' | 'Inactive' | 'Waitlist', previous?: string) => {
+    if (!student) return;
     try {
-      await patchStudent(student.id, { notes: notesDraft.trim() ? notesDraft.trim() : null });
-      setNotesOpen(false);
+      await setStudentStatusAsync(student.id, next);
+      if (previous && next !== 'Active') {
+        showSnack(next === 'Inactive' ? `${student.name} marked as inactive.` : `${student.name} moved to the waiting list.`, previous as any);
+      } else if (next === 'Active') {
+        showSnack(`${student.name} reactivated.`, null);
+      }
     } catch (e: any) {
-      Alert.alert('Save failed', e?.message || 'Could not save notes');
-    } finally {
-      setSavingNotes(false);
+      Alert.alert('Update failed', e?.message || 'Could not update status');
     }
+  };
+
+  const handleUndo = () => {
+    if (!snack?.undoTo) return;
+    const target = snack.undoTo;
+    setSnack(null);
+    if (snackTimeoutRef.current) clearTimeout(snackTimeoutRef.current);
+    runStatusChange(target);
   };
 
   const openAmend = () => {
+    if (!student) return;
     setAName(student.name);
     setAEmail(student.email);
     setAPhone(student.phone);
-    setAAddress(student.address);
-    setAPostcode(student.postcode);
+    setAAddress(student.address || '');
+    setAPostcode(student.postcode || '');
     setAHourlyRate(String(student.hourly_rate));
     setATestDate(student.test_date ? student.test_date.slice(0, 10) : '');
     setALicence(student.provisional_licence || '');
@@ -236,9 +247,10 @@ export default function StudentLifecycleScreen() {
   };
 
   const saveAmend = async () => {
+    if (!student) return;
     const rate = parseInt(aHourlyRate, 10);
     if (!aName.trim()) {
-      Alert.alert('Name required', 'Please enter the student\u2019s full name.');
+      Alert.alert('Name required', "Please enter the student\u2019s full name.");
       return;
     }
     const licence = aLicence.replace(/\s+/g, '').toUpperCase();
@@ -250,6 +262,7 @@ export default function StudentLifecycleScreen() {
       Alert.alert('Invalid licence', 'Provisional licence number must be 16 characters.');
       return;
     }
+    setSavingAmend(true);
     try {
       await patchStudent(student.id, {
         name: aName.trim(),
@@ -261,757 +274,511 @@ export default function StudentLifecycleScreen() {
         test_date: aTestDate ? new Date(aTestDate).toISOString() : null,
         provisional_licence: licence,
       });
+      setAmendOpen(false);
     } catch (e: any) {
       Alert.alert('Save failed', e?.message || 'Could not save changes');
-      return;
+    } finally {
+      setSavingAmend(false);
     }
-    setAmendOpen(false);
   };
 
-  /**
-   * Cross-platform confirmation helper.
-   *
-   * We previously used `window.confirm()` on web here, but that native browser
-   * modal is suppressed by some embedded WebViews and tunnelled previews,
-   * which made the Reactivate / Deactivate / Waitlist buttons appear "broken"
-   * even though the backend was wired correctly. `Alert.alert` is properly
-   * polyfilled by React Native Web and surfaces consistently across iOS,
-   * Android, web preview, and Expo Go.
-   */
-  const confirmAndRun = (title: string, message: string, confirmLabel: string, onConfirm: () => void, destructive = false) => {
-    Alert.alert(title, message, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: confirmLabel, style: destructive ? 'destructive' : 'default', onPress: onConfirm },
-    ]);
+  const openNotesEditor = () => {
+    if (!student) return;
+    setNotesDraft(student.notes || '');
+    setNotesOpen(true);
   };
 
-  const handleMarkPassed = () => {
-    if (student.status === 'Passed') {
-      Alert.alert('Already passed', `${student.name} is already marked as Passed on ${student.test_passed_at ? new Date(student.test_passed_at).toLocaleDateString('en-GB') : ''}.`);
-      return;
+  const saveNotes = async () => {
+    if (!student) return;
+    setSavingNotes(true);
+    try {
+      await patchStudent(student.id, { notes: notesDraft.trim() ? notesDraft.trim() : null });
+      setNotesOpen(false);
+    } catch (e: any) {
+      Alert.alert('Save failed', e?.message || 'Could not save notes');
+    } finally {
+      setSavingNotes(false);
     }
-    confirmAndRun(
-      'Mark as Passed?',
-      `Confirm that ${student.name} has passed their practical test. Progress will be set to 100%.`,
-      'Mark as Passed',
-      async () => {
-        try {
-          await passStudent(student.id);
-        } catch (e: any) {
-          Alert.alert('Update failed', e?.message || 'Could not mark passed');
-        }
-      },
-    );
   };
+  // ---- End of Amend / Notes / Log test ----
 
-  const handleDelete = () => {
-    setDeleteConfirmOpen(true);
-  };
-
-  const performHardDelete = async () => {
+  const handleDelete = async () => {
+    if (!student) return;
     setDeleting(true);
     try {
       await removeStudentViaApi(student.id);
       setDeleteConfirmOpen(false);
-      // Tiny delay so the sheet closes cleanly before navigation.
       setTimeout(() => router.back(), 80);
     } catch (e: any) {
       setDeleting(false);
-      Alert.alert('Delete failed', e?.response?.data?.detail || e?.message || 'Could not delete student');
+      Alert.alert('Delete failed', e?.message || 'Could not delete student');
     }
-  };
-
-  /**
-   * Lifecycle transitions — Deactivate / Reactivate / Move to Waitlist.
-   *
-   * No confirmation modal: native browser dialogs (`window.confirm`,
-   * `window.alert`) are silently suppressed by some embedded WebViews and
-   * tunnelled preview hosts, which makes the buttons appear broken. Instead
-   * we apply the change instantly and show a non-blocking "Undo" snackbar
-   * that lets the instructor revert with a single tap. This is both more
-   * responsive AND safer than a confirm dialog that can be blocked.
-   */
-  const [snack, setSnack] = useState<{
-    message: string;
-    undoTo: 'Active' | 'Inactive' | 'Waitlist' | null;
-  } | null>(null);
-  const snackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const showSnack = (message: string, undoTo: 'Active' | 'Inactive' | 'Waitlist' | null) => {
-    if (snackTimeoutRef.current) clearTimeout(snackTimeoutRef.current);
-    setSnack({ message, undoTo });
-    snackTimeoutRef.current = setTimeout(() => setSnack(null), 5000);
-  };
-
-  const runStatusChange = async (next: 'Active' | 'Inactive' | 'Waitlist', previous?: typeof student.status) => {
-    try {
-      await setStudentStatusAsync(student.id, next);
-      // Only offer Undo when we actually have a previous status to revert to,
-      // and skip Undo for Reactivate (no friction needed for a positive action).
-      if (previous && next !== 'Active') {
-        showSnack(
-          next === 'Inactive'
-            ? `${student.name} marked as inactive.`
-            : `${student.name} moved to the waiting list.`,
-          previous as any,
-        );
-      } else if (next === 'Active') {
-        showSnack(`${student.name} reactivated.`, null);
-      }
-    } catch (e: any) {
-      Alert.alert('Update failed', e?.response?.data?.detail || e?.message || 'Could not update status');
-    }
-  };
-
-  const handleSetLifecycleStatus = (next: 'Active' | 'Inactive' | 'Waitlist') => {
-    runStatusChange(next, student.status as any);
-  };
-
-  const handleUndoLifecycle = () => {
-    if (!snack?.undoTo) return;
-    const target = snack.undoTo;
-    setSnack(null);
-    if (snackTimeoutRef.current) clearTimeout(snackTimeoutRef.current);
-    runStatusChange(target);
   };
 
   const totalEarnings = lessons.reduce((sum, l) => sum + (l.amount_paid || 0), 0);
   const totalHours = lessons.reduce((sum, l) => sum + l.duration_hours, 0);
+  const completedCount = lessons.filter((l) => l.status === 'Completed').length;
 
-  const handleDownloadInvoice = async () => {
-    if (!pro) {
-      setPaywallReason('Invoice PDF download is a Pro feature. Upgrade to generate UK-compliant invoices in one tap.');
-      setPaywallOpen(true);
-      return;
-    }
-    const paidLessons = lessons.filter((l) => l.amount_paid && l.status === 'Completed');
-    if (paidLessons.length === 0) {
-      return;
-    }
-    setBusyInvoice(true);
-    const invoiceNo = `INV-${new Date().getFullYear()}-${student.id.toUpperCase()}-${Date.now().toString().slice(-4)}`;
-    let schoolProfile: Awaited<ReturnType<typeof getMySchoolProfile>> = null;
-    try {
-      schoolProfile = await getMySchoolProfile();
-    } catch {
-      // Non-fatal — the invoice still generates with the old default
-      // branding if the school profile can't be loaded for any reason.
-    }
-    const html = buildInvoiceHtml({
-      invoiceNo,
-      instructorName: user?.name || 'Instructor',
-      instructorEmail: user?.email || '',
-      student,
-      lessons: paidLessons,
-      issuedAt: new Date(),
-      schoolName: schoolProfile?.business_name,
-      schoolLogoUrl: schoolProfile?.logo_url,
-      schoolContactEmail: schoolProfile?.contact_email,
-      schoolContactPhone: schoolProfile?.contact_phone,
-      schoolAddress: schoolProfile?.address,
-    });
-    await generateAndShareInvoicePdf(html, `${invoiceNo}.pdf`);
-    setBusyInvoice(false);
-  };
+  if (studentLoading && !student) {
+    return (
+      <SafeAreaView style={s.safe} edges={['top']}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={C.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+  if (!student) {
+    return (
+      <SafeAreaView style={s.safe} edges={['top']}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <Text style={s.emptyTitle}>Student not found</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
-  const monthlyEarnings = useMemo(() => {
-    const map: Record<string, number> = {};
-    lessons.forEach((l) => {
-      const m = l.date.slice(0, 7);
-      map[m] = (map[m] || 0) + (l.amount_paid || 0);
-    });
-    return Object.entries(map)
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .slice(-6)
-      .map(([m, v]) => ({ month: m.slice(5), value: v }));
-  }, [lessons]);
+  const status = STATUS_STYLE[student.status] || STATUS_STYLE.New;
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="btn-back">
-          <ArrowLeft size={22} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.title} numberOfLines={1}>{student.name}</Text>
-        <View style={styles.iconBtn} />
-      </View>
+    <SafeAreaView style={s.safe} edges={['top']}>
+      <View style={s.surface}>
+        <View style={{ paddingHorizontal: 20, paddingTop: 6 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 40 }}>
+            <TouchableOpacity style={s.navBtn} onPress={() => router.back()} testID="v2-profile-back">
+              <ArrowLeft size={17} color={C.text} />
+            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 7 }}>
+              <TouchableOpacity
+                style={s.amendBtn}
+                onPress={openAmend}
+                testID="v2-amend"
+              >
+                <Text style={s.amendBtnText}>Amend</Text>
+              </TouchableOpacity>
+              {student.status !== 'Passed' && (
+                <TouchableOpacity
+                  style={[s.passedBtn, { backgroundColor: status.solid }]}
+                  onPress={() => passStudent(student.id).catch(() => {})}
+                  testID="v2-mark-passed"
+                >
+                  <Text style={s.passedBtnText}>Passed</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
 
-      <View style={styles.tabBar} testID="lifecycle-tabs">
-        {TABS.map((t) => (
-          <TouchableOpacity
-            key={t.key}
-            style={[styles.tabBtn, tab === t.key && styles.tabBtnActive]}
-            onPress={() => setTab(t.key)}
-            testID={`tab-${t.key}`}
-          >
-            <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 13, marginTop: 12 }}>
+            <View style={[s.avatar, { backgroundColor: status.solid }]}>
+              <Text style={s.avatarText}>{initialsOf(student.name)}</Text>
+            </View>
+            <View style={{ minWidth: 0, gap: 4 }}>
+              <Text style={s.name} numberOfLines={1}>{student.name}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                <Text style={[s.statusBadge, { backgroundColor: status.bg, color: status.fg }]}>{student.status}</Text>
+                <Text style={s.subline}>{student.email}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
-        {tab === 'overview' && (
-          <View style={{ gap: 12 }} testID="tab-overview-content">
-            <Card>
-              <View style={styles.row}>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>
-                    {student.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
-                  </Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.studentName}>{student.name}</Text>
-                  <StatusBadge status={student.status} />
+        <View style={{ flexDirection: 'row', gap: 4, paddingHorizontal: 20, paddingTop: 14 }}>
+          {TABS.map((t) => (
+            <TouchableOpacity
+              key={t.key}
+              style={[s.tab, tab === t.key && s.tabActive]}
+              onPress={() => setTab(t.key)}
+              testID={`v2-tab-${t.key}`}
+            >
+              <Text style={[s.tabText, tab === t.key && s.tabTextActive]}>{t.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 14, paddingBottom: 60 }}>
+          {tab === 'overview' && (
+            <>
+              <View style={s.readyCard}>
+                <View style={s.readyInner}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={s.readyLabel}>Driving readiness</Text>
+                    {!!student.test_date && (
+                      <Text style={s.testFlag}>
+                        Test {new Date(`${student.test_date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 9, marginTop: 8 }}>
+                    <Text style={s.readyPct}>{readiness.pct}</Text>
+                    <Text style={s.readyPctSign}>%</Text>
+                    <Text style={s.readyLine} numberOfLines={1}>{readiness.met}/{readiness.total} criteria met</Text>
+                  </View>
+                  <View style={s.readyTrack}><View style={[s.readyFill, { width: `${readiness.pct}%` }]} /></View>
+                  <View style={{ marginTop: 13, gap: 7 }}>
+                    {readiness.criteria.map((c) => (
+                      <View key={c.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+                        <Text style={[s.criteriaMark, { color: c.met ? '#6EE7B7' : 'rgba(255,255,255,.35)' }]}>{c.met ? '✓' : '○'}</Text>
+                        <Text style={[s.criteriaLabel, { color: c.met ? '#fff' : 'rgba(255,255,255,.55)' }]}>{c.label}</Text>
+                      </View>
+                    ))}
+                  </View>
                 </View>
               </View>
-              <View style={styles.contactList}>
-                <ContactRow icon={<Mail size={16} color={theme.colors.textMuted} />} text={student.email} />
-                <ContactRow icon={<Phone size={16} color={theme.colors.textMuted} />} text={student.phone} />
-                <View style={styles.contactRow}>
-                  <CreditCard size={16} color={theme.colors.textMuted} />
-                  {student.provisional_licence && student.provisional_licence !== 'PENDING' ? (
-                    <Text style={[styles.contactText, { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', letterSpacing: 0.5 }]}>
-                      {student.provisional_licence}
-                    </Text>
-                  ) : (
-                    <TouchableOpacity onPress={openAmend} activeOpacity={0.7} testID="link-add-licence">
-                      <Text style={[styles.contactText, { color: theme.colors.danger, fontStyle: 'italic' }]}>
-                        Provisional licence number — tap Amend to add
-                      </Text>
+
+              <View style={{ flexDirection: 'row', gap: 7, marginTop: 12 }}>
+                {!!student.pickup_address && (
+                  <OpenInMapsButton address={student.pickup_address} variant="pill" label="Directions" testID="v2-directions" />
+                )}
+                <TouchableOpacity
+                  style={s.qaBtn}
+                  onPress={() => openSmsComposer(student.phone || '', `Hi ${student.name.split(' ')[0]}, I've arrived for your lesson!`)}
+                  testID="v2-arrived"
+                >
+                  <Text style={s.qaBtnText}>I&apos;ve arrived</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.qaBtn} onPress={() => router.push('/route-recorder-screen' as any)} testID="v2-record-route">
+                  <Text style={s.qaBtnText}>Record route</Text>
+                </TouchableOpacity>
+              </View>
+
+              {hasPassedPracticalTest && (
+                <TouchableOpacity style={s.reviewBtn} onPress={handleRequestReview} testID="v2-request-review">
+                  <Text style={s.reviewBtnText}>Request a Google review</Text>
+                </TouchableOpacity>
+              )}
+
+              <View style={s.card}>
+                {[
+                  { k: 'Email', v: student.email || '—' },
+                  { k: 'Phone', v: student.phone || '—' },
+                  { k: 'Pickup', v: student.pickup_address || '—' },
+                  { k: 'Rate', v: student.hourly_rate ? `£${student.hourly_rate}/hr` : '—' },
+                ].map((d) => (
+                  <View key={d.k} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+                    <Text style={s.detailKey}>{d.k}</Text>
+                    <Text style={s.detailValue} numberOfLines={1}>{d.v}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                <View style={s.statTile}><Text style={s.statValue}>{completedCount}</Text><Text style={s.statLabel}>Lessons</Text></View>
+                <View style={s.statTile}><Text style={s.statValue}>{totalHours.toFixed(1)}h</Text><Text style={s.statLabel}>Hours</Text></View>
+                <View style={s.statTile}><Text style={s.statValue}>£{student.hourly_rate || 0}</Text><Text style={s.statLabel}>Rate</Text></View>
+              </View>
+
+              <View style={s.card}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={s.sectionLabel}>Instructor notes</Text>
+                  <TouchableOpacity style={s.editBtn} onPress={openNotesEditor} testID="v2-edit-notes">
+                    <Text style={s.editBtnText}>Edit</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={s.notesText}>{student.notes || 'No notes yet.'}</Text>
+              </View>
+
+              {lessonNotesHistory.length > 0 && (
+                <View style={s.card}>
+                  <Text style={s.sectionLabel}>Lesson notes</Text>
+                  <View style={{ marginTop: 9, gap: 12 }}>
+                    {lessonNotesHistory.slice(0, 3).map((note) => (
+                      <View key={note.id} style={{ gap: 6, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: C.divider }}>
+                        <Text style={s.lessonNoteDate}>
+                          {new Date(note.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </Text>
+                        {Object.entries(note.answers)
+                          .filter(([, answer]) => answer && answer.trim())
+                          .map(([questionId, answer]) => (
+                            <View key={questionId} style={{ gap: 2 }}>
+                              <Text style={s.lessonNoteQ}>{questionTextById[questionId] || 'Question'}</Text>
+                              <Text style={s.lessonNoteA}>{answer}</Text>
+                            </View>
+                          ))}
+                      </View>
+                    ))}
+                  </View>
+                  {lessonNotesHistory.length > 3 && (
+                    <Text style={s.moreText}>Showing 3 most recent of {lessonNotesHistory.length} entries.</Text>
+                  )}
+                </View>
+              )}
+
+              <View style={s.card}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={s.sectionLabel}>Test outcomes</Text>
+                  <TouchableOpacity style={s.logTestBtn} onPress={() => setTestOutcomeOpen(true)} testID="v2-log-test">
+                    <Text style={s.logTestBtnText}>+ Log test</Text>
+                  </TouchableOpacity>
+                </View>
+                {testOutcomes.length === 0 ? (
+                  <Text style={s.emptyMuted}>No test outcomes logged yet.</Text>
+                ) : (
+                  <View style={{ marginTop: 10, gap: 9 }}>
+                    {testOutcomes.map((o) => (
+                      <View key={o.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}>
+                        <Text style={[s.pill, o.result === 'pass' ? s.pillPass : s.pillFail]}>{o.result === 'pass' ? 'PASS' : 'FAIL'}</Text>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text style={s.outcomeTitle}>{o.test_type === 'practical' ? 'Practical test' : 'Theory test'}</Text>
+                          <Text style={s.outcomeMeta} numberOfLines={1}>
+                            {new Date(`${o.test_date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+
+              <View style={s.card}>
+                <Text style={s.sectionLabel}>Mock test history</Text>
+                {mockAttempts.length === 0 ? (
+                  <Text style={s.emptyMuted}>No mock tests taken yet.</Text>
+                ) : (
+                  <View style={{ marginTop: 10, gap: 9 }}>
+                    {mockAttempts.slice(0, 5).map((m) => (
+                      <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text style={s.outcomeTitle}>{new Date(m.taken_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</Text>
+                          <Text style={s.outcomeMeta}>{m.driving_faults} driving · {m.serious_faults} serious · {m.dangerous_faults} dangerous</Text>
+                        </View>
+                        <Text style={[s.pill, m.passed ? s.pillPass : s.pillFail]}>{m.passed ? 'PASS' : 'FAIL'}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+
+              <View style={s.card}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={s.sectionLabel}>Lifecycle status</Text>
+                  <Text style={[s.statusBadge, { backgroundColor: status.bg, color: status.fg }]}>{student.status}</Text>
+                </View>
+                <Text style={s.lifecycleHint}>Pause a student without losing their records, or move them onto the waiting list until a slot becomes available.</Text>
+                <View style={{ flexDirection: 'row', gap: 7, marginTop: 11 }}>
+                  {student.status !== 'Inactive' && student.status !== 'Passed' && (
+                    <TouchableOpacity style={s.lifecycleBtn} onPress={() => runStatusChange('Inactive', student.status)} testID="v2-deactivate">
+                      <Text style={s.lifecycleBtnText}>Deactivate</Text>
+                    </TouchableOpacity>
+                  )}
+                  {student.status !== 'Waitlist' && student.status !== 'Passed' && (
+                    <TouchableOpacity style={s.lifecycleBtn} onPress={() => runStatusChange('Waitlist', student.status)} testID="v2-waitlist">
+                      <Text style={s.lifecycleBtnText}>Waitlist</Text>
+                    </TouchableOpacity>
+                  )}
+                  {(student.status === 'Inactive' || student.status === 'Waitlist') && (
+                    <TouchableOpacity style={[s.lifecycleBtn, { backgroundColor: '#D1FAE5', borderColor: '#10B981' }]} onPress={() => runStatusChange('Active', student.status)} testID="v2-reactivate">
+                      <Text style={[s.lifecycleBtnText, { color: '#047857' }]}>Reactivate</Text>
                     </TouchableOpacity>
                   )}
                 </View>
-                <View style={styles.contactRow}>
-                  <MapPin size={16} color={theme.colors.textMuted} />
-                  <Text style={[styles.contactText, { flex: 1 }]} numberOfLines={2}>
-                    {`${student.address || ''}, ${student.postcode || ''}`.replace(/^,\s*|,\s*$/g, '')}
-                  </Text>
-                </View>
               </View>
-            </Card>
 
-            {/* Quick actions — same three as the per-lesson tools sheet, but
-                available from the profile directly rather than requiring a
-                specific lesson to be open first. "Directions" here covers
-                the same navigation as the address above — no separate
-                inline "Maps" button needed. */}
-            <View style={styles.actionRow} testID="student-quick-actions">
-              <OpenInMapsButton
-                address={`${student.address || ''}, ${student.postcode || ''}`}
-                variant="pill"
-                label="Directions"
-                testID={`btn-directions-profile-${student.id}`}
-                style={[styles.actionBtn, styles.actionAmend]}
-                textStyle={[styles.actionText, { color: theme.colors.primary }]}
-              />
-              <TouchableOpacity
-                style={[styles.actionBtn, styles.actionAmend]}
-                onPress={onArrivedFromProfile}
-                testID="btn-arrived-profile"
-              >
-                <MessageSquare size={16} color={theme.colors.primary} />
-                <Text style={[styles.actionText, { color: theme.colors.primary }]}>I've arrived</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.actionBtn, styles.actionAmend]}
-                onPress={() => router.push({
-                  pathname: '/route-recorder-screen',
-                  params: {
-                    studentId: student.id,
-                    studentName: student.name,
-                    ...(nextLesson ? { lessonId: nextLesson.id } : {}),
-                  },
-                } as any)}
-                testID="btn-record-route-profile"
-              >
-                <NavIcon size={16} color={theme.colors.primary} />
-                <Text style={[styles.actionText, { color: theme.colors.primary }]}>Record route</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.actionRow} testID="student-actions">
-              <TouchableOpacity style={[styles.actionBtn, styles.actionAmend]} onPress={openAmend} testID="btn-amend-student">
-                <Pencil size={16} color={theme.colors.primary} />
-                <Text style={[styles.actionText, { color: theme.colors.primary }]}>Amend</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.actionBtn, styles.actionPassed, student.status === 'Passed' && styles.actionDisabled]}
-                onPress={handleMarkPassed}
-                testID="btn-passed-student"
-              >
-                <Trophy size={16} color={'#fff'} />
-                <Text style={[styles.actionText, { color: '#fff' }]}>Passed</Text>
-              </TouchableOpacity>
-            </View>
-
-            {hasPassedPracticalTest && (
-              <TouchableOpacity
-                style={styles.reviewRequestBtn}
-                onPress={handleRequestReview}
-                testID="btn-request-review"
-              >
-                <Star size={16} color={theme.colors.accent} />
-                <Text style={styles.reviewRequestText}>Request a Google review</Text>
-              </TouchableOpacity>
-            )}
-
-            {/* ---- Lifecycle status management ---- */}
-            <Card style={styles.lifecycleCard} testID="card-lifecycle">
-              <View style={styles.lifecycleHeaderRow}>
-                <Text style={styles.cardTitle}>Lifecycle status</Text>
-                <StatusBadge status={student.status as any} />
-              </View>
-              <Text style={styles.lifecycleHint}>
-                Pause a student without losing their records, or move them onto the waiting list until a slot becomes available.
-              </Text>
-              <View style={styles.lifecycleBtnRow}>
-                {student.status === 'Inactive' || student.status === 'Waitlist' ? (
-                  <TouchableOpacity
-                    style={[styles.lifecycleBtn, styles.lifecycleBtnPrimary]}
-                    onPress={() => handleSetLifecycleStatus('Active')}
-                    testID="btn-lifecycle-reactivate"
-                    accessibilityLabel="Reactivate student"
-                  >
-                    <UserCheck size={16} color="#fff" />
-                    <Text style={styles.lifecycleBtnTextPrimary}>Reactivate student</Text>
+              <View style={s.dangerCard}>
+                <Text style={s.dangerTitle}>Danger zone</Text>
+                {pendingGdprRequest && (
+                  <View style={s.gdprBanner} testID="v2-gdpr-pending-banner">
+                    <Text style={s.gdprBannerText}>
+                      {student.name.split(' ')[0]} submitted a formal data deletion request on{' '}
+                      {new Date(pendingGdprRequest.requested_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}.
+                      {pendingGdprRequest.reason ? ` Reason given: "${pendingGdprRequest.reason}"` : ''}
+                    </Text>
+                  </View>
+                )}
+                <Text style={s.dangerHint}>
+                  Deleting {student.name.split(' ')[0]} permanently removes every lesson, competency record and test outcome attached to them. This cannot be undone.
+                </Text>
+                {!deleteConfirmOpen ? (
+                  <TouchableOpacity style={s.deleteBtn} onPress={() => setDeleteConfirmOpen(true)} testID="v2-delete-student">
+                    <Text style={s.deleteBtnText}>Delete student permanently</Text>
                   </TouchableOpacity>
                 ) : (
-                  <TouchableOpacity
-                    style={[styles.lifecycleBtn, styles.lifecycleBtnNeutral]}
-                    onPress={() => handleSetLifecycleStatus('Inactive')}
-                    testID="btn-lifecycle-deactivate"
-                    accessibilityLabel="Deactivate student"
-                  >
-                    <UserX size={16} color={theme.colors.text} />
-                    <Text style={styles.lifecycleBtnText}>Deactivate</Text>
-                  </TouchableOpacity>
-                )}
-                {student.status !== 'Waitlist' && (
-                  <TouchableOpacity
-                    style={[styles.lifecycleBtn, styles.lifecycleBtnNeutral]}
-                    onPress={() => handleSetLifecycleStatus('Waitlist')}
-                    testID="btn-lifecycle-waitlist"
-                    accessibilityLabel="Move student to waiting list"
-                  >
-                    <UserPlus size={16} color={theme.colors.text} />
-                    <Text style={styles.lifecycleBtnText}>Move to waitlist</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </Card>
-
-            <View style={styles.statsRow}>
-              <StatCard label="Lessons" value={student.lessons_count.toString()} />
-              <StatCard label="Hours" value={totalHours.toFixed(1)} />
-              <StatCard label="Rate" value={`£${student.hourly_rate}`} />
-            </View>
-
-            <Card>
-              <Text style={styles.cardTitle}>Driving readiness</Text>
-              <View style={styles.readyRow}>
-                <ProgressBar progress={student.progress} height={10} />
-                <Text style={styles.readyPct}>{student.progress}%</Text>
-              </View>
-              {student.test_date && (
-                <View style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <CalendarDays size={16} color={theme.colors.accent} />
-                  <Text style={{ color: theme.colors.text, fontWeight: '600' }}>
-                    Test booked: {new Date(student.test_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
-                  </Text>
-                </View>
-              )}
-            </Card>
-
-            <Card>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <Text style={styles.cardTitle}>Instructor notes</Text>
-                <TouchableOpacity
-                  onPress={openNotesEditor}
-                  style={styles.notesEditBtn}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityLabel="Edit instructor notes"
-                  testID="btn-edit-notes"
-                >
-                  <Pencil size={16} color={theme.colors.accent} />
-                </TouchableOpacity>
-              </View>
-              {((student as any).notes && String((student as any).notes).trim()) ? (
-                <>
-                  <Text style={styles.notes}>{(student as any).notes}</Text>
-                  {(student as any).notes_updated_at ? (
-                    <Text style={styles.notesTimestamp} testID="text-notes-updated">
-                      {(student as any).notes_updated_by_name
-                        ? `Updated by ${(student as any).notes_updated_by_name}, ${formatRelativeTime((student as any).notes_updated_at)}`
-                        : `Updated ${formatRelativeTime((student as any).notes_updated_at)}`}
-                    </Text>
-                  ) : null}
-                </>
-              ) : (
-                <TouchableOpacity onPress={openNotesEditor} activeOpacity={0.7}>
-                  <Text style={[styles.notes, { color: theme.colors.textMuted, fontStyle: 'italic' }]}>
-                    No notes yet. Tap the pencil to add your first lesson note for {student.name.split(' ')[0]}.
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </Card>
-
-            <Card style={{ gap: 10 }} testID="card-test-outcomes">
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={styles.cardTitle}>Test outcomes</Text>
-                <TouchableOpacity
-                  onPress={() => setTestOutcomeOpen(true)}
-                  style={styles.logTestBtn}
-                  testID="btn-log-test"
-                >
-                  <Plus size={14} color="#fff" />
-                  <Text style={styles.logTestText}>Log test</Text>
-                </TouchableOpacity>
-              </View>
-              {testOutcomes.length === 0 ? (
-                <Text style={styles.empty}>No tests recorded yet.</Text>
-              ) : testOutcomes.map((o) => {
-                const passed = o.result === 'pass';
-                const dateLabel = new Date(o.test_date + 'T12:00:00').toLocaleDateString('en-GB', {
-                  day: 'numeric', month: 'short', year: 'numeric',
-                });
-                return (
-                  <TouchableOpacity
-                    key={o.id}
-                    style={styles.outcomeRow}
-                    onLongPress={async () => {
-                      const yes = typeof window !== 'undefined' && typeof window.confirm === 'function'
-                        ? window.confirm('Delete this test outcome?')
-                        : true;
-                      if (yes) await removeTestOutcome(o.id);
-                    }}
-                    testID={`outcome-row-${o.id}`}
-                  >
-                    <View style={[styles.outcomeBadge, passed ? styles.outcomePass : styles.outcomeFail]}>
-                      {passed ? <Trophy size={14} color="#fff" /> : <CircleX size={14} color="#fff" />}
+                  <View style={{ marginTop: 11, gap: 7 }}>
+                    <Text style={[s.dangerHint, { fontWeight: '700', color: C.dangerText }]}>Are you sure? This cannot be undone.</Text>
+                    <View style={{ flexDirection: 'row', gap: 7 }}>
+                      <TouchableOpacity style={s.cancelDeleteBtn} onPress={() => setDeleteConfirmOpen(false)} testID="v2-cancel-delete">
+                        <Text style={s.cancelDeleteBtnText}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[s.deleteBtn, { flex: 1 }, deleting && { opacity: 0.6 }]} onPress={handleDelete} disabled={deleting} testID="v2-confirm-delete">
+                        {deleting ? <ActivityIndicator color="#fff" /> : <Text style={s.deleteBtnText}>Yes, delete permanently</Text>}
+                      </TouchableOpacity>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.outcomeTitle}>
-                        {o.test_type === 'practical' ? 'Practical' : 'Theory'} · {passed ? 'Pass' : 'Fail'}
-                      </Text>
-                      <Text style={styles.outcomeMeta} numberOfLines={1}>
-                        {dateLabel}
-                        {o.test_centre ? ` · ${o.test_centre}` : ''}
-                        {o.test_type === 'practical' && o.driving_faults != null ? ` · ${o.driving_faults} faults` : ''}
-                        {o.test_type === 'theory' && o.theory_mc_score != null ? ` · ${o.theory_mc_score}/50 MC` : ''}
-                      </Text>
-                      {o.retest_reasons && o.retest_reasons.length > 0 && (
-                        <Text style={styles.outcomeMeta} numberOfLines={2}>
-                          {o.retest_reasons.join(' · ')}
-                        </Text>
+                  </View>
+                )}
+              </View>
+            </>
+          )}
+
+          {tab === 'lessons' && (
+            <>
+              <View style={s.statsHero}>
+                <View>
+                  <Text style={s.heroLabel}>Lessons taught</Text>
+                  <Text style={s.heroValue}>{completedCount}</Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={s.heroSub}>{totalHours.toFixed(1)}h total</Text>
+                </View>
+              </View>
+              <View style={{ marginTop: 12, gap: 8 }}>
+                {lessons.map((l) => (
+                  <View key={l.id} style={s.lessonRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                      <Text style={s.lessonTopic} numberOfLines={1}>{l.topic || l.lesson_type}</Text>
+                      <Text style={s.lessonDate}>{new Date(`${l.date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 9, flexWrap: 'wrap' }}>
+                      {!!l.grade && (
+                        <Text style={[s.tag, { backgroundColor: colorForLessonType(l.lesson_type) }]}>Grade {l.grade}</Text>
                       )}
+                      {(l.driving_faults || 0) > 0 && <Text style={s.faultTag}>{l.driving_faults} faults</Text>}
+                      <View style={{ flex: 1 }} />
+                      <Text style={s.lessonMeta}>{l.duration_hours}h</Text>
                     </View>
-                    {o.test_centre ? (
-                      <OpenInMapsButton
-                        address={`${o.test_centre} test centre, UK`}
-                        variant="icon"
-                        testID={`btn-open-maps-centre-${o.id}`}
-                      />
-                    ) : null}
-                  </TouchableOpacity>
-                );
-              })}
-              {testOutcomes.length > 0 && (
-                <Text style={[styles.empty, { fontStyle: 'italic' }]}>Long-press a row to delete.</Text>
-              )}
-            </Card>
-
-            {/* ---- DL25 mock test history (self-administered practice —
-                separate from the real DVSA "Test outcomes" above; see
-                Migration 024) ---- */}
-            <Card style={{ gap: 10 }} testID="card-mock-test-history">
-              <Text style={styles.cardTitle}>Mock test history</Text>
-              {mockAttemptsLoading && mockAttempts.length === 0 ? (
-                <ActivityIndicator size="small" color={theme.colors.primary} />
-              ) : mockAttempts.length === 0 ? (
-                <Text style={styles.empty}>
-                  {student.name.split(' ')[0]} hasn't taken a DL25 mock test yet.
-                </Text>
-              ) : (
-                mockAttempts.slice(0, 5).map((a, i) => (
-                  <View
-                    key={a.id}
-                    style={[styles.historyRow, i === Math.min(4, mockAttempts.length - 1) && { borderBottomWidth: 0 }]}
-                    testID={`mock-attempt-${a.id}`}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.historyDate}>
-                        {new Date(a.taken_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                      </Text>
-                      <Text style={styles.historyFaults}>
-                        {a.driving_faults} driving · {a.serious_faults} serious · {a.dangerous_faults} dangerous
-                      </Text>
-                    </View>
-                    <Badge
-                      label={a.passed ? 'PASS' : 'FAIL'}
-                      bg={a.passed ? theme.colors.successLight : theme.colors.dangerLight}
-                      color={a.passed ? theme.colors.success : theme.colors.danger}
-                    />
+                    {!!l.notes && <Text style={s.lessonNote}>{l.notes}</Text>}
                   </View>
-                ))
-              )}
-              {mockAttempts.length > 5 && (
-                <Text style={[styles.empty, { fontStyle: 'italic' }]}>
-                  Showing 5 most recent of {mockAttempts.length} attempts.
-                </Text>
-              )}
-            </Card>
-
-            {/* ---- Instructor's own post-lesson notes (custom questions) ---- */}
-            <Card style={{ gap: 10 }} testID="card-lesson-notes-history">
-              <Text style={styles.cardTitle}>Lesson notes</Text>
-              {lessonNotesHistory.length === 0 ? (
-                <Text style={styles.empty}>
-                  No lesson notes yet — add some from a lesson's quick actions in the diary.
-                </Text>
-              ) : (
-                lessonNotesHistory.slice(0, 3).map((note) => (
-                  <View key={note.id} style={{ gap: 4, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border }} testID={`lesson-note-${note.id}`}>
-                    <Text style={styles.historyDate}>
-                      {new Date(note.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                    </Text>
-                    {Object.entries(note.answers)
-                      .filter(([, answer]) => answer && answer.trim())
-                      .map(([questionId, answer]) => (
-                        <View key={questionId} style={{ marginTop: 2 }}>
-                          <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textMuted }}>
-                            {questionTextById[questionId] || 'Question'}
-                          </Text>
-                          <Text style={{ fontSize: 13, color: theme.colors.text }}>{answer}</Text>
-                        </View>
-                      ))}
-                  </View>
-                ))
-              )}
-              {lessonNotesHistory.length > 3 && (
-                <Text style={[styles.empty, { fontStyle: 'italic' }]}>
-                  Showing 3 most recent of {lessonNotesHistory.length} entries.
-                </Text>
-              )}
-            </Card>
-
-            {/* ---- Danger zone ---- */}
-            <Card style={styles.dangerCard} testID="card-danger-zone">
-              <View style={styles.dangerHeaderRow}>
-                <AlertTriangle size={18} color={theme.colors.danger} />
-                <Text style={styles.dangerTitle}>Danger zone</Text>
+                ))}
               </View>
-              {pendingGdprRequest && (
-                <View style={styles.gdprBanner} testID="gdpr-pending-banner">
-                  <Text style={styles.gdprBannerText}>
-                    {student.name.split(' ')[0]} submitted a formal data deletion request on{' '}
-                    {new Date(pendingGdprRequest.requested_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}.
-                    {pendingGdprRequest.reason ? ` Reason given: "${pendingGdprRequest.reason}"` : ''}
-                  </Text>
-                </View>
-              )}
-              <Text style={styles.dangerHint}>
-                Deleting {student.name} permanently removes every lesson, competency record and test outcome attached to them. This cannot be undone.
-              </Text>
-              <TouchableOpacity
-                style={styles.dangerBtn}
-                onPress={handleDelete}
-                testID="btn-delete-student"
-                accessibilityLabel="Delete student"
-              >
-                <Trash2 size={16} color="#fff" />
-                <Text style={styles.dangerBtnText}>Delete student permanently</Text>
-              </TouchableOpacity>
-            </Card>
-          </View>
-        )}
+            </>
+          )}
 
-        {tab === 'lessons' && (
-          <View style={{ gap: 12 }} testID="tab-lessons-content">
-            {lessons.length === 0 ? (
-              <Card><Text style={styles.emptyText}>No lessons recorded yet.</Text></Card>
-            ) : (
-              lessons.map((l) => (
-                <Card key={l.id} style={{ gap: 8 }} testID={`lesson-row-${l.id}`}>
-                  <View style={styles.row}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.lessonDate}>
-                        {new Date(l.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                      </Text>
-                      <Text style={styles.lessonTopic}>{l.topic}</Text>
-                    </View>
-                    <Badge label={l.status} />
-                  </View>
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <Badge label={`${l.start_time}-${l.end_time}`} />
-                    {l.grade && <Badge label={`Grade ${l.grade}/5`} bg={theme.colors.successLight} color={theme.colors.success} />}
-                    <Badge label={`${l.driving_faults + l.serious_faults + l.dangerous_faults} faults`} bg={theme.colors.warningLight} color={theme.colors.faultDriving} />
-                  </View>
-                  {l.notes && <Text style={styles.notes}>{l.notes}</Text>}
-                </Card>
-              ))
-            )}
-          </View>
-        )}
-
-        {tab === 'competency' && (
-          <View style={{ gap: 10 }} testID="tab-competency-content">
-            {!pro ? (
-              <LockedFeature
-                variant="card"
-                title="Competency tracker locked"
-                subtitle="Track progress against the DVSA syllabus — included from Growth tier (£14.99/mo). Tap to upgrade."
-                onPress={() => {
-                  setPaywallReason('Competency tracker is included from Growth tier (£14.99/mo). Upgrade to track DVSA syllabus progress.');
-                  setPaywallOpen(true);
-                }}
-                testID="locked-competency-tab"
-              />
+          {tab === 'competency' && (
+            !pro ? (
+              <View style={s.lockedCard}>
+                <View style={s.lockedIcon}><Text style={{ fontSize: 20, color: C.warmText }}>✳</Text></View>
+                <Text style={s.lockedTitle}>Competency tracker locked</Text>
+                <Text style={s.lockedSub}>Track progress against the DVSA syllabus — included from Growth tier (£14.99/mo).</Text>
+                <TouchableOpacity style={s.upgradeBtn} onPress={() => router.push('/pricing-screen' as any)} testID="v2-view-plans">
+                  <Text style={s.upgradeBtnText}>View plans</Text>
+                </TouchableOpacity>
+              </View>
             ) : (
               <>
-                {compLoading && competencies.length === 0 && (
-                  <Card><ActivityIndicator size="small" color={theme.colors.primary} /></Card>
-                )}
-                {competencies.map((c) => (
-                  <TouchableOpacity
-                    key={c.key}
-                    onPress={() => router.push({ pathname: '/competency-detail-screen', params: { id: student.id, key: c.key } })}
-                    testID={`competency-${c.key}`}
-                  >
-                    <Card style={{ gap: 8 }}>
-                      <View style={styles.row}>
-                        <Text style={styles.compName}>{c.name}</Text>
-                        <Badge label={`Level ${c.level}`} />
-                      </View>
-                      <ProgressBar progress={c.progress} />
-                      <Text style={styles.compMeta}>{c.progress}% complete</Text>
-                    </Card>
-                  </TouchableOpacity>
-                ))}
-              </>
-            )}
-          </View>
-        )}
-
-        {tab === 'earnings' && (
-          <View style={{ gap: 12 }} testID="tab-earnings-content">
-            <View style={styles.statsRow}>
-              <StatCard label="Total" value={`£${totalEarnings}`} color={theme.colors.accent} />
-              <StatCard label="Hours" value={totalHours.toFixed(1)} />
-              <StatCard label="Rate" value={`£${student.hourly_rate}`} />
-            </View>
-
-            <Card>
-              <Text style={styles.cardTitle}>Monthly earnings</Text>
-              {monthlyEarnings.length > 0 ? (
-                <SimpleBarChart
-                  data={monthlyEarnings.map((e) => ({ label: e.month, value: e.value }))}
-                  color={theme.colors.accent}
-                  height={180}
-                />
-              ) : (
-                <Text style={styles.emptyText}>No earnings recorded yet.</Text>
-              )}
-            </Card>
-
-            <Card>
-              <View style={styles.invoiceHeaderRow}>
-                <Text style={styles.cardTitle}>Payment history</Text>
-                <TouchableOpacity
-                  style={[styles.invoiceBtn, !pro && styles.invoiceBtnLocked]}
-                  onPress={handleDownloadInvoice}
-                  disabled={busyInvoice}
-                  testID="btn-download-invoice"
-                >
-                  {busyInvoice ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      {pro ? <Download size={14} color="#fff" /> : <Crown size={14} color="#fff" />}
-                      <Text style={styles.invoiceBtnText}>{pro ? 'Invoice PDF' : 'Pro'}</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
-              <View style={{ gap: 8, marginTop: 8 }}>
-                {lessons.filter((l) => l.amount_paid).map((l) => (
-                  <View key={l.id} style={styles.payRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontWeight: '600', color: theme.colors.text }}>{l.topic}</Text>
-                      <Text style={styles.payDate}>{new Date(l.date).toLocaleDateString('en-GB')}</Text>
+                {competencies.length > 0 && (
+                  <View style={s.card}>
+                    <Text style={[s.sectionLabel, { color: C.warmText }]}>Focus next</Text>
+                    <View style={{ marginTop: 10, gap: 10 }}>
+                      {[...competencies].sort((a, b) => a.progress - b.progress).slice(0, 3).map((c) => (
+                        <View key={c.category_key} style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}>
+                          <Text style={s.focusPct}>{c.progress}%</Text>
+                          <Text style={s.focusName} numberOfLines={1}>{c.category_name}</Text>
+                          <Text style={s.focusLevel}>Level {c.level}</Text>
+                        </View>
+                      ))}
                     </View>
-                    <Text style={styles.payAmount}>£{l.amount_paid}</Text>
                   </View>
-                ))}
+                )}
+                <View style={{ marginTop: 10, gap: 7 }}>
+                  {competencies.map((c) => (
+                    <TouchableOpacity
+                      key={c.category_key}
+                      style={s.compRow}
+                      onPress={() => router.push({ pathname: '/competency-detail-screen', params: { id: student.id, key: c.category_key } } as any)}
+                      testID={`v2-comp-row-${c.category_key}`}
+                    >
+                      <View style={{ flex: 1, minWidth: 0, gap: 5 }}>
+                        <Text style={s.compRowName} numberOfLines={1}>{c.category_name}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <View style={{ flexDirection: 'row', gap: 3 }}>
+                            {Array.from({ length: 5 }).map((_, i) => (
+                              <View key={i} style={[s.pip, i < c.level && { backgroundColor: C.primary }]} />
+                            ))}
+                          </View>
+                          <Text style={s.compRowSub}>Level {c.level}</Text>
+                        </View>
+                      </View>
+                      <Text style={s.compRowPct}>{c.progress}%</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )
+          )}
+
+          {tab === 'earnings' && (
+            <>
+              <View style={s.statsHero}>
+                <View>
+                  <Text style={s.heroLabel}>Total billed</Text>
+                  <Text style={s.heroValue}>£{totalEarnings.toFixed(0)}</Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={s.heroSub}>{totalHours.toFixed(1)}h · £{student.hourly_rate || 0}/hr</Text>
+                </View>
               </View>
-            </Card>
-          </View>
-        )}
-
-        <View style={{ height: 32 }} />
-      </ScrollView>
-
-      <PaywallModal
-        visible={paywallOpen}
-        onClose={() => setPaywallOpen(false)}
-        reason={paywallReason || 'This is a paid-tier feature. Upgrade to unlock it.'}
-      />
-
-      <BottomSheet visible={amendOpen} onClose={() => setAmendOpen(false)} title="Amend student" testID="sheet-amend-student">
-        <ScrollView showsVerticalScrollIndicator={false}>
-          <Text style={styles.fieldLabel}>Full name</Text>
-          <TextInput style={styles.input} value={aName} onChangeText={setAName} placeholder="Full name" placeholderTextColor={theme.colors.textMuted} testID="amend-name" />
-
-          <Text style={styles.fieldLabel}>Email</Text>
-          <TextInput style={styles.input} value={aEmail} onChangeText={setAEmail} keyboardType="email-address" autoCapitalize="none" placeholder="name@example.com" placeholderTextColor={theme.colors.textMuted} testID="amend-email" />
-
-          <Text style={styles.fieldLabel}>Phone</Text>
-          <TextInput style={styles.input} value={aPhone} onChangeText={setAPhone} keyboardType="phone-pad" placeholder="07xxx xxxxxx" placeholderTextColor={theme.colors.textMuted} testID="amend-phone" />
-
-          <Text style={styles.fieldLabel}>Address</Text>
-          <TextInput style={styles.input} value={aAddress} onChangeText={setAAddress} placeholder="Street address" placeholderTextColor={theme.colors.textMuted} testID="amend-address" />
-
-          <Text style={styles.fieldLabel}>Postcode</Text>
-          <TextInput style={styles.input} value={aPostcode} onChangeText={setAPostcode} autoCapitalize="characters" placeholder="e.g. SW1A 1AA" placeholderTextColor={theme.colors.textMuted} testID="amend-postcode" />
-
-          <Text style={styles.fieldLabel}>
-            Provisional licence number <Text style={{ color: theme.colors.danger }}>*</Text>
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={aLicence}
-            onChangeText={(v) => setALicence(v.toUpperCase())}
-            autoCapitalize="characters"
-            autoCorrect={false}
-            maxLength={20}
-            placeholder="SMITH911206 23A6L 79"
-            placeholderTextColor={theme.colors.textMuted}
-            testID="amend-licence"
-          />
-          <Text style={{ ...theme.font.caption, color: theme.colors.textMuted, marginTop: -8, marginBottom: 8 }}>
-            16-character DVLA driver number from the front of the pink licence (DD1).
-          </Text>
-
-          <View style={{ flexDirection: 'row', gap: 12 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.fieldLabel}>Hourly rate (£)</Text>
-              <TextInput style={styles.input} value={aHourlyRate} onChangeText={setAHourlyRate} keyboardType="numeric" placeholder="36" placeholderTextColor={theme.colors.textMuted} testID="amend-rate" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.fieldLabel}>Test date (YYYY-MM-DD)</Text>
-              <TextInput style={styles.input} value={aTestDate} onChangeText={setATestDate} placeholder="2026-06-01" placeholderTextColor={theme.colors.textMuted} testID="amend-test-date" />
-            </View>
-          </View>
-
-          <TouchableOpacity style={styles.saveBtn} onPress={saveAmend} testID="btn-save-amend">
-            <Text style={styles.saveBtnText}>Save changes</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => setAmendOpen(false)} testID="btn-cancel-amend">
-            <Text style={styles.cancelBtnText}>Cancel</Text>
-          </TouchableOpacity>
+              <View style={s.card}>
+                <Text style={s.sectionLabel}>Recent payments</Text>
+                <View style={{ marginTop: 11, gap: 9 }}>
+                  {lessons.filter((l) => l.amount_paid).slice(0, 8).map((l) => (
+                    <View key={l.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                      <View style={{ minWidth: 0 }}>
+                        <Text style={s.paymentWhat} numberOfLines={1}>{l.topic || l.lesson_type}</Text>
+                        <Text style={s.paymentWhen}>{new Date(`${l.date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</Text>
+                      </View>
+                      <Text style={s.paymentAmount}>£{(l.amount_paid || 0).toFixed(2)}</Text>
+                    </View>
+                  ))}
+                  {lessons.filter((l) => l.amount_paid).length === 0 && (
+                    <Text style={s.emptyMuted}>No payments recorded yet.</Text>
+                  )}
+                </View>
+              </View>
+            </>
+          )}
         </ScrollView>
+      </View>
+
+      {snack && (
+        <View style={s.snack} testID="v2-lifecycle-snack">
+          <Text style={s.snackText}>{snack.message}</Text>
+          {snack.undoTo && (
+            <TouchableOpacity style={s.undoBtn} onPress={handleUndo} testID="v2-undo">
+              <Text style={s.undoBtnText}>Undo</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Amend student details */}
+      <BottomSheet visible={amendOpen} onClose={() => setAmendOpen(false)} title="Amend student" testID="v2-sheet-amend">
+        <Text style={s.fieldLabel}>Full name *</Text>
+        <TextInput style={s.fieldInput} value={aName} onChangeText={setAName} placeholderTextColor={C.faint} testID="v2-amend-name" />
+        <Text style={s.fieldLabel}>Email</Text>
+        <TextInput style={s.fieldInput} value={aEmail} onChangeText={setAEmail} autoCapitalize="none" keyboardType="email-address" placeholderTextColor={C.faint} testID="v2-amend-email" />
+        <Text style={s.fieldLabel}>Phone</Text>
+        <TextInput style={s.fieldInput} value={aPhone} onChangeText={setAPhone} keyboardType="phone-pad" placeholderTextColor={C.faint} testID="v2-amend-phone" />
+        <Text style={s.fieldLabel}>Address</Text>
+        <TextInput style={s.fieldInput} value={aAddress} onChangeText={setAAddress} placeholderTextColor={C.faint} testID="v2-amend-address" />
+        <Text style={s.fieldLabel}>Postcode</Text>
+        <TextInput style={s.fieldInput} value={aPostcode} onChangeText={setAPostcode} autoCapitalize="characters" placeholderTextColor={C.faint} testID="v2-amend-postcode" />
+        <Text style={s.fieldLabel}>Hourly rate (£)</Text>
+        <TextInput style={s.fieldInput} value={aHourlyRate} onChangeText={setAHourlyRate} keyboardType="number-pad" placeholderTextColor={C.faint} testID="v2-amend-rate" />
+        <Text style={s.fieldLabel}>Test date (YYYY-MM-DD)</Text>
+        <TextInput style={s.fieldInput} value={aTestDate} onChangeText={setATestDate} placeholder="Not booked" placeholderTextColor={C.faint} testID="v2-amend-testdate" />
+        <Text style={s.fieldLabel}>Provisional licence number *</Text>
+        <TextInput style={s.fieldInput} value={aLicence} onChangeText={(v) => setALicence(v.toUpperCase())} autoCapitalize="characters" maxLength={20} placeholderTextColor={C.faint} testID="v2-amend-licence" />
+        <TouchableOpacity style={[s.submitBtn, savingAmend && { opacity: 0.6 }]} onPress={saveAmend} disabled={savingAmend} testID="v2-amend-save">
+          {savingAmend ? <ActivityIndicator color="#fff" /> : <Text style={s.submitBtnText}>Save changes</Text>}
+        </TouchableOpacity>
       </BottomSheet>
 
-      {/* Test outcome modal */}
+      {/* Instructor notes editor */}
+      <BottomSheet visible={notesOpen} onClose={() => setNotesOpen(false)} title="Instructor notes" testID="v2-sheet-notes">
+        <TextInput
+          style={[s.fieldInput, { minHeight: 120, textAlignVertical: 'top', paddingTop: 12 }]}
+          value={notesDraft}
+          onChangeText={setNotesDraft}
+          placeholder="Anything worth remembering about this student…"
+          placeholderTextColor={C.faint}
+          multiline
+          testID="v2-notes-input"
+        />
+        <TouchableOpacity style={[s.submitBtn, savingNotes && { opacity: 0.6 }]} onPress={saveNotes} disabled={savingNotes} testID="v2-notes-save">
+          {savingNotes ? <ActivityIndicator color="#fff" /> : <Text style={s.submitBtnText}>Save notes</Text>}
+        </TouchableOpacity>
+      </BottomSheet>
+
+      {/* Log a test outcome — reuses the existing, already-working
+          TestOutcomeModal component rather than rebuilding it. */}
       {student && (
         <TestOutcomeModal
           visible={testOutcomeOpen}
@@ -1019,341 +786,134 @@ export default function StudentLifecycleScreen() {
           onClose={() => setTestOutcomeOpen(false)}
         />
       )}
-
-      {/* Delete confirmation bottom sheet — permanent action with bold UK-English warning */}
-      <BottomSheet
-        visible={deleteConfirmOpen}
-        onClose={() => !deleting && setDeleteConfirmOpen(false)}
-        title="Delete student?"
-        testID="sheet-delete-student"
-      >
-        <View style={{ gap: 12 }}>
-          <View style={styles.deleteWarnIcon}>
-            <AlertTriangle size={32} color={theme.colors.danger} />
-          </View>
-          <Text style={styles.deleteHeadline}>
-            This permanently deletes {student.name}
-          </Text>
-          <Text style={styles.deleteBody}>
-            All of their lessons, competency tracking and test outcomes will be removed. This cannot be undone.
-          </Text>
-          <Text style={styles.deleteBodyBold}>
-            Consider deactivating them instead if you might work with them again in future.
-          </Text>
-          <TouchableOpacity
-            style={[styles.deleteConfirmBtn, deleting && { opacity: 0.6 }]}
-            onPress={performHardDelete}
-            disabled={deleting}
-            testID="btn-confirm-delete"
-            accessibilityLabel="Permanently delete student"
-          >
-            <Trash2 size={18} color="#fff" />
-            <Text style={styles.deleteConfirmBtnText}>
-              {deleting ? 'Deleting…' : 'Yes, delete permanently'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.deleteCancelBtn}
-            onPress={() => !deleting && setDeleteConfirmOpen(false)}
-            disabled={deleting}
-            testID="btn-cancel-delete"
-          >
-            <Text style={styles.deleteCancelText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </BottomSheet>
-
-      {/* Instructor notes editor */}
-      <BottomSheet
-        visible={notesOpen}
-        onClose={() => !savingNotes && setNotesOpen(false)}
-        title="Instructor notes"
-        testID="sheet-edit-notes"
-      >
-        <View style={{ gap: 12 }}>
-          <Text style={[styles.fieldLabel, { marginTop: 0 }]}>
-            Lesson notes for {student.name.split(' ')[0]}
-          </Text>
-          <TextInput
-            style={styles.notesInput}
-            value={notesDraft}
-            onChangeText={setNotesDraft}
-            placeholder={`Add private notes about ${student.name.split(' ')[0]}'s progress, areas to focus on, manoeuvres to practise…`}
-            placeholderTextColor={theme.colors.textMuted}
-            multiline
-            numberOfLines={8}
-            textAlignVertical="top"
-            autoFocus
-            testID="input-notes"
-          />
-          <Text style={styles.notesHint}>
-            {notesDraft.length}/2000 characters · Only you can see these notes.
-          </Text>
-          <TouchableOpacity
-            style={[styles.saveBtn, savingNotes && { opacity: 0.6 }]}
-            onPress={saveNotes}
-            disabled={savingNotes}
-            testID="btn-save-notes"
-          >
-            {savingNotes
-              ? <ActivityIndicator color="#fff" />
-              : <Text style={styles.saveBtnText}>Save notes</Text>}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.cancelBtn}
-            onPress={() => !savingNotes && setNotesOpen(false)}
-            disabled={savingNotes}
-            testID="btn-cancel-notes"
-          >
-            <Text style={styles.cancelBtnText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </BottomSheet>
-
-      {/* ============================================================
-          Snackbar — non-blocking confirmation for lifecycle changes
-          with optional Undo. Auto-hides after 5 seconds.
-          ============================================================ */}
-      {snack && (
-        <View style={styles.snackbar} testID="lifecycle-snackbar">
-          <Text style={styles.snackbarText} numberOfLines={2}>{snack.message}</Text>
-          {snack.undoTo && (
-            <TouchableOpacity
-              onPress={handleUndoLifecycle}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              testID="btn-undo-lifecycle"
-            >
-              <Text style={styles.snackbarUndo}>UNDO</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
     </SafeAreaView>
   );
 }
 
-function ContactRow({ icon, text }: { icon: React.ReactNode; text: string }) {
-  return (
-    <View style={styles.contactRow}>
-      {icon}
-      <Text style={styles.contactText}>{text}</Text>
-    </View>
-  );
-}
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: C.pageBg },
+  surface: { flex: 1, backgroundColor: C.surface },
 
-function StatCard({ label, value, color }: { label: string; value: string; color?: string }) {
-  return (
-    <View style={styles.statCard}>
-      <Text style={[styles.statValue, color && { color }]}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
+  navBtn: { width: 38, height: 38, borderWidth: 1, borderColor: C.border, backgroundColor: '#fff', borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  amendBtn: { height: 36, paddingHorizontal: 14, borderWidth: 1, borderColor: C.border, backgroundColor: '#fff', borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  amendBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 12.5, color: C.primary },
+  passedBtn: { height: 36, paddingHorizontal: 14, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  passedBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 12.5, color: '#fff' },
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: theme.colors.background },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, gap: 8 },
-  iconBtn: { padding: 8, borderRadius: 8, width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
-  title: { ...theme.font.h2, flex: 1, textAlign: 'center' },
-  tabBar: { flexDirection: 'row', paddingHorizontal: 16, gap: 4, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
-  tabBtn: { paddingVertical: 12, paddingHorizontal: 4, flex: 1, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  tabBtnActive: { borderBottomColor: theme.colors.primary },
-  tabText: { color: theme.colors.textMuted, fontWeight: '600', fontSize: 13 },
-  tabTextActive: { color: theme.colors.primary },
-  scroll: { padding: 16, paddingBottom: 32 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: theme.colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontWeight: '700', color: theme.colors.primary, fontSize: 18 },
-  studentName: { fontSize: 18, fontWeight: '700', color: theme.colors.text, marginBottom: 4 },
-  contactList: { gap: 8, marginTop: 12 },
-  contactRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  contactText: { color: theme.colors.text, fontSize: 14 },
-  statsRow: { flexDirection: 'row', gap: 10 },
-  statCard: {
-    flex: 1,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    padding: 12,
-    alignItems: 'center',
-  },
-  statValue: { fontSize: 18, fontWeight: '700', color: theme.colors.primary },
-  statLabel: { fontSize: 12, color: theme.colors.textMuted, marginTop: 4 },
-  cardTitle: { ...theme.font.h3, marginBottom: 8 },
-  historyRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border,
-  },
-  historyDate: { fontSize: 14, color: theme.colors.text, fontWeight: '600' },
-  historyFaults: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
-  readyRow: { gap: 8 },
-  readyPct: { fontWeight: '700', color: theme.colors.primary },
-  notes: { color: theme.colors.text, lineHeight: 20, fontSize: 14 },
-  notesEditBtn: {
-    width: 32, height: 32, borderRadius: 16,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: theme.colors.primaryLight,
-  },
-  notesInput: {
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1, borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
-    padding: 12, paddingTop: 12,
-    color: theme.colors.text, fontSize: 15, lineHeight: 22,
-    minHeight: 160,
-  },
-  notesHint: { color: theme.colors.textMuted, fontSize: 12 },
+  avatar: { width: 58, height: 58, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontFamily: 'Archivo_800ExtraBold', fontSize: 19, color: '#fff' },
+  name: { fontFamily: 'Archivo_800ExtraBold', fontSize: 24, letterSpacing: -0.5, color: C.text },
+  statusBadge: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 0.9, textTransform: 'uppercase', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, overflow: 'hidden' },
+  subline: { fontFamily: 'Barlow_500Medium', fontSize: 12.5, color: C.textMuted },
 
-  // ----- Lifecycle snackbar -----------------------------------------------
-  snackbar: {
-    position: 'absolute',
-    left: 16, right: 16, bottom: 24,
-    backgroundColor: theme.colors.text,
-    borderRadius: 8,
-    paddingVertical: 14, paddingHorizontal: 16,
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    boxShadow: '0px 6px 16px rgba(0, 0, 0, 0.18)', elevation: 8,
+  tab: { flex: 1, minHeight: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#EDE8DE' },
+  tabActive: { backgroundColor: C.ink },
+  tabText: { fontFamily: 'Barlow_700Bold', fontSize: 12.5, color: C.textMuted },
+  tabTextActive: { color: '#fff' },
+
+  readyCard: { borderRadius: 22, backgroundColor: C.primary, padding: 6, shadowColor: '#003A6F', shadowOffset: { width: 0, height: 14 }, shadowOpacity: 0.35, shadowRadius: 28, elevation: 6 },
+  readyInner: { borderWidth: 2, borderColor: 'rgba(255,255,255,.5)', borderRadius: 17, padding: 16 },
+  readyLabel: { fontFamily: 'Archivo_800ExtraBold', fontSize: 12, letterSpacing: 2, textTransform: 'uppercase', color: '#FF9A4D' },
+  testFlag: { fontFamily: 'Barlow_700Bold', fontSize: 11, color: '#fff', backgroundColor: 'rgba(255,255,255,.18)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, overflow: 'hidden' },
+  readyPct: { fontFamily: 'Archivo_800ExtraBold', fontSize: 54, letterSpacing: -1.7, color: '#fff' },
+  readyPctSign: { fontFamily: 'Archivo_700Bold', fontSize: 20, color: 'rgba(255,255,255,.6)', paddingBottom: 6 },
+  readyLine: { flex: 1, textAlign: 'right', fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: 'rgba(255,255,255,.78)', paddingBottom: 7 },
+  readyTrack: { height: 6, borderRadius: 999, backgroundColor: 'rgba(255,255,255,.22)', marginTop: 13, overflow: 'hidden' },
+  readyFill: { height: '100%', backgroundColor: '#FF9A4D', borderRadius: 999 },
+  criteriaMark: { fontFamily: 'Barlow_700Bold', fontSize: 14, width: 16 },
+  criteriaLabel: { fontFamily: 'Barlow_600SemiBold', fontSize: 13, flex: 1 },
+
+  qaBtn: { flex: 1, minHeight: 42, borderWidth: 1, borderColor: C.border, backgroundColor: '#fff', borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  qaBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 12, color: C.text },
+  reviewBtn: { marginTop: 9, minHeight: 44, backgroundColor: C.warmBg, borderWidth: 1, borderColor: C.accent, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  reviewBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: C.warmText },
+
+  card: { marginTop: 10, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 15 },
+  detailKey: { fontFamily: 'Barlow_600SemiBold', fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase', color: C.faint, paddingVertical: 4 },
+  detailValue: { flex: 1, textAlign: 'right', fontFamily: 'Barlow_600SemiBold', fontSize: 13.5, color: C.text },
+
+  statTile: { flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 12, gap: 1 },
+  statValue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 22, letterSpacing: -0.4, color: C.text },
+  statLabel: { fontFamily: 'Barlow_600SemiBold', fontSize: 11.5, color: C.textMuted },
+
+  sectionLabel: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1.5, textTransform: 'uppercase', color: C.textMuted },
+  editBtn: { height: 30, paddingHorizontal: 11, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  editBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 11.5, color: C.warmText },
+  notesText: { fontFamily: 'Barlow_400Regular', fontSize: 13.5, lineHeight: 19, color: C.text, marginTop: 9 },
+
+  lessonNoteQ: { fontFamily: 'Barlow_700Bold', fontSize: 12.5, color: C.textMuted2 },
+  lessonNoteA: { fontFamily: 'Barlow_400Regular', fontSize: 13.5, color: C.text },
+  lessonNoteDate: { fontFamily: 'Barlow_700Bold', fontSize: 12, color: C.faint },
+  moreText: { fontFamily: 'Barlow_500Medium', fontSize: 11.5, color: C.faint, marginTop: 2 },
+
+  logTestBtn: { height: 30, paddingHorizontal: 11, backgroundColor: C.primary, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  logTestBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 11.5, color: '#fff' },
+  emptyMuted: { fontFamily: 'Barlow_500Medium', fontSize: 13, color: C.textMuted, marginTop: 9 },
+  pill: { fontFamily: 'Archivo_800ExtraBold', fontSize: 9, letterSpacing: 1.2, color: '#fff', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 5, overflow: 'hidden' },
+  pillPass: { backgroundColor: '#10B981' },
+  pillFail: { backgroundColor: '#EF4444' },
+  outcomeTitle: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: C.text },
+  outcomeMeta: { fontFamily: 'Barlow_500Medium', fontSize: 12, color: C.textMuted2, marginTop: 1 },
+
+  lifecycleHint: { fontFamily: 'Barlow_400Regular', fontSize: 12.5, lineHeight: 17.5, color: C.textMuted, marginTop: 8 },
+  lifecycleBtn: { flex: 1, minHeight: 42, borderWidth: 1, borderColor: C.border, backgroundColor: '#fff', borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  lifecycleBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 12.5, color: C.text },
+
+  dangerCard: { marginTop: 10, backgroundColor: C.dangerBg, borderWidth: 1, borderColor: C.dangerBorder, borderRadius: 16, padding: 15, marginBottom: 20 },
+  dangerTitle: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1.5, textTransform: 'uppercase', color: C.dangerText },
+  gdprBanner: { marginTop: 10, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 12, padding: 11 },
+  gdprBannerText: { fontFamily: 'Barlow_500Medium', fontSize: 12, lineHeight: 17, color: '#92400E' },
+  dangerHint: { fontFamily: 'Barlow_400Regular', fontSize: 12.5, lineHeight: 17.5, color: '#991B1B', marginTop: 8 },
+  deleteBtn: { marginTop: 11, minHeight: 46, backgroundColor: '#EF4444', borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  deleteBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: '#fff' },
+  cancelDeleteBtn: { flex: 1, minHeight: 46, borderWidth: 1, borderColor: C.border, backgroundColor: '#fff', borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  cancelDeleteBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: C.textMuted },
+
+  statsHero: { backgroundColor: C.ink, borderRadius: 18, padding: 16, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
+  heroLabel: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1.5, textTransform: 'uppercase', color: 'rgba(255,255,255,.5)' },
+  heroValue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 38, letterSpacing: -1, color: '#fff' },
+  heroSub: { fontFamily: 'Barlow_500Medium', fontSize: 12.5, color: 'rgba(255,255,255,.55)' },
+
+  lessonRow: { backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 13 },
+  lessonTopic: { fontFamily: 'Archivo_700Bold', fontSize: 15, color: C.text, flex: 1 },
+  lessonDate: { fontFamily: 'Barlow_600SemiBold', fontSize: 12, color: C.textMuted },
+  tag: { fontFamily: 'Barlow_700Bold', fontSize: 10, letterSpacing: 0.8, textTransform: 'uppercase', color: '#fff', paddingHorizontal: 7, paddingVertical: 4, borderRadius: 5, overflow: 'hidden' },
+  faultTag: { fontFamily: 'Barlow_700Bold', fontSize: 10, letterSpacing: 0.8, textTransform: 'uppercase', color: '#92400E', backgroundColor: '#FEF3C7', paddingHorizontal: 7, paddingVertical: 4, borderRadius: 5, overflow: 'hidden' },
+  lessonMeta: { fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: C.textMuted },
+  lessonNote: { fontFamily: 'Barlow_400Regular', fontSize: 13, lineHeight: 18, color: C.textMuted2, marginTop: 9, paddingTop: 9, borderTopWidth: 1, borderTopColor: C.divider },
+
+  lockedCard: { backgroundColor: C.warmBg, borderWidth: 1, borderColor: C.warmBorder, borderRadius: 18, padding: 26, alignItems: 'center', gap: 7 },
+  lockedIcon: { width: 52, height: 52, borderRadius: 999, backgroundColor: C.warmBorder, alignItems: 'center', justifyContent: 'center' },
+  lockedTitle: { fontFamily: 'Archivo_700Bold', fontSize: 17, color: C.text, textAlign: 'center' },
+  lockedSub: { fontFamily: 'Barlow_400Regular', fontSize: 13, lineHeight: 18.5, color: C.textMuted, textAlign: 'center' },
+  upgradeBtn: { marginTop: 6, minHeight: 46, paddingHorizontal: 22, backgroundColor: C.accent, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  upgradeBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 14, color: '#fff' },
+
+  focusPct: { fontFamily: 'Archivo_800ExtraBold', fontSize: 18, color: C.warmText, minWidth: 44 },
+  focusName: { fontFamily: 'Barlow_600SemiBold', fontSize: 14, color: C.text, flex: 1 },
+  focusLevel: { fontFamily: 'Barlow_600SemiBold', fontSize: 12, color: C.textMuted },
+  compRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 13 },
+  compRowName: { fontFamily: 'Barlow_600SemiBold', fontSize: 14, color: C.text },
+  pip: { width: 12, height: 5, borderRadius: 2.5, backgroundColor: C.divider },
+  compRowSub: { fontFamily: 'Barlow_500Medium', fontSize: 11.5, color: C.faint },
+  compRowPct: { fontFamily: 'Archivo_700Bold', fontSize: 15, color: C.text },
+
+  paymentWhat: { fontFamily: 'Barlow_600SemiBold', fontSize: 13.5, color: C.text },
+  paymentWhen: { fontFamily: 'Barlow_500Medium', fontSize: 12, color: C.textMuted },
+  paymentAmount: { fontFamily: 'Archivo_700Bold', fontSize: 15, color: C.text },
+
+  emptyTitle: { fontFamily: 'Archivo_700Bold', fontSize: 17, color: C.text },
+
+  snack: {
+    position: 'absolute', left: 20, right: 20, bottom: 28, backgroundColor: C.ink,
+    borderRadius: 14, padding: 13, flexDirection: 'row', alignItems: 'center', gap: 12,
   },
-  snackbarText: { flex: 1, color: '#fff', fontSize: 14, fontWeight: '500' },
-  snackbarUndo: { color: theme.colors.accent, fontWeight: '800', fontSize: 13, letterSpacing: 0.5 },
-  notesTimestamp: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    marginTop: 8,
-    fontStyle: 'italic',
-  },
-  lessonDate: { fontSize: 13, color: theme.colors.textMuted, marginBottom: 2 },
-  lessonTopic: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
-  compName: { fontSize: 15, fontWeight: '600', color: theme.colors.text, flex: 1 },
-  compMeta: { fontSize: 12, color: theme.colors.textMuted },
-  payRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
-  payDate: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
-  payAmount: { fontWeight: '700', color: theme.colors.accent, fontSize: 15 },
-  emptyText: { color: theme.colors.textMuted, textAlign: 'center', padding: 12 },
-  invoiceHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  invoiceBtn: {
-    backgroundColor: theme.colors.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  invoiceBtnLocked: { backgroundColor: theme.colors.accent },
-  invoiceBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  actionRow: { flexDirection: 'row', gap: 8 },
-  // ---- Lifecycle card (Deactivate / Reactivate / Waitlist) ----
-  lifecycleCard: { padding: 14, gap: 10, marginTop: 6 },
-  lifecycleHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  lifecycleHint: { fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 },
-  lifecycleBtnRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  lifecycleBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    paddingHorizontal: 14, minHeight: 44, borderRadius: 999, borderWidth: 1,
-    flexGrow: 1, flexBasis: '46%',
-  },
-  lifecycleBtnPrimary: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  lifecycleBtnNeutral: { backgroundColor: theme.colors.background, borderColor: theme.colors.border },
-  lifecycleBtnText: { fontSize: 13, fontWeight: '700', color: theme.colors.text },
-  lifecycleBtnTextPrimary: { fontSize: 13, fontWeight: '700', color: '#fff' },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1 },
-  statusBadgeText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.3 },
-  // ---- Danger zone ----
-  dangerCard: {
-    padding: 14, gap: 12, marginTop: 16,
-    borderWidth: 1, borderColor: theme.colors.danger + '55', backgroundColor: theme.colors.danger + '08',
-  },
-  dangerHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dangerTitle: { fontSize: 14, fontWeight: '800', color: theme.colors.danger, letterSpacing: 0.3, textTransform: 'uppercase' },
-  dangerHint: { fontSize: 13, color: theme.colors.text, lineHeight: 18 },
-  gdprBanner: {
-    backgroundColor: theme.colors.warningLight,
-    borderWidth: 1, borderColor: theme.colors.warningBorder,
-    borderRadius: 10, padding: 10,
-  },
-  gdprBannerText: { fontSize: 12, color: '#92400E', lineHeight: 17 },
-  dangerBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    minHeight: 48, paddingHorizontal: 16, borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.danger,
-  },
-  dangerBtnText: { color: '#fff', fontSize: 15, fontWeight: '800' },
-  // ---- Delete confirm sheet ----
-  deleteWarnIcon: {
-    width: 64, height: 64, borderRadius: 32, alignSelf: 'center',
-    backgroundColor: theme.colors.danger + '15',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  deleteHeadline: { fontSize: 18, fontWeight: '800', color: theme.colors.text, textAlign: 'center' },
-  deleteBody: { fontSize: 14, color: theme.colors.text, textAlign: 'center', lineHeight: 20 },
-  deleteBodyBold: { fontSize: 13, color: theme.colors.textMuted, textAlign: 'center', fontStyle: 'italic', lineHeight: 18 },
-  deleteConfirmBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    minHeight: 52, paddingHorizontal: 16, borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.danger, marginTop: 4,
-  },
-  deleteConfirmBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
-  deleteCancelBtn: {
-    alignItems: 'center', justifyContent: 'center',
-    minHeight: 44, borderRadius: theme.radius.md,
-  },
-  deleteCancelText: { color: theme.colors.text, fontSize: 14, fontWeight: '700' },  actionBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    borderWidth: 1,
-  },
-  actionText: { fontWeight: '700', fontSize: 13 },
-  actionAmend: { backgroundColor: theme.colors.surface, borderColor: theme.colors.primary },
-  actionPassed: { backgroundColor: theme.colors.success, borderColor: theme.colors.success },
-  reviewRequestBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    marginTop: 10, height: 46, borderRadius: 12,
-    borderWidth: 1, borderColor: theme.colors.accent,
-    backgroundColor: '#FFF7ED',
-  },
-  reviewRequestText: { color: theme.colors.accent, fontWeight: '700', fontSize: 14 },
-  actionDelete: { backgroundColor: theme.colors.surface, borderColor: theme.colors.danger },
-  actionDisabled: { opacity: 0.55 },
-  fieldLabel: { ...theme.font.caption, fontWeight: '600', marginBottom: 6, color: theme.colors.text },
-  input: {
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
-    paddingHorizontal: 14,
-    height: 48,
-    marginBottom: 12,
-    backgroundColor: theme.colors.background,
-    color: theme.colors.text,
-  },
-  saveBtn: { backgroundColor: theme.colors.primary, height: 52, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
-  saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  cancelBtn: { height: 44, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', marginTop: 8, marginBottom: 8 },
-  cancelBtnText: { color: theme.colors.textMuted, fontWeight: '600', fontSize: 14 },
-  // Test outcomes card
-  logTestBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 10, paddingVertical: 6,
-    backgroundColor: theme.colors.primary, borderRadius: 8,
-  },
-  logTestText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  outcomeRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border,
-  },
-  outcomeBadge: {
-    width: 32, height: 32, borderRadius: 16,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  outcomePass: { backgroundColor: theme.colors.success },
-  outcomeFail: { backgroundColor: theme.colors.danger },
-  outcomeTitle: { fontSize: 14, fontWeight: '800', color: theme.colors.text },
-  outcomeMeta: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
-  empty: { fontSize: 12, color: theme.colors.textMuted, paddingVertical: 4 },
+  snackText: { flex: 1, fontFamily: 'Barlow_600SemiBold', fontSize: 13.5, color: '#fff' },
+  undoBtn: { height: 34, paddingHorizontal: 14, backgroundColor: C.accent, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  undoBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 12.5, color: '#fff' },
+
+  fieldLabel: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase', color: C.faint, marginTop: 12, marginBottom: 5 },
+  fieldInput: { height: 46, paddingHorizontal: 13, borderWidth: 1, borderColor: C.border, borderRadius: 12, backgroundColor: '#fff', fontFamily: 'Barlow_400Regular', fontSize: 14, color: C.text },
+  submitBtn: { marginTop: 18, minHeight: 50, borderRadius: 14, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  submitBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 15, color: '#fff' },
 });

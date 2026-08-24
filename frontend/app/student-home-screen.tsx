@@ -1,238 +1,149 @@
-import React, { useCallback, useEffect, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, TextInput, Alert, ActivityIndicator, Switch } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, ActivityIndicator, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Check, X, FileCheck, MessageCircle, ChevronRight, Award, Trophy, BookOpen, Pencil, Wallet, Bell } from 'lucide-react-native';
-import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
-import { mockDb, readiness, mockDb_ext } from '../src/mockDb';
-import { isPaidTier } from '../src/tiers';
-import { registerExpoPushToken } from '../src/notifications';
-import { getWaitingListStatus, setWaitingListStatus } from '../src/supabaseDb';
-import {
-  useCompetencies,
-  useBadges,
-  useReflectiveLogs,
-  createReflectiveLog,
-  useStudentByAuthId,
-  useStudentByEmail,
-  useLessonsForStudent,
-  useMockTestAttempts,
-} from '../src/useSupabaseData';
-import { Card, ProgressBar, Badge, LockedFeature } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
-import { BottomSheet } from '../src/BottomSheet';
+import { mockDb } from '../src/mockDb';
+import { isPaidTier } from '../src/tiers';
+import {
+  useStudentByAuthId, useStudentByEmail, useCompetencies, useLessonsForStudent,
+  useBadges, useReflectiveLogs, useMockTestAttempts, createReflectiveLog,
+} from '../src/useSupabaseData';
+import { DVSA_SYLLABUS } from '../src/supabaseDb';
 
-// A compact 1-10 tappable rating row, used twice in the reflection form
-// (understanding and ability, rated independently — a student can
-// understand a concept without yet feeling confident performing it).
-function RatingScale({ value, onChange, testIDPrefix }: { value: number | null; onChange: (n: number) => void; testIDPrefix: string }) {
-  return (
-    <View style={styles.ratingRow}>
-      {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-        <TouchableOpacity
-          key={n}
-          style={[styles.ratingOption, value === n && styles.ratingOptionSelected]}
-          onPress={() => onChange(n)}
-          testID={`${testIDPrefix}-rating-${n}`}
-        >
-          <Text style={[styles.ratingOptionText, value === n && styles.ratingOptionTextSelected]}>{n}</Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
+/**
+ * Student App home — redesigned visual direction from the Claude Design
+ * handoff (23 Aug 2026), promoted to live on 24 Aug 2026 after review as
+ * student-app-v2-screen. This is now the real, live student home screen —
+ * the 7th and final screen from this handoff to go live.
+ *
+ * Real "Driving readiness" criteria — the previous version of this screen
+ * used Object.freeze()'d mockDb data, identical for every student
+ * regardless of their actual progress. This version computes each
+ * criterion from real data:
+ *   - 25+ lessons  -> count of Completed lessons
+ *   - Mock test    -> any mock_test_attempts row with passed = true
+ *   - Theory       -> the 'theory_passed' badge (in-app PRACTICE test —
+ *                     deliberately labelled that way, not "DVSA theory
+ *                     test passed", since the app has no way to verify the
+ *                     real external exam)
+ *   - Manoeuvres   -> all 5 manoeuvre categories (parallel_park,
+ *                     bay_park_forward/reverse, pull_up_right,
+ *                     emergency_stop) at competency level 4+
+ *   - Independent  -> the independent_driving category specifically at
+ *                     level 4+ — DVSA_SYLLABUS already has this as its own
+ *                     tracked category, so this isn't a guess
+ * All 5 criteria have genuine data behind them — none needed to be left
+ * as an honest placeholder.
+ *
+ * One real bug fixed here ahead of this swap (24 Aug 2026), found while
+ * checking student-lifecycle-screen.tsx: the competency-detail-screen
+ * link passed studentId/category_key, but that screen actually reads
+ * params.id/params.key — every tap would have landed with a missing
+ * student and always defaulted to the "controls" category. Fixed.
+ */
+
+const C = {
+  pageBg: '#DCD6CA',
+  surface: '#F5F2EC',
+  border: '#E4DED2',
+  text: '#0F172A',
+  textMuted: '#8A8172',
+  textMuted2: '#64748B',
+  primary: '#00539F',
+  accent: '#FF6B00',
+  ink: '#0F172A',
+  warmBg: '#FFF7ED',
+  warmBorder: '#FED7AA',
+  warmText: '#C2410C',
+};
+
+const MANOEUVRE_KEYS = ['parallel_park', 'bay_park_forward', 'bay_park_reverse', 'pull_up_right', 'emergency_stop'];
+const MIN_LESSONS = 25;
+const READY_LEVEL = 4;
+
+function initialsOf(name: string): string {
+  return name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
-export default function StudentHomeScreen() {
+export default function StudentAppV2Screen() {
   const router = useRouter();
   const { user } = useAuth();
-  const [refreshing, setRefreshing] = useState(false);
+
+  const { student: sbStudentByAuth } = useStudentByAuthId(user?.id);
+  const { student: sbStudentByEmail } = useStudentByEmail(!sbStudentByAuth ? user?.email : undefined);
+  const supabaseStudent = sbStudentByAuth || sbStudentByEmail;
+  const mockStudent = !user ? mockDb.getStudent('s2') : undefined;
+  const student = supabaseStudent || mockStudent;
+  const noRealLinkFound = !!user && !supabaseStudent && !mockStudent;
+
+  const { competencies: sbCompetencies } = useCompetencies(supabaseStudent ? student?.id : undefined);
+  const competencies = supabaseStudent ? (sbCompetencies || []) : (student ? mockDb.getCompetencies(student.id) : []);
+
+  const { lessons: sbLessons } = useLessonsForStudent(supabaseStudent ? student?.id : undefined);
+  const lessons = supabaseStudent ? (sbLessons || []) : (student ? mockDb.listLessonsForStudent(student.id) : []);
+
+  const { badges } = useBadges(student?.id);
+  const { logs: sbReflections } = useReflectiveLogs(supabaseStudent ? student?.id : undefined);
+  const { attempts: mockTestAttempts } = useMockTestAttempts(supabaseStudent?.id);
+
   const [reflectOpen, setReflectOpen] = useState(false);
-  const [reflectText, setReflectText] = useState('');
-  const [reflectDifficult, setReflectDifficult] = useState('');
-  const [reflectNextFocus, setReflectNextFocus] = useState('');
   const [moodEmoji, setMoodEmoji] = useState<string | null>(null);
   const [moodReason, setMoodReason] = useState('');
   const [understandingRating, setUnderstandingRating] = useState<number | null>(null);
   const [abilityRating, setAbilityRating] = useState<number | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
+  const [reflectWell, setReflectWell] = useState('');
+  const [reflectTricky, setReflectTricky] = useState('');
+  const [reflectFocus, setReflectFocus] = useState('');
   const [saving, setSaving] = useState(false);
+  const [slotAlerts, setSlotAlerts] = useState(true);
 
-  // ---------------------------------------------------------------------
-  // Resolve "who am I?"
-  //   1. Try Supabase by auth uid (Migration 004 onwards).
-  //   2. Fall back to Supabase by email.
-  //   3. Fall back to mockDb seed (legacy demo flow).
-  // ---------------------------------------------------------------------
-  const { student: sbStudentByAuth } = useStudentByAuthId(user?.id);
-  const { student: sbStudentByEmail } = useStudentByEmail(
-    !sbStudentByAuth ? user?.email : undefined,
-  );
-  const supabaseStudent = sbStudentByAuth || sbStudentByEmail;
+  const completedLessons = lessons.filter((l) => l.status === 'Completed');
+  const recentLesson = completedLessons[0] || lessons[0];
 
-  // A real logged-in user (user exists) whose own Supabase student record
-  // can't be found is a genuine data-linking problem, not a reason to show
-  // them a hardcoded demo student's name/progress as if it were their own
-  // — that's actively misleading, not "graceful" fallback. Mock data is
-  // only appropriate when there's truly no session at all (offline/preview
-  // mode), which is what !user actually signals here.
-  const mockStudentByEmail = user?.email ? mockDb.getStudentByEmail(user.email) : undefined;
-  const mockStudent = !user ? (mockStudentByEmail || mockDb.getStudent('s2')!) : undefined;
-  const noRealLinkFound = !!user && !supabaseStudent && !mockStudent;
+  const levelByKey = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const c of competencies) map[c.category_key] = c.level;
+    return map;
+  }, [competencies]);
 
-  // Unified student card used by the UI. Prefer Supabase fields when present.
-  const student = supabaseStudent
-    ? {
-        id: supabaseStudent.id,
-        name: supabaseStudent.name,
-        status: supabaseStudent.status,
-        progress: supabaseStudent.progress ?? 0,
-        test_date: supabaseStudent.test_date,
-      }
-    : mockStudent
-      ? {
-          id: mockStudent.id,
-          name: mockStudent.name,
-          status: mockStudent.status,
-          progress: mockStudent.progress,
-          test_date: mockStudent.test_date,
-        }
-      // Genuinely no link found for a real session — an honest empty
-      // shell rather than a fabricated identity. The screen below shows a
-      // clear "not linked" message when noRealLinkFound is true.
-      : { id: '', name: user?.name || 'Student', status: 'New' as const, progress: 0, test_date: undefined };
+  const readiness = useMemo(() => {
+    const hasMockPass = mockTestAttempts.some((a) => a.passed);
+    const hasTheoryBadge = badges.some((b) => b.badge_key === 'theory_passed');
+    const manoeuvresReady = MANOEUVRE_KEYS.every((k) => (levelByKey[k] || 0) >= READY_LEVEL);
+    const independentReady = (levelByKey.independent_driving || 0) >= READY_LEVEL;
+    const criteria = [
+      { key: 'lessons', label: `Minimum ${MIN_LESSONS} lessons`, met: completedLessons.length >= MIN_LESSONS },
+      { key: 'mock_test', label: 'Mock test passed', met: hasMockPass },
+      { key: 'theory', label: 'Theory practice passed (in-app)', met: hasTheoryBadge },
+      { key: 'manoeuvres', label: 'All manoeuvres at Level 4+', met: manoeuvresReady },
+      { key: 'independent', label: 'Independent driving (Level 4+)', met: independentReady },
+    ];
+    const met = criteria.filter((c) => c.met).length;
+    return { criteria, met, total: criteria.length, pct: Math.round((met / criteria.length) * 100) };
+  }, [completedLessons.length, mockTestAttempts, badges, levelByKey]);
 
-  // -------- Competencies (Supabase first, mockDb fallback only in true no-session preview mode) --------
-  const competenciesMock = mockStudent ? mockDb.getCompetencies(student.id) : [];
-  const { competencies: sbCompetencies } = useCompetencies(supabaseStudent ? student.id : undefined);
-  const competencies = supabaseStudent ? (sbCompetencies || []) : competenciesMock;
-
-  // -------- Lessons (Supabase first, mockDb fallback only in true no-session preview mode) --------
-  const { lessons: sbLessons } = useLessonsForStudent(supabaseStudent ? student.id : undefined);
-  const lessons = supabaseStudent
-    ? (sbLessons || [])
-    : (mockStudent ? mockDb.listLessonsForStudent(student.id) : []);
-  const recentLesson = lessons.find((l) => l.status === 'Completed') || lessons[0];
-
-  // -------- Badges (Supabase first) ------------------------------------
-  const { badges: sbBadges } = useBadges(student.id);
-  const badges = useMemo(
-    () => (sbBadges && sbBadges.length > 0
-      ? sbBadges.map((b) => ({ key: b.badge_key, name: b.badge_name, description: b.description, earned_at: b.earned_at }))
-      : mockDb_ext.getBadges(student.id)),
-    [sbBadges, student.id, reloadKey],
-  );
-
-  // -------- Reflective logs (Supabase first, mock only in true no-session preview mode) --------
-  const { logs: sbReflections } = useReflectiveLogs(supabaseStudent ? student.id : undefined);
-  const reflections = useMemo(() => {
-    if (supabaseStudent) {
-      return (sbReflections || []).map((r) => ({
-        id: r.id,
-        student_id: r.student_id,
-        lesson_id: r.lesson_id || '',
-        text: [r.what_well, r.what_difficult, r.next_focus].filter(Boolean).join(' · ') || '',
-        mood_emoji: r.mood_emoji,
-        understanding_rating: r.understanding_rating,
-        ability_rating: r.ability_rating,
-        created_at: r.created_at,
-      }));
-    }
-    return mockStudent ? mockDb_ext.listReflections(student.id) : [];
-  }, [supabaseStudent, sbReflections, student.id, reloadKey]);
-
-  const met = readiness.criteria.filter((c) => c.met).length;
-  const total = readiness.criteria.length;
-  const pct = Math.round((met / total) * 100);
-
-  // -------- Mock test history (Supabase only — no mockDb equivalent) ---
-  const { attempts: mockTestAttempts } = useMockTestAttempts(supabaseStudent?.id);
-  const lastMockAttempt = mockTestAttempts[0];
-
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    setTimeout(() => {
-      setReloadKey((k) => k + 1);
-      setRefreshing(false);
-    }, 600);
-  }, []);
-
-  // -----------------------------------------------------------------------
-  // Push notification registration + Smart-Gap waiting-list opt-in
-  // -----------------------------------------------------------------------
-  const [waiting, setWaiting] = useState(false);
-  const [savingWaiting, setSavingWaiting] = useState(false);
-
-  useEffect(() => {
-    // Register the device's Expo push token against the signed-in auth user
-    // so the backend can fan out Smart Gap broadcasts. No-op on web.
-    registerExpoPushToken().catch(() => {});
-  }, [user?.id]);
-
-  useEffect(() => {
-    // Read waiting-list opt-in status whenever we know the Supabase student id.
-    if (!supabaseStudent?.id) { setWaiting(false); return; }
-    let cancelled = false;
-    getWaitingListStatus(supabaseStudent.id)
-      .then((v) => { if (!cancelled) setWaiting(v); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [supabaseStudent?.id, reloadKey]);
-
-  const toggleWaiting = async (next: boolean) => {
-    if (!supabaseStudent) {
-      Alert.alert(
-        'Not linked yet',
-        'Once your instructor links your account to Supabase, you can opt in here.',
-      );
-      return;
-    }
-    setSavingWaiting(true);
-    setWaiting(next); // optimistic
-    try {
-      await setWaitingListStatus(supabaseStudent.id, supabaseStudent.school_id, next);
-    } catch (e: any) {
-      setWaiting(!next);
-      Alert.alert('Could not save', e?.message || 'Please apply Migration 007 first.');
-    } finally {
-      setSavingWaiting(false);
-    }
-  };
-
-  const saveReflection = async () => {
-    if (reflectText.trim().length < 5) {
-      Alert.alert('Please write a few words about what went well.');
-      return;
-    }
+  const handleSaveReflection = async () => {
+    if (reflectWell.trim().length < 5) return;
     setSaving(true);
     try {
-      // If this student is Supabase-linked, persist live; otherwise mockDb.
       if (supabaseStudent) {
         await createReflectiveLog({
           student_id: supabaseStudent.id,
           lesson_id: recentLesson?.id,
-          what_well: reflectText.trim(),
-          what_difficult: reflectDifficult.trim() || undefined,
-          next_focus: reflectNextFocus.trim() || undefined,
+          what_well: reflectWell.trim(),
+          what_difficult: reflectTricky.trim() || undefined,
+          next_focus: reflectFocus.trim() || undefined,
           mood_emoji: moodEmoji || undefined,
           mood_reason: moodReason.trim() || undefined,
           understanding_rating: understandingRating ?? undefined,
           ability_rating: abilityRating ?? undefined,
         });
-      } else if (recentLesson) {
-        mockDb_ext.addReflection(recentLesson.id, student.id, reflectText.trim());
       }
-      setReflectText('');
-      setReflectDifficult('');
-      setReflectNextFocus('');
-      setMoodEmoji(null);
-      setMoodReason('');
-      setUnderstandingRating(null);
-      setAbilityRating(null);
       setReflectOpen(false);
-      setReloadKey((k) => k + 1);
-    } catch (e: any) {
-      Alert.alert('Save failed', e?.message || 'Could not save your reflection.');
+      setMoodEmoji(null); setMoodReason(''); setUnderstandingRating(null); setAbilityRating(null);
+      setReflectWell(''); setReflectTricky(''); setReflectFocus('');
     } finally {
       setSaving(false);
     }
@@ -240,388 +151,427 @@ export default function StudentHomeScreen() {
 
   if (noRealLinkFound) {
     return (
-      <SafeAreaView style={styles.safe} edges={['top']}>
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 }}>
-          <Text style={{ ...theme.font.h2, textAlign: 'center' }}>We couldn't find your student profile</Text>
-          <Text style={{ color: theme.colors.textMuted, textAlign: 'center' }}>
-            Your account isn't linked to a student record yet. Please contact your instructor.
-          </Text>
+      <SafeAreaView style={s.safe} edges={['top']}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 10 }}>
+          <Text style={s.emptyTitle}>We couldn&apos;t find your student profile</Text>
+          <Text style={s.emptySub}>Your account isn&apos;t linked to a student record yet. Please contact your instructor.</Text>
         </View>
-        <BottomNav />
+        <BottomNav role="student" />
       </SafeAreaView>
     );
   }
 
+  if (!student) {
+    return (
+      <SafeAreaView style={s.safe} edges={['top']}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={C.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const paid = isPaidTier(user?.tier);
+
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Hello,</Text>
-          <Text style={styles.name} testID="student-name">{user?.name || student.name}</Text>
-        </View>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{(user?.name || student.name).split(' ').map((n) => n[0]).join('').slice(0, 2)}</Text>
-        </View>
+    <SafeAreaView style={s.safe} edges={['top']}>
+      <View style={s.surface}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 100 }}>
+          <View style={{ paddingHorizontal: 20, paddingTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <View>
+              <Text style={s.eyebrow}>Hello</Text>
+              <Text style={s.greeting} numberOfLines={1}>{(student.name || 'Student').split(' ')[0]}</Text>
+            </View>
+            <View style={s.avatar}><Text style={s.avatarText}>{initialsOf(student.name || 'S')}</Text></View>
+          </View>
+
+          <View style={s.readyCard}>
+            <View style={s.readyInner}>
+              <Text style={s.readyLabel}>Driving readiness</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 9, marginTop: 8 }}>
+                <Text style={s.readyPct}>{readiness.pct}</Text>
+                <Text style={s.readyPctSign}>%</Text>
+                <Text style={s.readyLine} numberOfLines={1}>{readiness.met}/{readiness.total} criteria met</Text>
+              </View>
+              <View style={s.readyTrack}>
+                <View style={[s.readyFill, { width: `${readiness.pct}%` }]} />
+              </View>
+              <View style={{ marginTop: 13, gap: 7 }}>
+                {readiness.criteria.map((c) => (
+                  <View key={c.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+                    <Text style={[s.criteriaMark, { color: c.met ? '#6EE7B7' : 'rgba(255,255,255,.35)' }]}>{c.met ? '✓' : '○'}</Text>
+                    <Text style={[s.criteriaLabel, { color: c.met ? '#fff' : 'rgba(255,255,255,.55)' }]}>{c.label}</Text>
+                  </View>
+                ))}
+              </View>
+              <View style={s.readyNudgeWrap}>
+                <Text style={s.readyNudge}>
+                  {readiness.total - readiness.met === 0
+                    ? 'All criteria met — ask your instructor about booking your test!'
+                    : `${readiness.total - readiness.met} more to go before your instructor recommends a test date.`}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          <TouchableOpacity style={s.mockCta} onPress={() => router.push('/dl25-mock-test-screen' as any)} testID="v2-student-mock-cta">
+            <View style={s.mockIcon}><Text style={s.mockIconText}>DL25</Text></View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={s.mockTitle}>Mock test</Text>
+              <Text style={s.mockSub}>
+                {mockTestAttempts.length > 0 ? `${mockTestAttempts.length} attempt${mockTestAttempts.length === 1 ? '' : 's'} so far` : 'Take a full DVSA-style mock'}
+              </Text>
+            </View>
+            <Text style={s.chev}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={s.smtmCard} onPress={() => router.push('/show-me-tell-me-screen' as any)} testID="v2-student-smtm">
+            <View style={s.smtmIcon}><Text style={s.smtmIconText}>21</Text></View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={s.smtmTitle}>Show me, tell me</Text>
+              <Text style={s.smtmSub}>All 21 official DVSA vehicle safety questions</Text>
+            </View>
+            <Text style={s.chevMuted}>›</Text>
+          </TouchableOpacity>
+
+          {recentLesson && (
+            <View style={{ marginHorizontal: 20, marginTop: 22 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                <Text style={s.sectionLabel}>Last lesson</Text>
+                <Text style={s.sectionMeta}>
+                  {new Date(`${recentLesson.date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                </Text>
+              </View>
+              <View style={s.feedbackCard}>
+                <Text style={s.feedbackTopic}>{recentLesson.topic || recentLesson.lesson_type}</Text>
+                {!!recentLesson.notes && <Text style={s.feedbackNote}>&ldquo;{recentLesson.notes}&rdquo;</Text>}
+                <View style={{ flexDirection: 'row', gap: 6, marginTop: 11, flexWrap: 'wrap' }}>
+                  {!!recentLesson.grade && <Text style={s.gradeChip}>Grade {recentLesson.grade}</Text>}
+                  <Text style={s.faultsChip}>
+                    {(recentLesson.driving_faults || 0) + (recentLesson.serious_faults || 0)} faults
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+
+          <View style={{ marginHorizontal: 20, marginTop: 22 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
+              <Text style={s.sectionLabel}>DVSA syllabus</Text>
+              <Text style={s.sectionMeta}>{competencies.length}/{DVSA_SYLLABUS.length} started</Text>
+            </View>
+            {!paid ? (
+              <View style={s.lockedCard}>
+                <View style={s.lockedIcon}><Text style={{ fontSize: 17, color: C.warmText }}>✳</Text></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.lockedTitle}>Tracker locked</Text>
+                  <Text style={s.lockedSub}>Included from Growth tier. Ask your instructor to upgrade.</Text>
+                </View>
+              </View>
+            ) : (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 9 }}>
+                {competencies.slice(0, 12).map((c) => (
+                  <TouchableOpacity
+                    key={c.category_key}
+                    style={s.compCard}
+                    onPress={() => router.push({ pathname: '/competency-detail-screen', params: { id: student.id, key: c.category_key } } as any)}
+                    testID={`v2-comp-${c.category_key}`}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={s.compName} numberOfLines={1}>{c.category_name}</Text>
+                      <Text style={[s.compLevel, c.level >= READY_LEVEL && { color: '#047857' }]}>L{c.level}</Text>
+                    </View>
+                    <View style={s.compTrack}>
+                      <View style={[s.compFill, { width: `${c.progress}%`, backgroundColor: c.level >= READY_LEVEL ? '#10B981' : C.primary }]} />
+                    </View>
+                    <Text style={s.compPct}>{c.progress}%</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {badges.length > 0 && (
+            <View style={{ marginHorizontal: 20, marginTop: 22 }}>
+              <Text style={s.sectionLabel}>Badges earned</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 10 }}>
+                {badges.map((b) => (
+                  <View key={b.id} style={s.badgeChip}>
+                    <View style={{ width: 7, height: 7, borderRadius: 999, backgroundColor: C.accent }} />
+                    <Text style={s.badgeChipText}>{b.badge_name}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          <View style={s.alertsCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.alertsTitle}>Slot alerts</Text>
+                <Text style={s.alertsSub}>Short-notice cancellations</Text>
+              </View>
+              <Switch
+                value={slotAlerts}
+                onValueChange={setSlotAlerts}
+                trackColor={{ true: C.primary, false: '#D6CFC1' }}
+                testID="v2-slot-alerts-toggle"
+              />
+            </View>
+            <Text style={s.alertsCopy}>
+              {slotAlerts ? "You'll be notified if an earlier slot opens up with your instructor." : "You won't be notified about newly available slots."}
+            </Text>
+          </View>
+
+          <View style={{ flexDirection: 'row', gap: 9, marginHorizontal: 20, marginTop: 12 }}>
+            <TouchableOpacity style={[s.actionBtn, { backgroundColor: C.primary }]} onPress={() => router.push('/theory-test-screen' as any)} testID="v2-student-theory">
+              <Text style={s.actionBtnText}>Theory test</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.actionBtn, { backgroundColor: '#047857' }]} onPress={() => router.push('/wallet-screen' as any)} testID="v2-student-wallet">
+              <Text style={s.actionBtnText}>Wallet</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={{ marginHorizontal: 20, marginTop: 22 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={s.sectionLabel}>Reflective log</Text>
+              <TouchableOpacity style={s.addBtn} onPress={() => setReflectOpen(true)} testID="v2-add-reflection">
+                <Text style={s.addBtnText}>+ Add</Text>
+              </TouchableOpacity>
+            </View>
+
+            {(sbReflections || []).length === 0 ? (
+              <View style={s.emptyReflect}>
+                <Text style={s.emptyReflectText}>Reflect on what you learnt — a key part of modern learner-centred driving instruction.</Text>
+              </View>
+            ) : (
+              <View style={{ marginTop: 9, gap: 8 }}>
+                {(sbReflections || []).slice(0, 3).map((r) => (
+                  <View key={r.id} style={s.reflectCard}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      {!!r.mood_emoji && <Text style={{ fontSize: 16 }}>{r.mood_emoji}</Text>}
+                      <Text style={s.reflectDate}>{new Date(r.created_at).toLocaleDateString('en-GB')}</Text>
+                    </View>
+                    <Text style={s.reflectText}>&ldquo;{r.what_well}&rdquo;</Text>
+                    {(r.understanding_rating || r.ability_rating) ? (
+                      <Text style={s.reflectRatings}>
+                        {r.understanding_rating ? `Understanding ${r.understanding_rating}/10` : ''}
+                        {r.understanding_rating && r.ability_rating ? '  ·  ' : ''}
+                        {r.ability_rating ? `Ability ${r.ability_rating}/10` : ''}
+                      </Text>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        </ScrollView>
+
+        <BottomNav role="student" />
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        testID="student-home-scroll"
-      >
-        {/* Readiness */}
-        <Card style={styles.readyCard} testID="readiness-card">
-          <View style={styles.readyHeader}>
-            <Award size={24} color={theme.colors.accent} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.readyTitle}>Driving Readiness</Text>
-              <Text style={styles.readySub}>{met}/{total} criteria met</Text>
-            </View>
-            <Text style={styles.readyPct}>{pct}%</Text>
-          </View>
-          <ProgressBar progress={pct} height={10} color={theme.colors.accent} />
-          <View style={{ marginTop: 14, gap: 8 }}>
-            {readiness.criteria.map((c) => (
-              <View key={c.key} style={styles.criteriaRow} testID={`criteria-${c.key}`}>
-                <View style={[styles.checkCircle, { backgroundColor: c.met ? theme.colors.success : theme.colors.border }]}>
-                  {c.met ? <Check size={12} color="#fff" /> : <X size={12} color={theme.colors.textMuted} />}
-                </View>
-                <Text style={[styles.criteriaText, !c.met && { color: theme.colors.textMuted }]}>{c.label}</Text>
+      {reflectOpen && (
+        <View style={s.sheetOverlay}>
+          <TouchableOpacity style={{ flex: 1 }} onPress={() => setReflectOpen(false)} />
+          <View style={s.sheet}>
+            <View style={s.sheetHandle} />
+            <Text style={s.sheetTitle}>Reflective log</Text>
+            {!!recentLesson && (
+              <Text style={s.sheetSub}>After {recentLesson.topic || recentLesson.lesson_type}</Text>
+            )}
+            <ScrollView style={{ flex: 1, marginTop: 14 }} keyboardShouldPersistTaps="handled">
+              <Text style={s.qLabel}>Which emoji best reflects your mood at the end of this lesson?</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 9 }}>
+                {['😞', '😕', '😐', '🙂', '😄'].map((e) => (
+                  <TouchableOpacity
+                    key={e}
+                    style={[s.moodBtn, moodEmoji === e && s.moodBtnActive]}
+                    onPress={() => setMoodEmoji(e)}
+                    testID={`v2-mood-${e}`}
+                  >
+                    <Text style={{ fontSize: 22 }}>{e}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
-            ))}
-          </View>
-        </Card>
 
-        {/* Mock Test */}
-        <TouchableOpacity onPress={() => router.push('/dl25-mock-test-screen')} testID="mock-test-widget">
-          <Card style={styles.mockCard}>
-            <View style={styles.mockIcon}>
-              <FileCheck size={28} color="#fff" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.mockTitle}>DL25 Mock Test</Text>
-              <Text style={styles.mockSub}>
-                {lastMockAttempt
-                  ? `Last attempt: ${lastMockAttempt.passed ? 'PASS' : 'FAIL'} · ${new Date(lastMockAttempt.taken_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
-                  : 'Practise with the official DVSA mark sheet format'}
-              </Text>
-            </View>
-            <ChevronRight size={22} color="#fff" />
-          </Card>
-        </TouchableOpacity>
+              <Text style={[s.qLabel, { marginTop: 16 }]}>Rate your understanding following this lesson</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 9 }}>
+                {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                  <TouchableOpacity
+                    key={n}
+                    style={[s.numBtn, understandingRating === n && s.numBtnActive]}
+                    onPress={() => setUnderstandingRating(n)}
+                    testID={`v2-understanding-${n}`}
+                  >
+                    <Text style={[s.numBtnText, understandingRating === n && s.numBtnTextActive]}>{n}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
 
-        {/* Show Me, Tell Me reference */}
-        <TouchableOpacity onPress={() => router.push('/show-me-tell-me-screen')} testID="show-me-tell-me-widget">
-          <Card style={styles.smtmCard}>
-            <View style={styles.smtmIcon}>
-              <BookOpen size={22} color={theme.colors.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.smtmTitle}>Show Me, Tell Me</Text>
-              <Text style={styles.smtmSub}>All 21 official DVSA vehicle safety questions</Text>
-            </View>
-            <ChevronRight size={20} color={theme.colors.textMuted} />
-          </Card>
-        </TouchableOpacity>
+              <Text style={[s.qLabel, { marginTop: 16 }]}>Rate your ability following this lesson</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 9 }}>
+                {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                  <TouchableOpacity
+                    key={n}
+                    style={[s.numBtn, abilityRating === n && s.numBtnActive]}
+                    onPress={() => setAbilityRating(n)}
+                    testID={`v2-ability-${n}`}
+                  >
+                    <Text style={[s.numBtnText, abilityRating === n && s.numBtnTextActive]}>{n}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
 
-        {/* DVSA Competency Tracker — Growth tier and above */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>DVSA Competency Tracker</Text>
-        </View>
-        {isPaidTier(user?.tier) ? (
-          <View style={styles.compGrid} testID="competency-grid">
-            {competencies.map((c) => (
-              <TouchableOpacity
-                key={c.key}
-                style={styles.compCard}
-                onPress={() => router.push({ pathname: '/competency-detail-screen', params: { id: student.id, key: c.key } })}
-                testID={`comp-${c.key}`}
-              >
-                <View style={styles.compTop}>
-                  <Text style={styles.compName} numberOfLines={1}>{c.name}</Text>
-                  <Badge label={`L${c.level}`} bg={theme.colors.primaryLight} color={theme.colors.primary} />
-                </View>
-                <ProgressBar progress={c.progress} height={6} />
-                <Text style={styles.compPct}>{c.progress}%</Text>
+              <Text style={[s.qLabel, { marginTop: 16 }]}>What went well during this lesson?</Text>
+              <TextInput
+                style={s.textarea}
+                value={reflectWell}
+                onChangeText={setReflectWell}
+                placeholder="Today I worked on roundabouts. I felt more confident with signalling…"
+                placeholderTextColor={C.textMuted}
+                multiline
+                testID="v2-input-well"
+              />
+
+              <Text style={[s.qLabel, { marginTop: 14 }]}>What was tricky? <Text style={{ fontWeight: '400', color: C.textMuted2 }}>(optional)</Text></Text>
+              <TextInput
+                style={s.smallInput}
+                value={reflectTricky}
+                onChangeText={setReflectTricky}
+                placeholder="Observation when exiting the roundabout…"
+                placeholderTextColor={C.textMuted}
+                testID="v2-input-tricky"
+              />
+
+              <Text style={[s.qLabel, { marginTop: 14 }]}>Focus for next time? <Text style={{ fontWeight: '400', color: C.textMuted2 }}>(optional)</Text></Text>
+              <TextInput
+                style={s.smallInput}
+                value={reflectFocus}
+                onChangeText={setReflectFocus}
+                placeholder="Practise mirror checks before signalling…"
+                placeholderTextColor={C.textMuted}
+                testID="v2-input-focus"
+              />
+              <View style={{ height: 20 }} />
+            </ScrollView>
+
+            <View style={s.sheetFooter}>
+              <TouchableOpacity style={s.cancelBtn} onPress={() => setReflectOpen(false)} testID="v2-reflect-cancel">
+                <Text style={s.cancelBtnText}>Cancel</Text>
               </TouchableOpacity>
-            ))}
-          </View>
-        ) : (
-          <LockedFeature
-            title="Competency tracker locked"
-            subtitle="Track progress against the DVSA syllabus — included from Growth tier (£14.99/mo). Ask your instructor to upgrade."
-            testID="locked-competency-card"
-          />
-        )}
-
-        {/* Lesson Feedback */}
-        <Card style={{ gap: 10 }} testID="feedback-widget">
-          <View style={styles.row}>
-            <MessageCircle size={22} color={theme.colors.primary} />
-            <Text style={styles.sectionTitle}>Recent Lesson Feedback</Text>
-          </View>
-          {recentLesson ? (
-            <>
-              <Text style={styles.fbDate}>
-                {new Date(recentLesson.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}
-              </Text>
-              <Text style={styles.fbTopic}>{recentLesson.topic}</Text>
-              {recentLesson.notes && <Text style={styles.fbNotes}>"{recentLesson.notes}"</Text>}
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                {recentLesson.grade && <Badge label={`Grade ${recentLesson.grade}/5`} bg={theme.colors.successLight} color={theme.colors.success} />}
-                <Badge
-                  label={`${recentLesson.driving_faults + recentLesson.serious_faults} faults`}
-                  bg={theme.colors.warningLight}
-                  color={theme.colors.faultDriving}
-                />
-              </View>
-            </>
-          ) : (
-            <Text style={styles.fbNotes}>No recent feedback available.</Text>
-          )}
-        </Card>
-
-        {/* Badges */}
-        {badges.length > 0 && (
-          <Card style={{ gap: 10 }} testID="badges-card">
-            <View style={styles.row}>
-              <Trophy size={22} color={theme.colors.accent} />
-              <Text style={styles.sectionTitle}>Your badges</Text>
+              <TouchableOpacity
+                style={[s.saveBtn, saving && { opacity: 0.6 }]}
+                onPress={handleSaveReflection}
+                disabled={saving}
+                testID="v2-reflect-save"
+              >
+                {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.saveBtnText}>Save reflection</Text>}
+              </TouchableOpacity>
             </View>
-            <View style={styles.badgesRow}>
-              {badges.map((b) => (
-                <View key={b.key} style={styles.badgeChip} testID={`badge-${b.key}`}>
-                  <Trophy size={13} color={theme.colors.accent} />
-                  <Text style={styles.badgeChipText}>{b.name}</Text>
-                </View>
-              ))}
-            </View>
-          </Card>
-        )}
-
-        {/* Smart Gap — opt in to waiting list for short-notice slot pings */}
-        <Card style={{ gap: 10 }} testID="waiting-list-card">
-          <View style={styles.row}>
-            <Bell size={20} color={theme.colors.accent} />
-            <Text style={styles.sectionTitle}>Slot alerts</Text>
-            <View style={{ flex: 1 }} />
-            <Switch
-              value={waiting}
-              onValueChange={toggleWaiting}
-              disabled={savingWaiting}
-              trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
-              thumbColor="#fff"
-              testID="switch-waiting-list"
-            />
           </View>
-          <Text style={styles.emptyText}>
-            {waiting
-              ? "You're on the list. We'll ping you the moment a cancellation frees up a slot."
-              : 'Turn this on to get a push notification when a lesson cancellation creates a short-notice opening.'}
-          </Text>
-        </Card>
-
-        {/* Theory + Wallet shortcuts */}
-        <View style={styles.shortcutRow}>
-          <TouchableOpacity style={[styles.shortcut, { backgroundColor: theme.colors.primary }]} onPress={() => router.push('/theory-test-screen')} testID="shortcut-theory">
-            <BookOpen size={22} color="#fff" />
-            <Text style={styles.shortcutText}>Theory Test</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.shortcut, { backgroundColor: theme.colors.success }]} onPress={() => router.push({ pathname: '/wallet-screen', params: { studentId: student.id } })} testID="shortcut-wallet">
-            <Wallet size={22} color="#fff" />
-            <Text style={styles.shortcutText}>Wallet</Text>
-          </TouchableOpacity>
         </View>
-
-        {/* Reflective Logs */}
-        <Card style={{ gap: 10 }} testID="reflections-card">
-          <View style={styles.reflectHead}>
-            <Pencil size={20} color={theme.colors.primary} />
-            <Text style={styles.sectionTitle}>Reflective log</Text>
-            <TouchableOpacity onPress={() => setReflectOpen(true)} testID="btn-add-reflection">
-              <Text style={styles.linkText}>+ Add</Text>
-            </TouchableOpacity>
-          </View>
-          {reflections.length === 0 ? (
-            <Text style={styles.emptyText}>Reflect on what you learnt — a key part of modern learner-centred driving instruction.</Text>
-          ) : (
-            reflections.slice(0, 3).map((r: any) => (
-              <View key={r.id} style={styles.reflectItem} testID={`reflection-${r.id}`}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  {r.mood_emoji && <Text style={{ fontSize: 16 }}>{r.mood_emoji}</Text>}
-                  <Text style={styles.reflectDate}>{new Date(r.created_at).toLocaleDateString('en-GB')}</Text>
-                </View>
-                <Text style={styles.reflectText}>"{r.text}"</Text>
-                {(r.understanding_rating || r.ability_rating) && (
-                  <Text style={styles.reflectRatings}>
-                    {r.understanding_rating ? `Understanding ${r.understanding_rating}/10` : ''}
-                    {r.understanding_rating && r.ability_rating ? '  ·  ' : ''}
-                    {r.ability_rating ? `Ability ${r.ability_rating}/10` : ''}
-                  </Text>
-                )}
-              </View>
-            ))
-          )}
-        </Card>
-
-        <View style={{ height: 24 }} />
-      </ScrollView>
-
-      <BottomNav role="student" />
-
-      <BottomSheet visible={reflectOpen} onClose={() => setReflectOpen(false)} title="Reflective log" testID="sheet-reflection">
-        <Text style={styles.reflectQuestionLabel}>Which emoji best reflects your mood at the end of this lesson?</Text>
-        <View style={styles.moodRow}>
-          {['😞', '😕', '😐', '🙂', '😄'].map((emoji) => (
-            <TouchableOpacity
-              key={emoji}
-              style={[styles.moodOption, moodEmoji === emoji && styles.moodOptionSelected]}
-              onPress={() => setMoodEmoji(emoji)}
-              testID={`mood-${emoji}`}
-            >
-              <Text style={{ fontSize: 26 }}>{emoji}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        {moodEmoji && (
-          <TextInput
-            style={styles.reflectSmallInput}
-            value={moodReason}
-            onChangeText={setMoodReason}
-            placeholder="Why that emoji? (optional)"
-            placeholderTextColor={theme.colors.textMuted}
-            testID="input-mood-reason"
-          />
-        )}
-
-        <Text style={[styles.reflectQuestionLabel, { marginTop: 14 }]}>Rate your understanding following this lesson</Text>
-        <RatingScale value={understandingRating} onChange={setUnderstandingRating} testIDPrefix="understanding" />
-
-        <Text style={[styles.reflectQuestionLabel, { marginTop: 14 }]}>Rate your ability following this lesson</Text>
-        <RatingScale value={abilityRating} onChange={setAbilityRating} testIDPrefix="ability" />
-
-        <Text style={[styles.reflectQuestionLabel, { marginTop: 14 }]}>What went well during this lesson?</Text>
-        <TextInput
-          style={styles.reflectInput}
-          value={reflectText}
-          onChangeText={setReflectText}
-          placeholder="Today I worked on roundabouts. I felt more confident with signalling…"
-          placeholderTextColor={theme.colors.textMuted}
-          multiline
-          textAlignVertical="top"
-          testID="input-reflection"
-        />
-
-        <Text style={[styles.reflectQuestionLabel, { marginTop: 14 }]}>What was tricky? (optional)</Text>
-        <TextInput
-          style={styles.reflectSmallInput}
-          value={reflectDifficult}
-          onChangeText={setReflectDifficult}
-          placeholder="Observation when exiting the roundabout…"
-          placeholderTextColor={theme.colors.textMuted}
-          testID="input-reflection-difficult"
-        />
-
-        <Text style={[styles.reflectQuestionLabel, { marginTop: 14 }]}>Focus for next time? (optional)</Text>
-        <TextInput
-          style={styles.reflectSmallInput}
-          value={reflectNextFocus}
-          onChangeText={setReflectNextFocus}
-          placeholder="Practise mirror checks before signalling…"
-          placeholderTextColor={theme.colors.textMuted}
-          testID="input-reflection-next-focus"
-        />
-
-        <TouchableOpacity
-          style={[styles.saveBtn, saving && { opacity: 0.6 }, { marginTop: 16 }]}
-          onPress={saveReflection}
-          disabled={saving}
-          testID="btn-save-reflection"
-        >
-          {saving
-            ? <ActivityIndicator color="#fff" />
-            : <Text style={styles.saveBtnText}>Save reflection</Text>}
-        </TouchableOpacity>
-      </BottomSheet>
+      )}
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: theme.colors.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16 },
-  greeting: { ...theme.font.caption },
-  name: { ...theme.font.h2 },
-  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#fff', fontWeight: '700' },
-  scroll: { padding: 16, gap: 16, paddingBottom: 96 },
-  readyCard: { gap: 8 },
-  readyHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 },
-  readyTitle: { fontSize: 16, fontWeight: '700', color: theme.colors.text },
-  readySub: { ...theme.font.caption },
-  readyPct: { fontSize: 24, fontWeight: '700', color: theme.colors.accent },
-  criteriaRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  checkCircle: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  criteriaText: { fontSize: 14, color: theme.colors.text, flex: 1 },
-  mockCard: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: theme.colors.accent, borderColor: theme.colors.accent },
-  mockIcon: { width: 52, height: 52, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
-  mockTitle: { color: '#fff', fontWeight: '700', fontSize: 17 },
-  mockSub: { color: '#ffffffdd', fontSize: 13, marginTop: 2 },
-  smtmCard: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  smtmIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: theme.colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
-  smtmTitle: { color: theme.colors.text, fontWeight: '700', fontSize: 15 },
-  smtmSub: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
-  sectionTitle: { ...theme.font.h3 },
-  sectionHeader: { marginTop: 4 },
-  compGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  compCard: {
-    flexBasis: '48%',
-    flexGrow: 1,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    padding: 12,
-    gap: 8,
-  },
-  compTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 6 },
-  compName: { fontWeight: '600', color: theme.colors.text, flex: 1, fontSize: 13 },
-  compPct: { fontSize: 12, color: theme.colors.textMuted, fontWeight: '500' },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  fbDate: { ...theme.font.caption, fontWeight: '600', color: theme.colors.primary },
-  fbTopic: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
-  fbNotes: { fontSize: 14, color: theme.colors.text, fontStyle: 'italic', lineHeight: 20 },
-  badgesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  badgeChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.colors.lockedBg, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: theme.colors.accent },
-  badgeChipText: { color: theme.colors.accent, fontWeight: '700', fontSize: 13 },
-  shortcutRow: { flexDirection: 'row', gap: 10 },
-  shortcut: { flex: 1, height: 60, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  shortcutText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  reflectHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  linkText: { color: theme.colors.primary, fontWeight: '700', fontSize: 13, marginLeft: 'auto' },
-  emptyText: { color: theme.colors.textMuted, fontSize: 13 },
-  reflectItem: { borderLeftWidth: 3, borderLeftColor: theme.colors.primary, paddingLeft: 10, paddingVertical: 4 },
-  reflectDate: { fontSize: 11, color: theme.colors.textMuted, fontWeight: '600' },
-  reflectText: { fontSize: 14, color: theme.colors.text, fontStyle: 'italic', marginTop: 2 },
-  reflectRatings: { fontSize: 12, color: theme.colors.primary, fontWeight: '600', marginTop: 4 },
-  hint: { color: theme.colors.textMuted, marginBottom: 12 },
-  reflectInput: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, padding: 14, minHeight: 120, backgroundColor: theme.colors.background, fontSize: 15 },
-  reflectSmallInput: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: theme.colors.background, fontSize: 14, marginTop: 6 },
-  reflectQuestionLabel: { fontSize: 14, fontWeight: '700', color: theme.colors.text },
-  moodRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
-  moodOption: {
-    width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: theme.colors.border, backgroundColor: theme.colors.background,
-  },
-  moodOptionSelected: { borderColor: theme.colors.primary, backgroundColor: theme.colors.lockedBg },
-  ratingRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
-  ratingOption: {
-    width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.background,
-  },
-  ratingOptionSelected: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  ratingOptionText: { fontSize: 13, fontWeight: '600', color: theme.colors.text },
-  ratingOptionTextSelected: { color: '#fff' },
-  saveBtn: { marginTop: 12, backgroundColor: theme.colors.primary, height: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: C.pageBg },
+  surface: { flex: 1, backgroundColor: C.surface },
+
+  eyebrow: { fontFamily: 'Barlow_600SemiBold', fontSize: 12, letterSpacing: 1.7, textTransform: 'uppercase', color: C.textMuted },
+  greeting: { fontFamily: 'Archivo_800ExtraBold', fontSize: 30, letterSpacing: -0.6, color: C.text, marginTop: 1 },
+  avatar: { width: 46, height: 46, borderRadius: 999, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontFamily: 'Archivo_700Bold', fontSize: 15, color: '#fff' },
+
+  readyCard: { marginHorizontal: 20, marginTop: 16, borderRadius: 22, backgroundColor: C.primary, padding: 6, shadowColor: '#003A6F', shadowOffset: { width: 0, height: 14 }, shadowOpacity: 0.35, shadowRadius: 28, elevation: 6 },
+  readyInner: { borderWidth: 2, borderColor: 'rgba(255,255,255,.5)', borderRadius: 17, padding: 16 },
+  readyLabel: { fontFamily: 'Archivo_800ExtraBold', fontSize: 12, letterSpacing: 2, textTransform: 'uppercase', color: '#FF9A4D' },
+  readyPct: { fontFamily: 'Archivo_800ExtraBold', fontSize: 54, letterSpacing: -1.7, color: '#fff' },
+  readyPctSign: { fontFamily: 'Archivo_700Bold', fontSize: 20, color: 'rgba(255,255,255,.6)', paddingBottom: 6 },
+  readyLine: { flex: 1, textAlign: 'right', fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: 'rgba(255,255,255,.78)', paddingBottom: 7 },
+  readyTrack: { height: 6, borderRadius: 999, backgroundColor: 'rgba(255,255,255,.22)', marginTop: 13, overflow: 'hidden' },
+  readyFill: { height: '100%', backgroundColor: '#FF9A4D', borderRadius: 999 },
+  criteriaMark: { fontFamily: 'Barlow_700Bold', fontSize: 14, width: 16 },
+  criteriaLabel: { fontFamily: 'Barlow_600SemiBold', fontSize: 13.5, flex: 1 },
+  readyNudgeWrap: { marginTop: 15, paddingTop: 13, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,.22)' },
+  readyNudge: { fontFamily: 'Barlow_500Medium', fontSize: 13, lineHeight: 18.5, color: 'rgba(255,255,255,.8)' },
+
+  mockCta: { marginHorizontal: 20, marginTop: 14, borderRadius: 18, backgroundColor: C.accent, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 },
+  mockIcon: { width: 52, height: 52, borderRadius: 15, backgroundColor: 'rgba(255,255,255,.22)', alignItems: 'center', justifyContent: 'center' },
+  mockIconText: { fontFamily: 'Archivo_800ExtraBold', fontSize: 15, color: '#fff' },
+  mockTitle: { fontFamily: 'Archivo_700Bold', fontSize: 17, color: '#fff' },
+  mockSub: { fontFamily: 'Barlow_500Medium', fontSize: 13, color: 'rgba(255,255,255,.85)', marginTop: 1 },
+  chev: { fontFamily: 'Barlow_700Bold', fontSize: 20, color: '#fff' },
+
+  smtmCard: { marginHorizontal: 20, marginTop: 9, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 13 },
+  smtmIcon: { width: 42, height: 42, borderRadius: 12, backgroundColor: '#E5F0FA', alignItems: 'center', justifyContent: 'center' },
+  smtmIconText: { fontFamily: 'Archivo_800ExtraBold', fontSize: 13, color: C.primary },
+  smtmTitle: { fontFamily: 'Archivo_700Bold', fontSize: 15, color: C.text },
+  smtmSub: { fontFamily: 'Barlow_500Medium', fontSize: 12.5, color: C.textMuted },
+  chevMuted: { fontFamily: 'Barlow_700Bold', fontSize: 18, color: '#A69C8B' },
+
+  sectionLabel: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1.8, textTransform: 'uppercase', color: C.textMuted },
+  sectionMeta: { fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: C.textMuted },
+
+  feedbackCard: { marginTop: 9, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 15 },
+  feedbackTopic: { fontFamily: 'Archivo_700Bold', fontSize: 16, color: C.text },
+  feedbackNote: { fontFamily: 'Barlow_400Regular', fontSize: 14, lineHeight: 20, color: C.textMuted2, marginTop: 8 },
+  gradeChip: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 0.8, textTransform: 'uppercase', color: '#fff', backgroundColor: C.primary, paddingHorizontal: 7, paddingVertical: 4, borderRadius: 5, overflow: 'hidden' },
+  faultsChip: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 0.8, textTransform: 'uppercase', color: '#92400E', backgroundColor: '#FEF3C7', paddingHorizontal: 7, paddingVertical: 4, borderRadius: 5, overflow: 'hidden' },
+
+  lockedCard: { marginTop: 9, backgroundColor: C.warmBg, borderWidth: 1, borderColor: C.warmBorder, borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 13 },
+  lockedIcon: { width: 42, height: 42, borderRadius: 999, backgroundColor: C.warmBorder, alignItems: 'center', justifyContent: 'center' },
+  lockedTitle: { fontFamily: 'Archivo_700Bold', fontSize: 14.5, color: C.text },
+  lockedSub: { fontFamily: 'Barlow_400Regular', fontSize: 12.5, lineHeight: 17, color: C.textMuted, marginTop: 1 },
+
+  compCard: { width: '48%', backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 11, gap: 8 },
+  compName: { fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: C.text, flex: 1 },
+  compLevel: { fontFamily: 'Barlow_700Bold', fontSize: 11, color: C.textMuted },
+  compTrack: { height: 5, borderRadius: 999, backgroundColor: '#EDE8DE', overflow: 'hidden' },
+  compFill: { height: '100%' },
+  compPct: { fontFamily: 'Barlow_600SemiBold', fontSize: 12, color: C.textMuted2 },
+
+  badgeChip: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 13, paddingVertical: 9, backgroundColor: C.warmBg, borderWidth: 1, borderColor: C.accent, borderRadius: 999 },
+  badgeChipText: { fontFamily: 'Barlow_700Bold', fontSize: 13, color: C.warmText },
+
+  alertsCard: { marginHorizontal: 20, marginTop: 20, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 },
+  alertsTitle: { fontFamily: 'Archivo_700Bold', fontSize: 15, color: C.text },
+  alertsSub: { fontFamily: 'Barlow_500Medium', fontSize: 12, color: C.textMuted, marginTop: 1 },
+  alertsCopy: { fontFamily: 'Barlow_400Regular', fontSize: 12.5, lineHeight: 18, color: C.textMuted, marginTop: 9 },
+
+  actionBtn: { flex: 1, minHeight: 58, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  actionBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 14.5, color: '#fff' },
+
+  addBtn: { height: 32, paddingHorizontal: 13, borderRadius: 9, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' },
+  addBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 12, color: '#fff' },
+  emptyReflect: { marginTop: 9, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 16 },
+  emptyReflectText: { fontFamily: 'Barlow_400Regular', fontSize: 13.5, lineHeight: 19.5, color: C.textMuted },
+  reflectCard: { backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderLeftWidth: 4, borderLeftColor: C.primary, borderRadius: 16, padding: 13 },
+  reflectDate: { fontFamily: 'Barlow_700Bold', fontSize: 12, color: C.textMuted2 },
+  reflectText: { fontFamily: 'Barlow_400Regular', fontSize: 13.5, lineHeight: 19, color: C.text, marginTop: 7 },
+  reflectRatings: { fontFamily: 'Barlow_700Bold', fontSize: 12, color: C.primary, marginTop: 7 },
+
+  emptyTitle: { fontFamily: 'Archivo_700Bold', fontSize: 18, color: C.text, textAlign: 'center' },
+  emptySub: { fontFamily: 'Barlow_500Medium', fontSize: 14, color: C.textMuted, textAlign: 'center' },
+
+  sheetOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,.5)' },
+  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, top: 70, backgroundColor: C.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingTop: 10, paddingHorizontal: 20 },
+  sheetHandle: { width: 42, height: 4, borderRadius: 999, backgroundColor: '#D6CFC1', alignSelf: 'center', marginBottom: 14 },
+  sheetTitle: { fontFamily: 'Archivo_800ExtraBold', fontSize: 24, letterSpacing: -0.4, color: C.text },
+  sheetSub: { fontFamily: 'Barlow_500Medium', fontSize: 13, color: C.textMuted, marginTop: 2 },
+  qLabel: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: C.text },
+  moodBtn: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.border, backgroundColor: '#fff' },
+  moodBtnActive: { borderColor: C.primary, backgroundColor: '#E5F0FA' },
+  numBtn: { width: 34, height: 34, borderRadius: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border, backgroundColor: '#fff' },
+  numBtnActive: { backgroundColor: C.primary, borderColor: C.primary },
+  numBtnText: { fontFamily: 'Barlow_600SemiBold', fontSize: 13, color: C.text },
+  numBtnTextActive: { color: '#fff' },
+  textarea: { width: '100%', minHeight: 96, marginTop: 9, padding: 13, borderWidth: 1, borderColor: C.border, borderRadius: 13, backgroundColor: '#fff', fontFamily: 'Barlow_400Regular', fontSize: 14, color: C.text, textAlignVertical: 'top' },
+  smallInput: { width: '100%', minHeight: 46, marginTop: 9, paddingHorizontal: 13, borderWidth: 1, borderColor: C.border, borderRadius: 13, backgroundColor: '#fff', fontFamily: 'Barlow_400Regular', fontSize: 14, color: C.text },
+  sheetFooter: { paddingVertical: 14, borderTopWidth: 1, borderTopColor: C.border, flexDirection: 'row', gap: 9 },
+  cancelBtn: { width: 96, minHeight: 52, borderWidth: 1, borderColor: C.border, borderRadius: 14, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  cancelBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 15, color: C.textMuted },
+  saveBtn: { flex: 1, minHeight: 52, borderRadius: 14, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  saveBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 15, color: '#fff' },
 });

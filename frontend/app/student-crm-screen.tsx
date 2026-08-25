@@ -49,6 +49,10 @@ export default function StudentCrmScreen() {
   // can dismiss to return to the full roster.
   // -----------------------------------------------------------------------
   const [arrearsActive, setArrearsActive] = useState(false);
+  // Two more tap-to-filter toggles for the "at a glance" summary, matching
+  // the existing arrearsActive pattern rather than inventing a new one.
+  const [noBookingActive, setNoBookingActive] = useState(false);
+  const [lowCreditActive, setLowCreditActive] = useState(false);
   const [balances, setBalances] = useState<Record<string, number>>({});
   // Apply on initial mount only — toggling the chip later sets state directly.
   React.useEffect(() => {
@@ -110,15 +114,38 @@ export default function StudentCrmScreen() {
     ensureDemoStudentsSeeded().catch(() => {});
   }, []);
 
+  // "Low credit" is a judgment call, not something the data defines for us —
+  // less than one typical lesson's worth of prepaid hours remaining, while
+  // still genuinely having some balance (0 or untracked isn't "low", it's
+  // just "not using the prepaid-hours system").
+  const LOW_CREDIT_THRESHOLD_HOURS = 2;
+
   const filtered = useMemo(() => {
     return students.filter((s) => {
       const q = search.toLowerCase();
       const matchQ = !q || s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q);
       const matchF = filter === 'All' || s.status === filter;
       const matchArrears = !arrearsActive || (balances[s.id] ?? 0) > 0;
-      return matchQ && matchF && matchArrears;
+      const matchNoBooking = !noBookingActive || !s.next_lesson;
+      const hb = hoursBalances[s.id] ?? 0;
+      const matchLowCredit = !lowCreditActive || (hb > 0 && hb < LOW_CREDIT_THRESHOLD_HOURS);
+      return matchQ && matchF && matchArrears && matchNoBooking && matchLowCredit;
     });
-  }, [students, search, filter, arrearsActive, balances]);
+  }, [students, search, filter, arrearsActive, balances, noBookingActive, lowCreditActive, hoursBalances]);
+
+  // "At a glance" attention-needed counts — actual numbers for things
+  // needing action, not just status filter tabs. Each tile below is
+  // tappable and toggles the matching filter, reusing the same pattern
+  // as the existing arrears deep-link from the owner dashboard.
+  const glanceStats = useMemo(() => {
+    const noBooking = students.filter((s) => !s.next_lesson).length;
+    const lowCredit = students.filter((s) => {
+      const hb = hoursBalances[s.id] ?? 0;
+      return hb > 0 && hb < LOW_CREDIT_THRESHOLD_HOURS;
+    }).length;
+    const inArrears = students.filter((s) => (balances[s.id] ?? 0) > 0).length;
+    return { noBooking, lowCredit, inArrears };
+  }, [students, hoursBalances, balances]);
 
   const counts = useMemo(() => {
     return {
@@ -317,6 +344,38 @@ export default function StudentCrmScreen() {
             testID="input-search"
           />
         </View>
+      </View>
+
+      {/* At a glance — actual counts for things needing action, not just
+          status filter tabs. Each tile toggles a filter when tapped,
+          same pattern as the arrears deep-link below. */}
+      <View style={styles.glanceRow}>
+        <TouchableOpacity
+          style={[styles.glanceTile, noBookingActive && styles.glanceTileActive]}
+          onPress={() => setNoBookingActive((v) => !v)}
+          testID="glance-no-booking"
+        >
+          <Text style={styles.glanceValue}>{glanceStats.noBooking}</Text>
+          <Text style={styles.glanceLabel}>No booking</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.glanceTile, lowCreditActive && styles.glanceTileActive]}
+          onPress={() => setLowCreditActive((v) => !v)}
+          testID="glance-low-credit"
+        >
+          <Text style={styles.glanceValue}>{glanceStats.lowCredit}</Text>
+          <Text style={styles.glanceLabel}>Low credit</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.glanceTile, arrearsActive && styles.glanceTileActive]}
+          onPress={() => setArrearsActive((v) => !v)}
+          testID="glance-in-arrears"
+        >
+          <Text style={[styles.glanceValue, glanceStats.inArrears > 0 && styles.glanceValueWarn]}>
+            {glanceStats.inArrears}
+          </Text>
+          <Text style={styles.glanceLabel}>In arrears</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Arrears chip — only shown while the arrears filter is active.
@@ -719,6 +778,15 @@ const styles = StyleSheet.create({
   iconBtn: { padding: 8, borderRadius: 8, width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
   title: { ...theme.font.h2 },
   searchRow: { paddingHorizontal: 16, paddingBottom: 8 },
+  glanceRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 10 },
+  glanceTile: {
+    flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 12,
+    backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border,
+  },
+  glanceTileActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primaryLight },
+  glanceValue: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
+  glanceValueWarn: { color: theme.colors.danger },
+  glanceLabel: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
   searchField: {
     flexDirection: 'row',
     alignItems: 'center',

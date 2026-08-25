@@ -44,7 +44,17 @@ function AuthGate() {
     // dropped. If someone else's session is active, clear it first so the
     // invite is accepted with a clean slate rather than layered under a
     // stale session.
-    if (inviteToken && onRootish) {
+    //
+    // Deliberately NOT gated on onRootish (fixed 25 Aug 2026) — on a fresh
+    // page load with an already-persisted session, params.invite can take
+    // one extra render cycle to populate after the URL loads. If the
+    // "already signed in" redirect below fires first (since onRootish was
+    // still true at that exact moment, before segments moved), by the time
+    // inviteToken finally populates, the current route is no longer
+    // "rootish" — so this check would never fire, and the invite gets
+    // silently dropped with zero indication anything went wrong. A real
+    // invite token should win no matter what route we're currently on.
+    if (inviteToken) {
       if (user) {
         signOut().finally(() => router.replace({ pathname: '/sign-up-login-screen', params: { invite: inviteToken } }));
       } else {

@@ -29,6 +29,36 @@ import { fireInstantNotification } from './notifications';
 import { Badge } from './ui';
 import { getTravelTime, lessonAddress } from './maps';
 
+// Moved to module scope (25 Aug 2026) — same defensive fix as the Field
+// component bug found elsewhere in this session, applied here too even
+// though this specific component has no visible symptom (no TextInput,
+// so no keyboard/focus to lose from being redefined every render) — same
+// anti-pattern, worth the same fix for consistency rather than waiting
+// for it to actually cause a problem.
+function Stepper({ label, value, setter, colour, testID }: { label: string; value: number; setter: (n: number) => void; colour: string; testID: string }) {
+  return (
+    <View style={styles.stepperRow} testID={testID}>
+      <Text style={styles.stepperLabel}>{label}</Text>
+      <View style={styles.stepperGroup}>
+        <TouchableOpacity
+          style={[styles.stepBtn, value === 0 && styles.btnDisabled]}
+          onPress={() => setter(Math.max(0, value - 1))}
+          disabled={value === 0}
+          testID={`${testID}-dec`}
+        >
+          <Minus size={16} color={theme.colors.text} />
+        </TouchableOpacity>
+        <View style={[styles.stepperValue, { backgroundColor: value > 0 ? colour : theme.colors.surface, borderColor: value > 0 ? colour : theme.colors.border }]}>
+          <Text style={[styles.stepperValueText, value > 0 && { color: '#fff' }]}>{value}</Text>
+        </View>
+        <TouchableOpacity style={styles.stepBtn} onPress={() => setter(value + 1)} testID={`${testID}-inc`}>
+          <Plus size={16} color={theme.colors.text} />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 type Props = {
   visible: boolean;
   onClose: () => void;
@@ -871,27 +901,6 @@ type CompleteProps = {
 };
 
 function CompleteLessonModal(p: CompleteProps) {
-  const Stepper = ({ label, value, setter, colour, testID }: { label: string; value: number; setter: (n: number) => void; colour: string; testID: string }) => (
-    <View style={styles.stepperRow} testID={testID}>
-      <Text style={styles.stepperLabel}>{label}</Text>
-      <View style={styles.stepperGroup}>
-        <TouchableOpacity
-          style={[styles.stepBtn, value === 0 && styles.btnDisabled]}
-          onPress={() => setter(Math.max(0, value - 1))}
-          disabled={value === 0}
-          testID={`${testID}-dec`}
-        >
-          <Minus size={16} color={theme.colors.text} />
-        </TouchableOpacity>
-        <View style={[styles.stepperValue, { backgroundColor: value > 0 ? colour : theme.colors.surface, borderColor: value > 0 ? colour : theme.colors.border }]}>
-          <Text style={[styles.stepperValueText, value > 0 && { color: '#fff' }]}>{value}</Text>
-        </View>
-        <TouchableOpacity style={styles.stepBtn} onPress={() => setter(value + 1)} testID={`${testID}-inc`}>
-          <Plus size={16} color={theme.colors.text} />
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
 
   return (
     <Modal visible={p.visible} transparent animationType="slide" onRequestClose={p.onClose}>

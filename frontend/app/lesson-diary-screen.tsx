@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -7,7 +7,7 @@ import { useLessonsForWeek, useLessonsForMonth, useStudents } from '../src/useSu
 import { BottomNav } from '../src/BottomNav';
 import { LessonToolsSheet } from '../src/LessonToolsSheet';
 import { Lesson } from '../src/mockDb';
-import { startOfWeek, addDays, localDateKey, startOfMonthGrid, endOfMonthGrid, addMonths, isSameMonth } from '../src/diary/dateUtils';
+import { startOfWeek, addDays, localDateKey, startOfMonthGrid, endOfMonthGrid, addMonths, isSameMonth, assignOverlapColumns } from '../src/diary/dateUtils';
 import { colorForLessonType, LESSON_TYPES } from '../src/diary/lessonTypes';
 import { AddLessonSheet } from '../src/diary/AddLessonSheet';
 
@@ -91,6 +91,17 @@ export default function LessonDiaryV2Screen() {
   });
   const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  // Clash-warning snackbar (25 Aug 2026) — surfaces the clash info
+  // AddLessonSheet has always computed and passed via onCreated, but which
+  // nothing was actually doing anything with. Found via Grant's screen
+  // recording: overlapping lessons currently render on top of each other
+  // in Day view with zero warning that a clash even happened.
+  const [clashSnack, setClashSnack] = useState<{ name: string; start: string; end: string } | null>(null);
+  useEffect(() => {
+    if (!clashSnack) return;
+    const t = setTimeout(() => setClashSnack(null), 6000);
+    return () => clearTimeout(t);
+  }, [clashSnack]);
 
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
   const { lessons } = useLessonsForWeek(weekStart);
@@ -115,6 +126,16 @@ export default function LessonDiaryV2Screen() {
   }, [lessons, weekStart]);
 
   const dayList = lessonsByDay[selectedDayIdx] || [];
+
+  // Column assignment for overlapping lessons (25 Aug 2026) — found via a
+  // real screen recording: two lessons at the identical time slot were
+  // rendering directly on top of each other, with the later one completely
+  // hiding the first. See assignOverlapColumns in dateUtils.ts for the
+  // actual algorithm and its test coverage.
+  const dayColumns = useMemo(
+    () => assignOverlapColumns(dayList.map((l) => ({ id: l.id, startMin: toMinutesOfDay(l.start_time), endMin: toMinutesOfDay(l.end_time) }))),
+    [dayList],
+  );
 
   const totalMinutesFor = (idx: number) =>
     (lessonsByDay[idx] || []).reduce((sum, l) => sum + (toMinutesOfDay(l.end_time) - toMinutesOfDay(l.start_time)), 0);
@@ -361,19 +382,39 @@ export default function LessonDiaryV2Screen() {
                       }
                       const top = (sMin - TOP_MIN) / 60 * HOUR_H;
                       const height = (eMin - sMin) / 60 * HOUR_H - 4;
+                      const colInfo = dayColumns[l.id] || { column: 0, totalColumns: 1 };
+                      const colWidthPct = 100 / colInfo.totalColumns;
                       items.push(
-                        <TouchableOpacity
-                          key={l.id}
-                          style={[s.lessonBlock, { top, height, backgroundColor: colorForLessonType(l.lesson_type) }]}
-                          onPress={() => setDetailLesson(l)}
-                          testID={`v2-lesson-${l.id}`}
-                        >
-                          <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text style={s.lessonBlockName} numberOfLines={1}>{studentName(l.student_id)}</Text>
-                            <Text style={s.lessonBlockMeta} numberOfLines={1}>{hhmm(sMin)}–{hhmm(eMin)} · {l.topic || l.lesson_type}</Text>
-                          </View>
-                          <Text style={s.lessonBlockTag}>{durLabel(eMin - sMin)}</Text>
-                        </TouchableOpacity>,
+                        // Outer wrapper matches the original single-lesson
+                        // positioning exactly (left: 38 for the hour-label
+                        // gutter, right: 0) — the inner block's percentage
+                        // left/width are relative to THIS wrapper, not the
+                        // full screen width, so the 38px gutter is still
+                        // respected even when a lesson is split into
+                        // columns for an overlap.
+                        <View key={l.id} style={{ position: 'absolute', top, height, left: 38, right: 0 }}>
+                          <TouchableOpacity
+                            style={[
+                              s.lessonBlock,
+                              {
+                                position: 'absolute', top: 0, height: '100%',
+                                left: `${colInfo.column * colWidthPct}%`,
+                                width: colInfo.totalColumns > 1 ? `${colWidthPct}%` : '100%',
+                                marginHorizontal: colInfo.totalColumns > 1 ? 2 : 0,
+                                right: undefined,
+                                backgroundColor: colorForLessonType(l.lesson_type),
+                              },
+                            ]}
+                            onPress={() => setDetailLesson(l)}
+                            testID={`v2-lesson-${l.id}`}
+                          >
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                              <Text style={s.lessonBlockName} numberOfLines={1}>{studentName(l.student_id)}</Text>
+                              <Text style={s.lessonBlockMeta} numberOfLines={1}>{hhmm(sMin)}–{hhmm(eMin)} · {l.topic || l.lesson_type}</Text>
+                            </View>
+                            {colInfo.totalColumns === 1 && <Text style={s.lessonBlockTag}>{durLabel(eMin - sMin)}</Text>}
+                          </TouchableOpacity>
+                        </View>,
                       );
                       return items;
                     })
@@ -404,8 +445,23 @@ export default function LessonDiaryV2Screen() {
         lessons={lessons}
         availBlocks={[]}
         pro
-        onCreated={() => { setAddOpen(false); setSelectedDate(new Date(selectedDate)); }}
+        onCreated={(info) => {
+          setAddOpen(false);
+          setSelectedDate(new Date(selectedDate));
+          if (info.clash) setClashSnack(info.clash);
+        }}
       />
+
+      {clashSnack && (
+        <View style={s.clashSnack} testID="clash-snack">
+          <Text style={s.clashSnackText}>
+            Saved, but this overlaps {clashSnack.name}'s lesson ({clashSnack.start}–{clashSnack.end}).
+          </Text>
+          <TouchableOpacity onPress={() => setClashSnack(null)} testID="clash-snack-dismiss">
+            <Text style={s.clashSnackDismiss}>Dismiss</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -459,4 +515,11 @@ const s = StyleSheet.create({
   monthLessonChip: { borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2 },
   monthLessonChipText: { fontFamily: 'Barlow_500Medium', fontSize: 10, color: C.text },
   monthMoreText: { fontFamily: 'Barlow_700Bold', fontSize: 10, color: C.textMuted },
+
+  clashSnack: {
+    position: 'absolute', left: 20, right: 20, bottom: 28, backgroundColor: '#0F172A',
+    borderRadius: 14, padding: 13, flexDirection: 'row', alignItems: 'center', gap: 12,
+  },
+  clashSnackText: { flex: 1, fontFamily: 'Barlow_600SemiBold', fontSize: 13, color: '#fff' },
+  clashSnackDismiss: { fontFamily: 'Barlow_700Bold', fontSize: 12.5, color: C.accent },
 });

@@ -22,6 +22,11 @@ export type AddLessonCreatedInfo = {
   created: number;
   /** Whether the user toggled the recurring switch */
   recurring: boolean;
+  /** Set when the (single, non-recurring) lesson was saved despite
+   * overlapping an existing one — the instructor explicitly chose to save
+   * anyway, so this isn't blocking, but the parent should surface it
+   * (e.g. a snackbar) rather than silently saying nothing at all. */
+  clash?: { name: string; start: string; end: string };
 };
 
 type Props = {
@@ -319,13 +324,17 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     setRepeatOn(false);
     onClose();
 
-    // Tell the parent so it can scroll & jump the visible date.
+    // Tell the parent so it can scroll & jump the visible date. Only the
+    // single, non-recurring case carries a clash — for recurring series,
+    // a clashing occurrence is silently skipped instead (see plan-building
+    // above), so there's nothing to warn about after the fact there.
     if (firstCreated) {
       onCreated({
         firstDate: submittedDate,
         startTime: submittedStart,
         created,
         recurring: wasRecurring,
+        clash: !wasRecurring ? plan[0]?.clash : undefined,
       });
     }
 

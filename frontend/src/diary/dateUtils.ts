@@ -82,3 +82,51 @@ export function localDateKey(d: Date): string {
   const dd = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${dd}`;
 }
+
+export type ColumnAssignment = { column: number; totalColumns: number };
+
+/**
+ * Assigns a column (0, 1, 2...) to each item in a same-day list of
+ * {id, startMin, endMin} entries, so that mutually-overlapping items can
+ * be rendered side-by-side instead of on top of each other — the same
+ * approach most calendar apps use for double-booked slots. Non-overlapping
+ * items each get their own column of 1 (the common case, rendered full
+ * width). `items` must already be sorted by start time.
+ *
+ * Extracted (25 Aug 2026) from the Day view diary screen so this genuinely
+ * important layout logic — easy to get subtly wrong — has real, isolated
+ * test coverage rather than living untested inside a render function.
+ */
+export function assignOverlapColumns(
+  items: { id: string; startMin: number; endMin: number }[],
+): Record<string, ColumnAssignment> {
+  const assignment: Record<string, ColumnAssignment> = {};
+  let clusterEnd = -Infinity;
+  let cluster: typeof items = [];
+  const clusters: (typeof items)[] = [];
+
+  for (const it of items) {
+    if (it.startMin >= clusterEnd) {
+      if (cluster.length) clusters.push(cluster);
+      cluster = [];
+      clusterEnd = it.endMin;
+    } else {
+      clusterEnd = Math.max(clusterEnd, it.endMin);
+    }
+    cluster.push(it);
+  }
+  if (cluster.length) clusters.push(cluster);
+
+  for (const group of clusters) {
+    const columnEnds: number[] = []; // end time of the last item placed in each column
+    for (const it of group) {
+      let col = columnEnds.findIndex((endTime) => endTime <= it.startMin);
+      if (col === -1) { col = columnEnds.length; columnEnds.push(it.endMin); }
+      else columnEnds[col] = it.endMin;
+      assignment[it.id] = { column: col, totalColumns: 0 }; // totalColumns filled in below
+    }
+    const totalColumns = columnEnds.length;
+    for (const it of group) assignment[it.id].totalColumns = totalColumns;
+  }
+  return assignment;
+}

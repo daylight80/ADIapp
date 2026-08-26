@@ -25,7 +25,7 @@ export const TIERS: TierSpec[] = [
     price_gbp: 0,
     student_limit: 5,
     instructor_limit: 1,
-    blurb: 'For new instructors getting set up.',
+    blurb: 'Free for PDIs training towards their ADI qualification, or for any ADI wanting to try ADI Pro before upgrading.',
     features: [
       'Lesson diary, day & week views',
     ],

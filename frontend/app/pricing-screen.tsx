@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { ArrowLeft, Check, Crown, Sparkles, Users, User as UserIcon, Car, Building2 } from 'lucide-react-native';
+import { ArrowLeft, Check, Crown, Sparkles, Users, User as UserIcon, Car, Building2, GraduationCap } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { api } from '../src/api';
 import { useAuth } from '../src/AuthContext';
@@ -130,6 +130,24 @@ export default function PricingScreen() {
           </View>
           <Text style={styles.heroTitle}>Pick the right tier for your school</Text>
           <Text style={styles.heroSub}>UK GBP · Cancel anytime · UK VAT included.</Text>
+        </View>
+
+        {/* PDI callout — a genuinely free tier for anyone still training
+            towards their ADI qualification, not just a limited trial.
+            Placed right after the hero since a brand-new visitor (no
+            account yet) won't have a usage card showing below, so this
+            is likely the first thing a PDI actually sees. */}
+        <View style={styles.pdiCallout} testID="pdi-callout">
+          <View style={styles.pdiIconWrap}>
+            <GraduationCap size={22} color={theme.colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.pdiTitle}>Training towards your ADI qualification?</Text>
+            <Text style={styles.pdiBody}>
+              Starter is genuinely free for the whole time you're a PDI — however long that takes.
+              No card required, no trial countdown.
+            </Text>
+          </View>
         </View>
 
         {usage && (
@@ -314,6 +332,18 @@ const styles = StyleSheet.create({
   scroll: { padding: 16, gap: 16, paddingBottom: 32 },
   hero: { alignItems: 'center', gap: 8, paddingVertical: 8 },
   iconWrap: { width: 56, height: 56, borderRadius: 28, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center' },
+
+  pdiCallout: {
+    flexDirection: 'row', gap: 12, alignItems: 'flex-start',
+    backgroundColor: theme.colors.primaryLight, borderWidth: 1, borderColor: theme.colors.primary,
+    borderRadius: 14, padding: 14, marginHorizontal: 16, marginBottom: 16,
+  },
+  pdiIconWrap: {
+    width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  pdiTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
+  pdiBody: { fontSize: 13, color: theme.colors.textMuted, marginTop: 3, lineHeight: 18 },
   heroTitle: { fontSize: 22, fontWeight: '800', color: theme.colors.text, textAlign: 'center' },
   heroSub: { color: theme.colors.textMuted, fontSize: 13, textAlign: 'center' },
 

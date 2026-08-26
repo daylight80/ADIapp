@@ -16,6 +16,7 @@ import { isPaidTier, tierById, studentUsageUrgency, studentUsageMessage } from '
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { ContactsImportBanner } from '../src/ContactsImportBanner';
 import { Crown, ChevronRight, Users, CalendarDays, Receipt } from 'lucide-react-native';
+import { usePendingSyncCount } from '../src/offlineSync';
 
 /**
  * Instructor Home — redesigned visual direction from the Claude Design
@@ -76,6 +77,7 @@ function initialsOf(name: string): string {
 }
 
 export default function InstructorHomeV2Screen() {
+  const pendingSyncCount = usePendingSyncCount();
   const router = useRouter();
   const { user } = useAuth();
   const [selId, setSelId] = useState<string | null>(null);
@@ -178,6 +180,23 @@ export default function InstructorHomeV2Screen() {
               <Text style={s.qaText}>Receipts</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Pending sync banner — only shown when there's actually
+              something queued, so it never clutters the screen for the
+              common case of a normal connection. */}
+          {pendingSyncCount > 0 && (
+            <TouchableOpacity
+              style={s.syncBanner}
+              onPress={() => router.push('/sync-status-screen' as any)}
+              testID="pending-sync-banner"
+            >
+              <View style={s.syncDot} />
+              <Text style={s.syncBannerText}>
+                {pendingSyncCount} change{pendingSyncCount === 1 ? '' : 's'} pending sync
+              </Text>
+              <ChevronRight size={16} color={C.warmText} />
+            </TouchableOpacity>
+          )}
 
           {/* Your day — timeline strip */}
           <View style={s.dayCard}>
@@ -448,6 +467,13 @@ const s = StyleSheet.create({
   qaText: { fontFamily: 'Barlow_700Bold', fontSize: 11.5, color: '#fff' },
 
   dayCard: { marginHorizontal: 20, marginTop: 18, padding: 14, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 18 },
+
+  syncBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 9, marginHorizontal: 20, marginTop: 12,
+    backgroundColor: C.warmCard, borderWidth: 1, borderColor: C.warmBorder, borderRadius: 13, padding: 12,
+  },
+  syncDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.warmText },
+  syncBannerText: { flex: 1, fontFamily: 'Barlow_600SemiBold', fontSize: 13, color: C.warmText },
   sectionLabel: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1.8, textTransform: 'uppercase', color: C.textMuted },
   daySummary: { fontFamily: 'Barlow_600SemiBold', fontSize: 13, color: C.text },
   timelineTrack: { position: 'relative', height: 46, borderRadius: 10, backgroundColor: '#F1EDE5', overflow: 'hidden' },

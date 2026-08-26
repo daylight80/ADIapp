@@ -23,6 +23,7 @@ import { Lesson, Student, mockDb } from './mockDb';
 import { patchLesson } from './useSupabaseData';
 import { useStudent } from './useSupabaseData';
 import { countUpcomingInSeries, cancelSeriesFromDate } from './useSupabaseData';
+import { queueLessonWrite, useIsOnline } from './offlineSync';
 import { openNavigation, openSmsComposer } from './tools';
 import { fireInstantNotification } from './notifications';
 import { Badge } from './ui';
@@ -37,6 +38,7 @@ type Props = {
 
 export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props) {
   const router = useRouter();
+  const isOnline = useIsOnline();
   const [precheck, setPrecheck] = useState<{ eye: boolean; fit: boolean; lic: boolean }>({ eye: false, fit: false, lic: false });
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -289,7 +291,10 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
     setBroadcastOpen(true);
   };
 
-  // Mark Complete: persists faults / grade / amount / notes + status to Supabase.
+  // Mark Complete: persists faults / grade / amount / notes + status.
+  // First slice of offline-first sync (25 Aug 2026) — this is the highest-
+  // value moment to get right, since it's the thing an instructor most
+  // needs to do immediately after a lesson, often before signal returns.
   const saveCompletion = async () => {
     if (grade == null) {
       Alert.alert('Pick a grade', 'Choose a grade from 1 to 5 before completing the lesson.');
@@ -300,33 +305,55 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
       Alert.alert('Invalid amount', 'Amount paid must be a positive number, in pounds.');
       return;
     }
+    const payload = {
+      driving_faults: drivingFaults,
+      serious_faults: seriousFaults,
+      dangerous_faults: dangerousFaults,
+      grade: grade ?? undefined,
+      amount_paid: amount,
+      payment_method: paymentMethod ?? undefined,
+      notes: notes.trim() || undefined,
+      status: 'Completed' as const,
+    };
     setSaving(true);
     try {
-      await patchLesson(lesson.id, {
-        driving_faults: drivingFaults,
-        serious_faults: seriousFaults,
-        dangerous_faults: dangerousFaults,
-        grade: grade ?? undefined,
-        amount_paid: amount,
-        payment_method: paymentMethod ?? undefined,
-        notes: notes.trim() || undefined,
-        status: 'Completed',
-      } as any);
+      // Check connectivity proactively rather than waiting for the
+      // network call to fail — a genuinely offline device shouldn't even
+      // attempt the request, since that just adds a timeout delay before
+      // reaching the same conclusion.
+      if (isOnline === false) {
+        await queueLessonWrite(lesson.id, payload as any, `Mark complete — ${student.name}`);
+        Alert.alert('Saved offline', `${student.name.split(' ')[0]}'s lesson saved on this device. It'll sync automatically once you're back online.`);
+      } else {
+        await patchLesson(lesson.id, payload as any);
+        Alert.alert('Lesson saved', `${student.name.split(' ')[0]}'s lesson recorded. Faults & grade synced.`);
+      }
     } catch (e: any) {
-      // Fallback to mockDb for legacy lessons not in Supabase.
-      mockDb.updateLesson(lesson.id, {
-        driving_faults: drivingFaults,
-        serious_faults: seriousFaults,
-        dangerous_faults: dangerousFaults,
-        grade: grade ?? undefined,
-        amount_paid: amount,
-        notes: notes.trim() || undefined,
-        status: 'Completed',
-      });
+      // The proactive check said online, but the request still failed —
+      // patchy signal can flicker faster than NetInfo notices. Queue it
+      // rather than lose the instructor's work or fall back to a mock
+      // record that never actually reaches the real database.
+      try {
+        await queueLessonWrite(lesson.id, payload as any, `Mark complete — ${student.name}`);
+        Alert.alert('Saved offline', `${student.name.split(' ')[0]}'s lesson saved on this device. It'll sync automatically once you're back online.`);
+      } catch {
+        // AsyncStorage itself failing is a genuine edge case — fall back
+        // to the pre-existing mockDb path so the instructor's input isn't
+        // silently lost, same as the original behaviour.
+        mockDb.updateLesson(lesson.id, {
+          driving_faults: drivingFaults,
+          serious_faults: seriousFaults,
+          dangerous_faults: dangerousFaults,
+          grade: grade ?? undefined,
+          amount_paid: amount,
+          notes: notes.trim() || undefined,
+          status: 'Completed',
+        });
+        Alert.alert('Lesson saved', `${student.name.split(' ')[0]}'s lesson recorded.`);
+      }
     } finally {
       setSaving(false);
     }
-    Alert.alert('Lesson saved', `${student.name.split(' ')[0]}'s lesson recorded. Faults & grade synced.`);
     setCompleteOpen(false);
     onChanged?.();
   };

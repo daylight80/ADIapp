@@ -298,4 +298,16 @@ export const styles = StyleSheet.create({
   legendDot: { width: 9, height: 9, borderRadius: 4.5 },
   legendText: { fontSize: 11, color: theme.colors.textMuted },
   hint: { fontSize: 12, color: theme.colors.textMuted, marginTop: 4, marginBottom: 8 },
+
+  // ---- Clash confirmation modal ----
+  clashBackdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.6)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  clashCard: { width: '100%', maxWidth: 380, backgroundColor: '#fff', borderRadius: 20, padding: 20, alignItems: 'center' },
+  clashIconWrap: { width: 52, height: 52, borderRadius: 26, backgroundColor: theme.colors.danger, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  clashTitle: { fontSize: 17, fontWeight: '800', color: theme.colors.text, textAlign: 'center' },
+  clashLine: { fontSize: 13.5, color: theme.colors.text, marginTop: 10, lineHeight: 19 },
+  clashHint: { fontSize: 12.5, color: theme.colors.textMuted, textAlign: 'center', marginTop: 14, lineHeight: 17.5 },
+  clashCancelBtn: { flex: 1, minHeight: 48, borderRadius: 13, borderWidth: 1, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center' },
+  clashCancelBtnText: { fontSize: 14.5, fontWeight: '700', color: theme.colors.textMuted },
+  clashConfirmBtn: { flex: 1, minHeight: 48, borderRadius: 13, backgroundColor: theme.colors.danger, alignItems: 'center', justifyContent: 'center' },
+  clashConfirmBtnText: { fontSize: 14.5, fontWeight: '700', color: '#fff' },
 });

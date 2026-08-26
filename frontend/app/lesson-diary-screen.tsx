@@ -91,17 +91,6 @@ export default function LessonDiaryV2Screen() {
   });
   const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  // Clash-warning snackbar (25 Aug 2026) — surfaces the clash info
-  // AddLessonSheet has always computed and passed via onCreated, but which
-  // nothing was actually doing anything with. Found via Grant's screen
-  // recording: overlapping lessons currently render on top of each other
-  // in Day view with zero warning that a clash even happened.
-  const [clashSnack, setClashSnack] = useState<{ name: string; start: string; end: string } | null>(null);
-  useEffect(() => {
-    if (!clashSnack) return;
-    const t = setTimeout(() => setClashSnack(null), 6000);
-    return () => clearTimeout(t);
-  }, [clashSnack]);
 
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
   const { lessons } = useLessonsForWeek(weekStart);
@@ -445,23 +434,8 @@ export default function LessonDiaryV2Screen() {
         lessons={lessons}
         availBlocks={[]}
         pro
-        onCreated={(info) => {
-          setAddOpen(false);
-          setSelectedDate(new Date(selectedDate));
-          if (info.clash) setClashSnack(info.clash);
-        }}
+        onCreated={() => { setAddOpen(false); setSelectedDate(new Date(selectedDate)); }}
       />
-
-      {clashSnack && (
-        <View style={s.clashSnack} testID="clash-snack">
-          <Text style={s.clashSnackText}>
-            Saved, but this overlaps {clashSnack.name}'s lesson ({clashSnack.start}–{clashSnack.end}).
-          </Text>
-          <TouchableOpacity onPress={() => setClashSnack(null)} testID="clash-snack-dismiss">
-            <Text style={s.clashSnackDismiss}>Dismiss</Text>
-          </TouchableOpacity>
-        </View>
-      )}
     </SafeAreaView>
   );
 }
@@ -515,11 +489,4 @@ const s = StyleSheet.create({
   monthLessonChip: { borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2 },
   monthLessonChipText: { fontFamily: 'Barlow_500Medium', fontSize: 10, color: C.text },
   monthMoreText: { fontFamily: 'Barlow_700Bold', fontSize: 10, color: C.textMuted },
-
-  clashSnack: {
-    position: 'absolute', left: 20, right: 20, bottom: 28, backgroundColor: '#0F172A',
-    borderRadius: 14, padding: 13, flexDirection: 'row', alignItems: 'center', gap: 12,
-  },
-  clashSnackText: { flex: 1, fontFamily: 'Barlow_600SemiBold', fontSize: 13, color: '#fff' },
-  clashSnackDismiss: { fontFamily: 'Barlow_700Bold', fontSize: 12.5, color: C.accent },
 });

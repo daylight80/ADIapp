@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Switch, Alert } from 'react-native';
-import { Car } from 'lucide-react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Switch, Alert, Modal, ActivityIndicator } from 'react-native';
+import { Car, AlertTriangle } from 'lucide-react-native';
 import { theme } from '../theme';
 import { BottomSheet } from '../BottomSheet';
 import { DateField, TimeField } from '../DateTimeFields';
@@ -22,12 +22,15 @@ export type AddLessonCreatedInfo = {
   created: number;
   /** Whether the user toggled the recurring switch */
   recurring: boolean;
-  /** Set when the (single, non-recurring) lesson was saved despite
-   * overlapping an existing one — the instructor explicitly chose to save
-   * anyway, so this isn't blocking, but the parent should surface it
-   * (e.g. a snackbar) rather than silently saying nothing at all. */
-  clash?: { name: string; start: string; end: string };
 };
+
+// Lifted to component scope (25 Aug 2026) so it can be used in state —
+// previously declared inline inside handleAdd, which worked when the
+// whole save happened in one linear pass, but now the flow pauses for
+// confirmation when a clash is found, so the plan needs to survive
+// between renders.
+export type ClashInfo = { name: string; start: string; end: string };
+export type PlanEntry = { date: string; reason?: 'unavailable'; clash?: ClashInfo };
 
 type Props = {
   visible: boolean;
@@ -74,8 +77,30 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
   const [repeatOn, setRepeatOn] = useState(false);
   const [repeatWeeks, setRepeatWeeks] = useState<string>('4');
 
+  // Clash confirmation (25 Aug 2026, per Grant's direction) — a genuine
+  // in-app dialog, not window.confirm(), which was removed previously for
+  // silently returning false in some embedded/tunnelled preview contexts.
+  // Holds the full plan while paused, waiting for the instructor to
+  // explicitly confirm or cancel — nothing is saved until they choose.
+  const [pendingClashPlan, setPendingClashPlan] = useState<PlanEntry[] | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+
   // Travel-time auto-suggest banner — populated by the effect below.
   const [travelInfo, setTravelInfo] = useState<string | null>(null);
+  // Clash confirmation (25 Aug 2026) — replaces the previous "save
+  // immediately, warn afterward" behaviour. A custom in-app dialog rather
+  // than window.confirm(), deliberately: an earlier version used the
+  // native confirm() here, which was found to be silently suppressed in
+  // some embedded/tunnelled preview environments, making Save look broken
+  // even when the slot was fine. This achieves the same "must explicitly
+  // choose before it saves" outcome without that specific failure mode.
+  const [pendingClash, setPendingClash] = useState<{
+    plan: { date: string; reason?: 'unavailable' | 'clash'; clash?: { name: string; start: string; end: string } }[];
+    submittedDate: string;
+    submittedStart: string;
+    wasRecurring: boolean;
+  } | null>(null);
+  const [savingAfterConfirm, setSavingAfterConfirm] = useState(false);
 
   const getStudent = (id: string) => students.find((s) => s.id === id);
 
@@ -177,9 +202,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     } catch { /* fall through — no overlap check, but allow save */ }
 
     // For each occurrence, check (a) unavailability overlap, (b) clash.
-    type ClashInfo = { name: string; start: string; end: string };
-    type Plan = { date: string; reason?: 'unavailable' | 'clash'; clash?: ClashInfo };
-    const plan: Plan[] = [];
+    const plan: PlanEntry[] = [];
     for (const d of targetDates) {
       try {
         const sIso = new Date(`${d}T${startTime}:00`).toISOString();
@@ -218,19 +241,13 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
             }
           }
           if (clashed) {
-            // For SINGLE lesson: previously we asked `window.confirm("Save
-            // anyway?")` here. That browser-native modal is suppressed by some
-            // embedded WebViews / tunnelled previews, returning false silently
-            // — which made the Save button appear broken even when the slot
-            // was perfectly fine. The instructor explicitly tapped Save, so
-            // we now save the lesson immediately and just remember the clash
-            // so the parent can surface a non-blocking snackbar afterwards.
-            if (!repeatOn) {
-              plan.push({ date: d, clash: { name: clashName, start: clashStart, end: clashEnd } });
-              continue;
-            }
-            // For RECURRING: silently skip the clashing occurrence.
-            plan.push({ date: d, reason: 'clash' });
+            // Both single and recurring attach clash info uniformly — the
+            // instructor must explicitly confirm before ANY of them save,
+            // per Grant's direction (25 Aug 2026). Previously recurring
+            // occurrences were silently skipped here with no visibility
+            // at all, and single lessons saved immediately with only a
+            // warning shown afterward — neither actually blocked anything.
+            plan.push({ date: d, clash: { name: clashName, start: clashStart, end: clashEnd } });
             continue;
           }
         }
@@ -252,6 +269,25 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
       }
     }
 
+    // A genuine clash anywhere in the plan pauses here — nothing is saved
+    // until the instructor explicitly confirms via the in-app dialog below
+    // (a real dialog, not window.confirm(), which was removed previously
+    // for silently returning false in some embedded/tunnelled preview
+    // contexts, making Save look broken even when the slot was fine).
+    const hasClash = plan.some((p) => p.clash);
+    if (hasClash) {
+      setPendingClashPlan(plan);
+      return;
+    }
+
+    await finishSaving(plan);
+  };
+
+  // Everything that actually creates lessons and wraps up — called either
+  // immediately (no clash found) or after the instructor explicitly
+  // confirms the clash dialog. `plan` here has already been fully vetted:
+  // any clash in it has either been confirmed or never existed.
+  const finishSaving = async (plan: PlanEntry[]) => {
     const toCreate = plan.filter((p) => !p.reason);
     const skipped = plan.length - toCreate.length;
 
@@ -324,17 +360,16 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     setRepeatOn(false);
     onClose();
 
-    // Tell the parent so it can scroll & jump the visible date. Only the
-    // single, non-recurring case carries a clash — for recurring series,
-    // a clashing occurrence is silently skipped instead (see plan-building
-    // above), so there's nothing to warn about after the fact there.
+    // Tell the parent so it can scroll & jump the visible date. Any clash,
+    // single or recurring, was already confirmed up-front via the dialog
+    // above before anything was saved — there's nothing left to warn about
+    // after the fact.
     if (firstCreated) {
       onCreated({
         firstDate: submittedDate,
         startTime: submittedStart,
         created,
         recurring: wasRecurring,
-        clash: !wasRecurring ? plan[0]?.clash : undefined,
       });
     }
 
@@ -347,15 +382,13 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     void firstCreated;
 
     // Summary toast — only when recurring, to avoid noise on a single save.
+    // Only unavailability skips occurrences silently now — any clash was
+    // already surfaced and confirmed up-front, so it's included in
+    // `created`, not `skipped`.
     if (wasRecurring) {
       const lines: string[] = [`Created ${created} lesson${created === 1 ? '' : 's'}.`];
       if (skipped > 0) {
-        const unav = plan.filter((p) => p.reason === 'unavailable').length;
-        const clashes = plan.filter((p) => p.reason === 'clash').length;
-        const bits: string[] = [];
-        if (unav > 0) bits.push(`${unav} time off`);
-        if (clashes > 0) bits.push(`${clashes} clash${clashes === 1 ? '' : 'es'}`);
-        lines.push(`Skipped ${skipped} (${bits.join(' · ')}).`);
+        lines.push(`Skipped ${skipped} (time off).`);
       }
       const msg = lines.join(' ');
       if (typeof window !== 'undefined' && typeof window.alert === 'function') {
@@ -365,6 +398,19 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
       }
     }
   };
+
+  const confirmClashAndSave = async () => {
+    if (!pendingClashPlan) return;
+    setConfirmBusy(true);
+    try {
+      await finishSaving(pendingClashPlan);
+    } finally {
+      setConfirmBusy(false);
+      setPendingClashPlan(null);
+    }
+  };
+
+  const cancelClash = () => setPendingClashPlan(null);
 
   return (
     <BottomSheet visible={visible} onClose={onClose} title="Add Lesson" testID="sheet-add-lesson">
@@ -511,6 +557,55 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
           {repeatOn ? `Save ${recurWeeksNum} lessons` : 'Save Lesson'}
         </Text>
       </TouchableOpacity>
+
+      {/* Clash confirmation (25 Aug 2026) — the actual missing piece behind
+          this whole flow. pendingClashPlan, finishSaving, confirmClashAndSave
+          and cancelClash already existed and were already correct for both
+          single and recurring lessons; nothing was ever rendering a dialog
+          for the instructor to actually see and confirm, so tapping Save on
+          a clashing lesson did nothing visible at all. Deliberately an
+          in-app Modal, not the native window.confirm() the comment above
+          describes replacing — that's what got silently suppressed in some
+          preview contexts in the first place. */}
+      <Modal
+        visible={!!pendingClashPlan}
+        transparent
+        animationType="fade"
+        onRequestClose={cancelClash}
+      >
+        <View style={styles.clashBackdrop}>
+          <View style={styles.clashCard} testID="clash-confirm-modal">
+            <View style={styles.clashIconWrap}>
+              <AlertTriangle size={26} color="#fff" />
+            </View>
+            <Text style={styles.clashTitle}>This clashes with an existing lesson</Text>
+            <ScrollView style={{ maxHeight: 180, alignSelf: 'stretch' }}>
+              {(pendingClashPlan || []).filter((p) => p.clash).map((p, i) => (
+                <Text key={i} style={styles.clashLine} testID={`clash-line-${i}`}>
+                  {new Date(`${p.date}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+                  {' — overlaps '}{p.clash!.name}'s lesson ({p.clash!.start}–{p.clash!.end})
+                </Text>
+              ))}
+            </ScrollView>
+            <Text style={styles.clashHint}>
+              You can still save if this is intentional (e.g. a shared or covered lesson) — otherwise cancel and pick a different time.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 9, marginTop: 14, alignSelf: 'stretch' }}>
+              <TouchableOpacity style={styles.clashCancelBtn} onPress={cancelClash} disabled={confirmBusy} testID="clash-cancel">
+                <Text style={styles.clashCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.clashConfirmBtn, confirmBusy && { opacity: 0.6 }]}
+                onPress={confirmClashAndSave}
+                disabled={confirmBusy}
+                testID="clash-confirm"
+              >
+                {confirmBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.clashConfirmBtnText}>Save anyway</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </BottomSheet>
   );
 }

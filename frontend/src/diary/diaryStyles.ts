@@ -310,4 +310,11 @@ export const styles = StyleSheet.create({
   clashCancelBtnText: { fontSize: 14.5, fontWeight: '700', color: theme.colors.textMuted },
   clashConfirmBtn: { flex: 1, minHeight: 48, borderRadius: 13, backgroundColor: theme.colors.danger, alignItems: 'center', justifyContent: 'center' },
   clashConfirmBtnText: { fontSize: 14.5, fontWeight: '700', color: '#fff' },
+  clashPartialBtn: { minHeight: 48, borderRadius: 13, backgroundColor: theme.colors.warning, alignItems: 'center', justifyContent: 'center' },
+  clashPartialBtnText: { fontSize: 14.5, fontWeight: '700', color: '#fff' },
+  clashAmountWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'stretch', marginTop: 14, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 13, paddingHorizontal: 14, paddingVertical: 10 },
+  clashPoundSign: { fontSize: 20, fontWeight: '700', color: theme.colors.textMuted },
+  clashAmountInput: { flex: 1, fontSize: 20, fontWeight: '700', color: theme.colors.text, padding: 0 },
+  clashChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: theme.colors.background, borderWidth: 1, borderColor: theme.colors.border },
+  clashChipText: { fontSize: 13, fontWeight: '700', color: theme.colors.text },
 });

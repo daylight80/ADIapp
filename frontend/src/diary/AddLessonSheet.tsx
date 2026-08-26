@@ -5,7 +5,7 @@ import { theme } from '../theme';
 import { BottomSheet } from '../BottomSheet';
 import { DateField, TimeField } from '../DateTimeFields';
 import { supabase } from '../supabaseClient';
-import { createLesson } from '../useSupabaseData';
+import { createLesson, patchLesson } from '../useSupabaseData';
 import { overlapsAnyBlock, type AvailabilityBlock } from '../supabaseDb';
 import { Lesson, Student } from '../mockDb';
 import { getTravelTime, lessonAddress } from '../maps';
@@ -29,7 +29,7 @@ export type AddLessonCreatedInfo = {
 // whole save happened in one linear pass, but now the flow pauses for
 // confirmation when a clash is found, so the plan needs to survive
 // between renders.
-export type ClashInfo = { name: string; start: string; end: string };
+export type ClashInfo = { id: string; name: string; start: string; end: string; agreedAmount: number | null };
 export type PlanEntry = { date: string; reason?: 'unavailable'; clash?: ClashInfo };
 
 type Props = {
@@ -84,23 +84,18 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
   // explicitly confirm or cancel — nothing is saved until they choose.
   const [pendingClashPlan, setPendingClashPlan] = useState<PlanEntry[] | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  // Charge decision for each cancelled clash (25 Aug 2026, second
+  // follow-up) — same full/partial/waive choice as a normal manual
+  // cancellation, not a silent no-charge cancellation. A recurring series
+  // can clash with several different existing lessons, each potentially
+  // needing its own decision, so this steps through them one at a time.
+  const [clashStep, setClashStep] = useState<'confirm' | 'decide' | 'partial'>('confirm');
+  const [clashDecisionIndex, setClashDecisionIndex] = useState(0);
+  const [clashCharges, setClashCharges] = useState<Record<string, number>>({});
+  const [clashPartialInput, setClashPartialInput] = useState('');
 
   // Travel-time auto-suggest banner — populated by the effect below.
   const [travelInfo, setTravelInfo] = useState<string | null>(null);
-  // Clash confirmation (25 Aug 2026) — replaces the previous "save
-  // immediately, warn afterward" behaviour. A custom in-app dialog rather
-  // than window.confirm(), deliberately: an earlier version used the
-  // native confirm() here, which was found to be silently suppressed in
-  // some embedded/tunnelled preview environments, making Save look broken
-  // even when the slot was fine. This achieves the same "must explicitly
-  // choose before it saves" outcome without that specific failure mode.
-  const [pendingClash, setPendingClash] = useState<{
-    plan: { date: string; reason?: 'unavailable' | 'clash'; clash?: { name: string; start: string; end: string } }[];
-    submittedDate: string;
-    submittedStart: string;
-    wasRecurring: boolean;
-  } | null>(null);
-  const [savingAfterConfirm, setSavingAfterConfirm] = useState(false);
 
   const getStudent = (id: string) => students.find((s) => s.id === id);
 
@@ -153,6 +148,11 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
       setTravelInfo(null);
       setRate('');
       rateManuallyEdited.current = false;
+      setPendingClashPlan(null);
+      setClashStep('confirm');
+      setClashDecisionIndex(0);
+      setClashCharges({});
+      setClashPartialInput('');
     }
   }, [visible]);
 
@@ -216,16 +216,18 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
           const toIsoX = `${d}T23:59:59`;
           const { data: dayLessons } = await supabase
             .from('lessons')
-            .select('id, start_time, end_time, status, students(full_name)')
+            .select('id, start_time, end_time, status, amount_paid, students(full_name)')
             .eq('instructor_id', instructorId)
             .gte('start_time', fromIsoX)
             .lte('start_time', toIsoX);
           const newStartMs = new Date(sIso).getTime();
           const newEndMs = new Date(eIso).getTime();
           let clashed = false;
+          let clashId = '';
           let clashName = '';
           let clashStart = '';
           let clashEnd = '';
+          let clashAmount: number | null = null;
           for (const L of (dayLessons || []) as any[]) {
             if (L.status === 'Cancelled') continue;
             const lsMs = new Date(L.start_time).getTime();
@@ -233,21 +235,26 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
             if (!Number.isFinite(lsMs) || !Number.isFinite(leMs)) continue;
             if (lsMs < newEndMs && leMs > newStartMs) {
               clashed = true;
+              clashId = L.id;
               clashName = (L.students && (L.students as any).full_name) || 'another student';
               const hhmm = (dt: Date) => `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
               clashStart = hhmm(new Date(L.start_time));
               clashEnd = hhmm(new Date(L.end_time));
+              clashAmount = L.amount_paid != null ? Number(L.amount_paid) : null;
               break;
             }
           }
           if (clashed) {
             // Both single and recurring attach clash info uniformly — the
             // instructor must explicitly confirm before ANY of them save,
-            // per Grant's direction (25 Aug 2026). Previously recurring
-            // occurrences were silently skipped here with no visibility
-            // at all, and single lessons saved immediately with only a
-            // warning shown afterward — neither actually blocked anything.
-            plan.push({ date: d, clash: { name: clashName, start: clashStart, end: clashEnd } });
+            // per Grant's direction (25 Aug 2026). Confirming cancels the
+            // existing lesson and replaces it with the new one — an
+            // instructor can only have one lesson at a given time, this
+            // isn't a "let both coexist" override (25 Aug 2026, follow-up).
+            // Cancelling goes through the same full/partial/waive charge
+            // decision as a normal manual cancellation (25 Aug 2026,
+            // second follow-up) rather than silently applying no charge.
+            plan.push({ date: d, clash: { id: clashId, name: clashName, start: clashStart, end: clashEnd, agreedAmount: clashAmount } });
             continue;
           }
         }
@@ -287,9 +294,36 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
   // immediately (no clash found) or after the instructor explicitly
   // confirms the clash dialog. `plan` here has already been fully vetted:
   // any clash in it has either been confirmed or never existed.
-  const finishSaving = async (plan: PlanEntry[]) => {
+  // `charges` maps each cancelled lesson's id to the charge amount the
+  // instructor decided on (full/partial/waive) — see the clash dialog's
+  // decide/partial steps below. Empty when there was no clash to confirm.
+  const finishSaving = async (plan: PlanEntry[], charges: Record<string, number> = {}) => {
     const toCreate = plan.filter((p) => !p.reason);
     const skipped = plan.length - toCreate.length;
+
+    // Cancel every existing lesson this plan clashes with (25 Aug 2026,
+    // per Grant's direction) — an instructor can only have one lesson at
+    // a given time, so confirming the dialog replaces the existing
+    // booking rather than letting both coexist. Same charge patch shape
+    // as a normal manual cancellation (status + amount_paid +
+    // cancellation_charge + cancellation_note), not a silent no-charge
+    // cancellation. Best-effort: a failure to cancel one clash shouldn't
+    // block the others or the new lesson itself from being created.
+    const toCancel = toCreate.filter((p) => p.clash).map((p) => p.clash!);
+    for (const c of toCancel) {
+      const charge = charges[c.id] ?? 0;
+      const note = charge > 0
+        ? `Cancelled — replaced by a new booking, charge applied (£${charge.toFixed(2)})`
+        : 'Cancelled — replaced by a new booking, charge waived';
+      try {
+        await patchLesson(c.id, {
+          status: 'Cancelled',
+          amount_paid: charge,
+          cancellation_charge: charge,
+          cancellation_note: note,
+        });
+      } catch { /* best-effort — proceed regardless */ }
+    }
 
     // -------- Mint series_id when recurring & we have ≥2 dates to create ----
     let seriesId: string | undefined;
@@ -399,18 +433,54 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     }
   };
 
-  const confirmClashAndSave = async () => {
+  // Derived list of clashes needing a decision, and the one currently
+  // being decided. Recomputed from pendingClashPlan each render rather
+  // than stored separately, so it can't drift out of sync with it.
+  const clashList = (pendingClashPlan || []).filter((p) => p.clash).map((p) => p.clash!);
+  const currentClash = clashList[clashDecisionIndex];
+
+  // Moves from the initial warning screen into the first charge decision.
+  const beginClashDecisions = () => {
+    setClashDecisionIndex(0);
+    setClashCharges({});
+    setClashStep('decide');
+  };
+
+  // Records the charge for the clash currently being decided, then either
+  // advances to the next one or — once every clash has a decision —
+  // actually cancels them all and saves the new lesson(s).
+  const decideCurrentClash = async (charge: number) => {
+    if (!currentClash) return;
+    const updatedCharges = { ...clashCharges, [currentClash.id]: charge };
+    setClashCharges(updatedCharges);
+    setClashPartialInput('');
+    const nextIndex = clashDecisionIndex + 1;
+    if (nextIndex < clashList.length) {
+      setClashDecisionIndex(nextIndex);
+      setClashStep('decide');
+      return;
+    }
+    // Every clash now has a decision — actually cancel and save.
     if (!pendingClashPlan) return;
     setConfirmBusy(true);
     try {
-      await finishSaving(pendingClashPlan);
+      await finishSaving(pendingClashPlan, updatedCharges);
     } finally {
       setConfirmBusy(false);
       setPendingClashPlan(null);
+      setClashStep('confirm');
+      setClashDecisionIndex(0);
+      setClashCharges({});
     }
   };
 
-  const cancelClash = () => setPendingClashPlan(null);
+  const cancelClash = () => {
+    setPendingClashPlan(null);
+    setClashStep('confirm');
+    setClashDecisionIndex(0);
+    setClashCharges({});
+    setClashPartialInput('');
+  };
 
   return (
     <BottomSheet visible={visible} onClose={onClose} title="Add Lesson" testID="sheet-add-lesson">
@@ -558,15 +628,26 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
         </Text>
       </TouchableOpacity>
 
-      {/* Clash confirmation (25 Aug 2026) — the actual missing piece behind
-          this whole flow. pendingClashPlan, finishSaving, confirmClashAndSave
-          and cancelClash already existed and were already correct for both
-          single and recurring lessons; nothing was ever rendering a dialog
-          for the instructor to actually see and confirm, so tapping Save on
-          a clashing lesson did nothing visible at all. Deliberately an
-          in-app Modal, not the native window.confirm() the comment above
-          describes replacing — that's what got silently suppressed in some
-          preview contexts in the first place. */}
+      {/* Clash confirmation (25 Aug 2026, updated in a follow-up the same
+          day) — the actual missing piece behind this whole flow.
+          pendingClashPlan, finishSaving and cancelClash already existed
+          and were already correct for detecting clashes for both single
+          and recurring lessons; nothing was ever rendering a dialog for
+          the instructor to actually see and confirm, so tapping Save on a
+          clashing lesson did nothing visible at all. Deliberately an
+          in-app Modal, not the native window.confirm() an earlier comment
+          describes replacing — that's what got silently suppressed in
+          some preview contexts in the first place.
+
+          Three steps, since an instructor can only have one lesson at a
+          time (Grant's direction) and cancelling the existing one goes
+          through the same real charge decision as a manual cancellation,
+          not a silent no-charge one:
+            'confirm' — lists every clash, "Don't replace" / "Cancel & replace"
+            'decide'  — full/partial/waive for the clash currently being decided
+            'partial' — amount entry, same 25/50/75% chips as the manual flow
+          A recurring series can clash with several different existing
+          lessons, so 'decide' loops through clashList one at a time. */}
       <Modal
         visible={!!pendingClashPlan}
         transparent
@@ -575,34 +656,130 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
       >
         <View style={styles.clashBackdrop}>
           <View style={styles.clashCard} testID="clash-confirm-modal">
-            <View style={styles.clashIconWrap}>
-              <AlertTriangle size={26} color="#fff" />
-            </View>
-            <Text style={styles.clashTitle}>This clashes with an existing lesson</Text>
-            <ScrollView style={{ maxHeight: 180, alignSelf: 'stretch' }}>
-              {(pendingClashPlan || []).filter((p) => p.clash).map((p, i) => (
-                <Text key={i} style={styles.clashLine} testID={`clash-line-${i}`}>
-                  {new Date(`${p.date}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
-                  {' — overlaps '}{p.clash!.name}'s lesson ({p.clash!.start}–{p.clash!.end})
+            {clashStep === 'confirm' && (
+              <>
+                <View style={styles.clashIconWrap}>
+                  <AlertTriangle size={26} color="#fff" />
+                </View>
+                <Text style={styles.clashTitle}>Replace the existing booking?</Text>
+                <ScrollView style={{ maxHeight: 180, alignSelf: 'stretch' }}>
+                  {(pendingClashPlan || []).filter((p) => p.clash).map((p, i) => (
+                    <Text key={i} style={styles.clashLine} testID={`clash-line-${i}`}>
+                      {new Date(`${p.date}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+                      {' — '}{p.clash!.name}'s lesson ({p.clash!.start}–{p.clash!.end}) is already booked
+                    </Text>
+                  ))}
+                </ScrollView>
+                <Text style={styles.clashHint}>
+                  An instructor can only have one lesson at a time. Confirming will cancel the existing lesson(s) above and replace them with this new booking — you'll choose how to handle the charge for each one next.
                 </Text>
-              ))}
-            </ScrollView>
-            <Text style={styles.clashHint}>
-              You can still save if this is intentional (e.g. a shared or covered lesson) — otherwise cancel and pick a different time.
-            </Text>
-            <View style={{ flexDirection: 'row', gap: 9, marginTop: 14, alignSelf: 'stretch' }}>
-              <TouchableOpacity style={styles.clashCancelBtn} onPress={cancelClash} disabled={confirmBusy} testID="clash-cancel">
-                <Text style={styles.clashCancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.clashConfirmBtn, confirmBusy && { opacity: 0.6 }]}
-                onPress={confirmClashAndSave}
-                disabled={confirmBusy}
-                testID="clash-confirm"
-              >
-                {confirmBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.clashConfirmBtnText}>Save anyway</Text>}
-              </TouchableOpacity>
-            </View>
+                <View style={{ flexDirection: 'row', gap: 9, marginTop: 14, alignSelf: 'stretch' }}>
+                  <TouchableOpacity style={styles.clashCancelBtn} onPress={cancelClash} testID="clash-cancel">
+                    <Text style={styles.clashCancelBtnText}>Don't replace</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.clashConfirmBtn} onPress={beginClashDecisions} testID="clash-confirm">
+                    <Text style={styles.clashConfirmBtnText}>Cancel & replace</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            {clashStep === 'decide' && currentClash && (
+              <>
+                <Text style={styles.clashTitle}>Cancel {currentClash.name}'s lesson?</Text>
+                <Text style={styles.clashHint}>
+                  {clashList.length > 1 ? `Clash ${clashDecisionIndex + 1} of ${clashList.length}. ` : ''}
+                  Choose how to handle the charge.
+                  {currentClash.agreedAmount != null
+                    ? ` Agreed price: £${currentClash.agreedAmount.toFixed(2)}.`
+                    : ' No agreed price recorded on this lesson.'}
+                </Text>
+                <View style={{ alignSelf: 'stretch', gap: 9, marginTop: 14 }}>
+                  <TouchableOpacity
+                    style={[styles.clashConfirmBtn, confirmBusy && { opacity: 0.6 }]}
+                    onPress={() => decideCurrentClash(currentClash.agreedAmount ?? 0)}
+                    disabled={confirmBusy}
+                    testID="clash-charge-full"
+                  >
+                    {confirmBusy ? <ActivityIndicator color="#fff" /> : (
+                      <Text style={styles.clashConfirmBtnText}>
+                        Apply full charge{currentClash.agreedAmount != null ? ` (£${currentClash.agreedAmount.toFixed(2)})` : ''}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.clashPartialBtn}
+                    onPress={() => setClashStep('partial')}
+                    disabled={confirmBusy}
+                    testID="clash-charge-partial"
+                  >
+                    <Text style={styles.clashPartialBtnText}>Apply partial charge…</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.clashCancelBtn}
+                    onPress={() => decideCurrentClash(0)}
+                    disabled={confirmBusy}
+                    testID="clash-charge-waive"
+                  >
+                    {confirmBusy ? <ActivityIndicator color={theme.colors.textMuted} /> : <Text style={styles.clashCancelBtnText}>Waive charge (£0.00)</Text>}
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            {clashStep === 'partial' && currentClash && (
+              <>
+                <Text style={styles.clashTitle}>Partial charge</Text>
+                <Text style={styles.clashHint}>
+                  Enter the amount to charge {currentClash.name.split(' ')[0]} for this cancellation.
+                  {currentClash.agreedAmount != null ? ` Agreed price is £${currentClash.agreedAmount.toFixed(2)}.` : ''}
+                </Text>
+                <View style={styles.clashAmountWrap}>
+                  <Text style={styles.clashPoundSign}>£</Text>
+                  <TextInput
+                    value={clashPartialInput}
+                    onChangeText={(v) => setClashPartialInput(v.replace(/[^0-9.]/g, ''))}
+                    placeholder="0.00"
+                    keyboardType="decimal-pad"
+                    style={styles.clashAmountInput}
+                    testID="clash-partial-input"
+                    autoFocus
+                  />
+                </View>
+                {currentClash.agreedAmount != null && (
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                    {[25, 50, 75].map((pct) => (
+                      <TouchableOpacity
+                        key={pct}
+                        style={styles.clashChip}
+                        onPress={() => setClashPartialInput((currentClash.agreedAmount! * (pct / 100)).toFixed(2))}
+                        testID={`clash-partial-chip-${pct}`}
+                      >
+                        <Text style={styles.clashChipText}>{pct}%</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+                <TouchableOpacity
+                  style={[styles.clashConfirmBtn, { marginTop: 16, alignSelf: 'stretch' }, confirmBusy && { opacity: 0.6 }]}
+                  onPress={() => {
+                    const v = parseFloat(clashPartialInput);
+                    if (!Number.isFinite(v) || v < 0) {
+                      Alert.alert('Invalid amount', 'Please enter a valid amount in pounds.');
+                      return;
+                    }
+                    decideCurrentClash(v);
+                  }}
+                  disabled={confirmBusy}
+                  testID="clash-partial-confirm"
+                >
+                  {confirmBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.clashConfirmBtnText}>Cancel & charge £{clashPartialInput || '0.00'}</Text>}
+                </TouchableOpacity>
+                <TouchableOpacity style={{ marginTop: 10 }} onPress={() => setClashStep('decide')} disabled={confirmBusy} testID="clash-partial-back">
+                  <Text style={styles.clashCancelBtnText}>Back</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </View>
       </Modal>

@@ -48,11 +48,34 @@ async function loadProfile(session: Session): Promise<User> {
   const fallbackName = meta.name || meta.full_name || email.split('@')[0];
 
   // 1) Try instructor lookup — single source of truth for instructor role
-  const { data: instructor } = await supabase
+  let { data: instructor } = await supabase
     .from('instructors')
     .select('id, full_name, adi_number, school_id, driving_schools(id, business_name, subscription_status, tier)')
     .eq('auth_user_id', authUser.id)
     .maybeSingle();
+
+  // Not linked by auth_user_id yet — expected for a newly-invited
+  // instructor's very first login (25 Aug 2026): the owner's "Add
+  // instructor" form creates the row ahead of time with auth_user_id left
+  // null, same pattern as the existing student invite flow. Without this
+  // fallback, a brand-new instructor's first ever session would resolve
+  // to role='instructor' via auth metadata (see the bottom fallback
+  // below) but with no school_id/instructor_id at all, breaking every
+  // screen that reads those directly off `user` rather than calling
+  // ownContext() itself. Self-heals the link so every subsequent login
+  // goes straight through the fast path above instead.
+  if (!instructor && email) {
+    const { data: byEmail } = await supabase
+      .from('instructors')
+      .select('id, full_name, adi_number, school_id, driving_schools(id, business_name, subscription_status, tier)')
+      .eq('email', email.toLowerCase())
+      .is('auth_user_id', null)
+      .maybeSingle();
+    if (byEmail) {
+      await supabase.from('instructors').update({ auth_user_id: authUser.id }).eq('id', byEmail.id);
+      instructor = byEmail;
+    }
+  }
 
   if (instructor) {
     return {
@@ -263,10 +286,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })();
       const email: string | undefined = decoded?.email;
       if (!email) return { ok: false, error: 'Invalid invite token' };
+      // type is 'student' unless the invite explicitly says otherwise —
+      // student invites predate this field, so an absent type must still
+      // mean student, not silently break every existing student link.
+      const role: Role = decoded?.type === 'instructor' ? 'instructor' : 'student';
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { name: name || email.split('@')[0], role: 'student' } },
+        options: { data: { name: name || email.split('@')[0], role } },
       });
       if (error) return { ok: false, error: error.message };
       if (!data.session) return { ok: true, needs_confirmation: true, error: 'Please confirm your email to finish signing up.' };

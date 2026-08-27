@@ -1,15 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react-native';
-import { useLessonsForWeek, useLessonsForMonth, useStudents } from '../src/useSupabaseData';
+import { useLessonsForWeek, useLessonsForMonth, useStudents, patchLesson } from '../src/useSupabaseData';
 import { BottomNav } from '../src/BottomNav';
 import { LessonToolsSheet } from '../src/LessonToolsSheet';
 import { Lesson } from '../src/mockDb';
-import { startOfWeek, addDays, localDateKey, startOfMonthGrid, endOfMonthGrid, addMonths, isSameMonth, assignOverlapColumns } from '../src/diary/dateUtils';
+import { startOfWeek, addDays, localDateKey, startOfMonthGrid, endOfMonthGrid, addMonths, isSameMonth, assignOverlapColumns, snapMinutes, minutesToTime } from '../src/diary/dateUtils';
 import { colorForLessonType, LESSON_TYPES } from '../src/diary/lessonTypes';
 import { AddLessonSheet } from '../src/diary/AddLessonSheet';
+import { DraggableLessonBlock } from '../src/diary/DraggableLessonBlock';
 
 /**
  * Lesson Diary — redesigned visual direction from the Claude Design
@@ -91,6 +92,11 @@ export default function LessonDiaryV2Screen() {
   });
   const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  // Drag-and-drop rescheduling (25 Aug 2026, re-integrated) — the outer
+  // vertical ScrollView is disabled for the duration of a drag so
+  // gesture-handler has exclusive control of the touch; without this,
+  // dragging vertically fights the screen's own scroll.
+  const [dragScrollLocked, setDragScrollLocked] = useState(false);
 
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
   const { lessons } = useLessonsForWeek(weekStart);
@@ -125,6 +131,52 @@ export default function LessonDiaryV2Screen() {
     () => assignOverlapColumns(dayList.map((l) => ({ id: l.id, startMin: toMinutesOfDay(l.start_time), endMin: toMinutesOfDay(l.end_time) }))),
     [dayList],
   );
+
+  /**
+   * Converts a drag's raw pixel translation into a candidate new start
+   * time, checks it against the diary's working hours and any other
+   * lesson that day for a collision, and — if clear — persists it.
+   * Returns whether the drop was accepted; DraggableLessonBlock uses this
+   * to decide whether to spring back to where it started.
+   *
+   * Day-view-only (allowDayChange is always false here — see the
+   * <DraggableLessonBlock> usage below), so there's no day-change/week-
+   * column-width logic to carry over from the original implementation;
+   * translationX is always 0 in this view.
+   */
+  const handleLessonDrop = async (l: Lesson, _translationX: number, translationY: number): Promise<boolean> => {
+    const deltaMinutes = snapMinutes((translationY / HOUR_H) * 60);
+    if (deltaMinutes === 0) return true; // dropped back where it started — no-op, treat as accepted
+    const durationMinutes = Math.round((toMinutesOfDay(l.end_time) - toMinutesOfDay(l.start_time)));
+    const currentStartMin = toMinutesOfDay(l.start_time);
+    const newStartMin = currentStartMin + deltaMinutes;
+
+    if (newStartMin < TOP_MIN || newStartMin + durationMinutes > BOTTOM_MIN) {
+      Alert.alert('Outside diary hours', `That would put the lesson outside the ${TOP_MIN / 60}:00–${BOTTOM_MIN / 60}:00 diary window.`);
+      return false;
+    }
+
+    const collision = dayList.some((other) =>
+      other.id !== l.id &&
+      other.status !== 'Cancelled' &&
+      toMinutesOfDay(other.start_time) < newStartMin + durationMinutes &&
+      toMinutesOfDay(other.end_time) > newStartMin,
+    );
+    if (collision) {
+      Alert.alert('Time slot taken', 'Another lesson already occupies that time — pick a different slot.');
+      return false;
+    }
+
+    const newStartTime = minutesToTime(newStartMin);
+    const newEndTime = minutesToTime(newStartMin + durationMinutes);
+    try {
+      await patchLesson(l.id, { start_time: newStartTime, end_time: newEndTime });
+      return true;
+    } catch (e: any) {
+      Alert.alert('Could not reschedule', e?.message || 'Please try again.');
+      return false;
+    }
+  };
 
   const totalMinutesFor = (idx: number) =>
     (lessonsByDay[idx] || []).reduce((sum, l) => sum + (toMinutesOfDay(l.end_time) - toMinutesOfDay(l.start_time)), 0);
@@ -197,7 +249,7 @@ export default function LessonDiaryV2Screen() {
           </Text>
         </View>
 
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }} scrollEnabled={!dragScrollLocked}>
           {viewMode === 'month' ? (
             <View style={{ padding: 14 }}>
               <View style={{ flexDirection: 'row', marginBottom: 4 }}>
@@ -373,6 +425,7 @@ export default function LessonDiaryV2Screen() {
                       const height = (eMin - sMin) / 60 * HOUR_H - 4;
                       const colInfo = dayColumns[l.id] || { column: 0, totalColumns: 1 };
                       const colWidthPct = 100 / colInfo.totalColumns;
+                      const isCancelled = l.status === 'Cancelled';
                       items.push(
                         // Outer wrapper matches the original single-lesson
                         // positioning exactly (left: 38 for the hour-label
@@ -380,8 +433,23 @@ export default function LessonDiaryV2Screen() {
                         // left/width are relative to THIS wrapper, not the
                         // full screen width, so the 38px gutter is still
                         // respected even when a lesson is split into
-                        // columns for an overlap.
-                        <View key={l.id} style={{ position: 'absolute', top, height, left: 38, right: 0 }}>
+                        // columns for an overlap. Now a DraggableLessonBlock
+                        // (25 Aug 2026, re-integrated) rather than a plain
+                        // View — long-press to drag, matching the original
+                        // pre-redesign screen's behaviour exactly, lost
+                        // when this screen was swapped to the new design
+                        // and never reconnected until now.
+                        <DraggableLessonBlock
+                          key={l.id}
+                          disabled={isCancelled}
+                          allowDayChange={false}
+                          resetKey={`${l.id}-${l.date}-${l.start_time}`}
+                          onDragStart={() => setDragScrollLocked(true)}
+                          onDragEnd={() => setDragScrollLocked(false)}
+                          onDrop={(tx, ty) => handleLessonDrop(l, tx, ty)}
+                          style={{ position: 'absolute', top, height, left: 38, right: 0 }}
+                          testID={`v2-drag-${l.id}`}
+                        >
                           <TouchableOpacity
                             style={[
                               s.lessonBlock,
@@ -403,7 +471,7 @@ export default function LessonDiaryV2Screen() {
                             </View>
                             {colInfo.totalColumns === 1 && <Text style={s.lessonBlockTag}>{durLabel(eMin - sMin)}</Text>}
                           </TouchableOpacity>
-                        </View>,
+                        </DraggableLessonBlock>,
                       );
                       return items;
                     })

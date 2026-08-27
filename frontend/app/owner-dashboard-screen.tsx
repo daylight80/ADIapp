@@ -1,14 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, TextInput, Modal, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { UserPlus, X } from 'lucide-react-native';
 import { useAuth } from '../src/AuthContext';
 import { supabase } from '../src/supabaseClient';
 import { DateField } from '../src/DateTimeFields';
 import { isFranchiseTier, schoolDisplayName } from '../src/tiers';
+import { copyToClipboard, openSmsComposer } from '../src/tools';
 import {
   listTestOutcomesForSchool, computeTestKpis, type TestOutcome, getArrearsSummary,
+  getMySchoolProfile, buildInstructorInviteLink, type InvitedInstructor,
 } from '../src/supabaseDb';
+import { inviteInstructor } from '../src/useSupabaseData';
 
 /**
  * Owner Dashboard — redesigned visual direction from the Claude Design
@@ -129,6 +133,68 @@ export default function OwnerDashboardV2Screen() {
   const [testOutcomes, setTestOutcomes] = useState<TestOutcome[]>([]);
   const [arrears, setArrears] = useState<{ count: number; total_gbp: number }>({ count: 0, total_gbp: 0 });
   const [loading, setLoading] = useState(true);
+
+  // Owner-only "Add instructor" (25 Aug 2026). isOwner is derived from
+  // getMySchoolProfile() itself filtering .eq('owner_auth_id', uid) — it
+  // naturally returns null for a non-owner instructor, so a non-null
+  // result IS the owner check, no separate query needed. This is a UX
+  // gate only; RLS (ins_owner_all policy) is the actual security boundary
+  // regardless of what this screen shows or hides.
+  const [isOwner, setIsOwner] = useState(false);
+  useEffect(() => {
+    getMySchoolProfile().then((school) => setIsOwner(!!school)).catch(() => setIsOwner(false));
+  }, []);
+
+  const [addInstructorOpen, setAddInstructorOpen] = useState(false);
+  const [aiFullName, setAiFullName] = useState('');
+  const [aiAdiNumber, setAiAdiNumber] = useState('');
+  const [aiMobile, setAiMobile] = useState('');
+  const [aiEmail, setAiEmail] = useState('');
+  const [aiAddress, setAiAddress] = useState('');
+  const [aiCarMake, setAiCarMake] = useState('');
+  const [aiCarModel, setAiCarModel] = useState('');
+  const [aiNumberPlate, setAiNumberPlate] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [inviteResult, setInviteResult] = useState<{ link: string; name: string; mobile: string } | null>(null);
+
+  const resetAddInstructorForm = () => {
+    setAiFullName(''); setAiAdiNumber(''); setAiMobile(''); setAiEmail('');
+    setAiAddress(''); setAiCarMake(''); setAiCarModel(''); setAiNumberPlate('');
+    setAiError(null);
+  };
+
+  const submitAddInstructor = async () => {
+    setAiError(null);
+    if (!aiFullName.trim()) { setAiError("Please enter the instructor's full name"); return; }
+    if (!aiAdiNumber.trim()) { setAiError('Please enter their ADI/PDI number'); return; }
+    if (!aiMobile.trim()) { setAiError('Please enter their mobile number'); return; }
+    if (!aiEmail.trim() || !aiEmail.includes('@')) { setAiError('Please enter a valid email address'); return; }
+    setAiBusy(true);
+    try {
+      const created: InvitedInstructor = await inviteInstructor({
+        full_name: aiFullName.trim(),
+        adi_number: aiAdiNumber.trim(),
+        mobile_number: aiMobile.trim(),
+        email: aiEmail.trim(),
+        address: aiAddress.trim(),
+        car_make: aiCarMake.trim(),
+        car_model: aiCarModel.trim(),
+        number_plate: aiNumberPlate.trim(),
+      });
+      const appOrigin = Platform.OS === 'web' && typeof window !== 'undefined'
+        ? window.location.origin
+        : (process.env.EXPO_PUBLIC_APP_URL || 'https://adiapp.netlify.app');
+      const link = buildInstructorInviteLink(created, appOrigin);
+      setAddInstructorOpen(false);
+      resetAddInstructorForm();
+      setInviteResult({ link, name: created.full_name, mobile: aiMobile.trim() });
+    } catch (e: any) {
+      setAiError(e?.message || 'Could not add instructor');
+    } finally {
+      setAiBusy(false);
+    }
+  };
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('revenue_month');
@@ -296,6 +362,16 @@ export default function OwnerDashboardV2Screen() {
             {leaderboard?.seat_count || 1} instructor{(leaderboard?.seat_count || 1) === 1 ? '' : 's'}
             {leaderboard?.seat_limit ? ` of ${leaderboard.seat_limit} seats` : ''}
           </Text>
+          {isOwner && isFranchise && (
+            <TouchableOpacity
+              style={s.addInstructorBtn}
+              onPress={() => setAddInstructorOpen(true)}
+              testID="btn-add-instructor"
+            >
+              <UserPlus size={16} color="#fff" />
+              <Text style={s.addInstructorBtnText}>Add instructor</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {!!error && (
@@ -565,6 +641,102 @@ export default function OwnerDashboardV2Screen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Add instructor form — owner-only (25 Aug 2026). Fields per Grant's
+          exact list: full name, ADI/PDI number, mobile, email, address,
+          car make/model, number plate. Name/ADI/mobile/email are required
+          to actually send a usable invite; address and car details are
+          asked for but not blocking, since an owner may not have every
+          detail to hand yet when first adding someone. */}
+      <Modal
+        visible={addInstructorOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !aiBusy && setAddInstructorOpen(false)}
+      >
+        <View style={s.formBackdrop}>
+          <View style={s.formCard} testID="add-instructor-form">
+            <View style={s.formHeader}>
+              <Text style={s.formTitle}>Add instructor</Text>
+              <TouchableOpacity onPress={() => !aiBusy && setAddInstructorOpen(false)} testID="add-instructor-close">
+                <X size={20} color={C.textMuted} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 480 }} keyboardShouldPersistTaps="handled">
+              <Text style={s.formLabel}>Full name *</Text>
+              <TextInput style={s.formInput} value={aiFullName} onChangeText={setAiFullName} placeholder="e.g. Priya Shah" placeholderTextColor={C.textMuted} testID="ai-full-name" />
+              <Text style={s.formLabel}>ADI/PDI number *</Text>
+              <TextInput style={s.formInput} value={aiAdiNumber} onChangeText={setAiAdiNumber} placeholder="e.g. 123456" placeholderTextColor={C.textMuted} testID="ai-adi-number" />
+              <Text style={s.formLabel}>Mobile number *</Text>
+              <TextInput style={s.formInput} value={aiMobile} onChangeText={setAiMobile} keyboardType="phone-pad" placeholder="07700 900000" placeholderTextColor={C.textMuted} testID="ai-mobile" />
+              <Text style={s.formLabel}>Email address *</Text>
+              <TextInput style={s.formInput} value={aiEmail} onChangeText={setAiEmail} autoCapitalize="none" keyboardType="email-address" placeholder="name@example.co.uk" placeholderTextColor={C.textMuted} testID="ai-email" />
+              <Text style={s.formLabel}>Address</Text>
+              <TextInput style={s.formInput} value={aiAddress} onChangeText={setAiAddress} placeholder="12 High Street" placeholderTextColor={C.textMuted} testID="ai-address" />
+              <Text style={s.formLabel}>Car make</Text>
+              <TextInput style={s.formInput} value={aiCarMake} onChangeText={setAiCarMake} placeholder="e.g. Vauxhall" placeholderTextColor={C.textMuted} testID="ai-car-make" />
+              <Text style={s.formLabel}>Car model</Text>
+              <TextInput style={s.formInput} value={aiCarModel} onChangeText={setAiCarModel} placeholder="e.g. Corsa" placeholderTextColor={C.textMuted} testID="ai-car-model" />
+              <Text style={s.formLabel}>Number plate</Text>
+              <TextInput style={s.formInput} value={aiNumberPlate} onChangeText={(v) => setAiNumberPlate(v.toUpperCase())} autoCapitalize="characters" placeholder="AB12 CDE" placeholderTextColor={C.textMuted} testID="ai-number-plate" />
+              {!!aiError && <Text style={s.formError}>{aiError}</Text>}
+              <View style={{ height: 8 }} />
+            </ScrollView>
+            <TouchableOpacity
+              style={[s.formSubmitBtn, aiBusy && { opacity: 0.6 }]}
+              onPress={submitAddInstructor}
+              disabled={aiBusy}
+              testID="ai-submit"
+            >
+              {aiBusy ? <ActivityIndicator color="#fff" /> : <Text style={s.formSubmitBtnText}>Generate invite link</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Invite link result — same copy/SMS pattern as the student invite. */}
+      <Modal
+        visible={!!inviteResult}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setInviteResult(null)}
+      >
+        <View style={s.formBackdrop}>
+          <View style={[s.formCard, { maxHeight: undefined }]} testID="invite-link-result">
+            <View style={s.formHeader}>
+              <Text style={s.formTitle}>Invite link ready</Text>
+              <TouchableOpacity onPress={() => setInviteResult(null)} testID="invite-result-close">
+                <X size={20} color={C.textMuted} />
+              </TouchableOpacity>
+            </View>
+            <Text style={s.formHint}>
+              Share this link with {inviteResult?.name.split(' ')[0]} — they'll set their own password and be added to your school automatically.
+            </Text>
+            <View style={s.linkBox} testID="invite-link-value">
+              <Text style={s.linkText} numberOfLines={2}>{inviteResult?.link}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 9, marginTop: 12 }}>
+              <TouchableOpacity
+                style={[s.linkBtn, { backgroundColor: C.primary }]}
+                onPress={() => inviteResult && copyToClipboard(inviteResult.link)}
+                testID="invite-copy"
+              >
+                <Text style={s.linkBtnText}>Copy link</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.linkBtn, { backgroundColor: '#EA580C' }]}
+                onPress={() => inviteResult && openSmsComposer(
+                  inviteResult.mobile,
+                  `Hi ${inviteResult.name.split(' ')[0]}, you've been added as an instructor on ADI Pro. Tap to set your password: ${inviteResult.link}`,
+                )}
+                testID="invite-sms"
+              >
+                <Text style={s.linkBtnText}>Send via SMS</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -656,4 +828,23 @@ const s = StyleSheet.create({
   todayStudent: { fontFamily: 'Archivo_700Bold', fontSize: 15, color: C.text },
   todaySub: { fontFamily: 'Barlow_500Medium', fontSize: 12, color: C.textMuted2, marginTop: 1 },
   todayStatus: { fontFamily: 'Barlow_700Bold', fontSize: 10, letterSpacing: 0.8, textTransform: 'uppercase', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, overflow: 'hidden' },
+
+  addInstructorBtn: { flexDirection: 'row', alignItems: 'center', gap: 7, alignSelf: 'flex-start', marginTop: 12, height: 42, paddingHorizontal: 16, borderRadius: 12, backgroundColor: C.primary },
+  addInstructorBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: '#fff' },
+
+  formBackdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.55)', justifyContent: 'flex-end' },
+  formCard: { backgroundColor: '#fff', borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 20, maxHeight: '86%' },
+  formHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  formTitle: { fontFamily: 'Archivo_800ExtraBold', fontSize: 19, color: C.text },
+  formLabel: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1, textTransform: 'uppercase', color: C.textMuted, marginTop: 12, marginBottom: 5 },
+  formInput: { height: 46, paddingHorizontal: 13, borderWidth: 1, borderColor: C.border, borderRadius: 12, backgroundColor: C.surface, fontFamily: 'Barlow_400Regular', fontSize: 14, color: C.text },
+  formError: { fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: '#B91C1C', marginTop: 12 },
+  formSubmitBtn: { marginTop: 16, minHeight: 50, borderRadius: 14, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  formSubmitBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 15, color: '#fff' },
+  formHint: { fontFamily: 'Barlow_400Regular', fontSize: 13.5, lineHeight: 19, color: C.textMuted },
+
+  linkBox: { marginTop: 12, backgroundColor: C.surface, borderRadius: 12, padding: 12 },
+  linkText: { fontFamily: 'Barlow_500Medium', fontSize: 12.5, color: C.textMuted2 },
+  linkBtn: { flex: 1, minHeight: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  linkBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: '#fff' },
 });

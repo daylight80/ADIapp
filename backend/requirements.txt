@@ -29,6 +29,10 @@ httpx~=0.28
 stripe~=13.0
 APScheduler~=3.11
 
+# Receipt OCR (25 Aug 2026) — replaces the old emergentintegrations/Gemini
+# call, which stopped working once Grant moved off the emergent.sh platform.
+anthropic~=1.1
+
 # Testing (used by backend/tests/ — harmless in production, but only
 # actually needed for `pytest` to run; kept for parity with local dev)
 pytest~=9.0

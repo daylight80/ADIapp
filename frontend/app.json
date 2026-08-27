@@ -20,7 +20,7 @@
           "location"
         ]
       },
-      "bundleIdentifier": "com.emergent.dvsalessonhub.wqxs9n"
+      "bundleIdentifier": "uk.co.drivingschoolsolutions.adipro"
     },
     "android": {
       "adaptiveIcon": {
@@ -37,7 +37,7 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION"
       ],
-      "package": "app.emergent.adpro"
+      "package": "uk.co.drivingschoolsolutions.adipro"
     },
     "androidStatusBar": {
       "backgroundColor": "#000000",

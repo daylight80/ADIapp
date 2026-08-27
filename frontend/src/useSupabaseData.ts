@@ -103,6 +103,12 @@ export async function createStudent(input: db.AddStudentInput) {
   return row;
 }
 
+export async function inviteInstructor(input: db.InviteInstructorInput) {
+  const row = await db.inviteInstructor(input);
+  bump();
+  return row;
+}
+
 export async function patchStudent(id: string, patch: db.UpdateStudentInput) {
   const row = await db.updateStudent(id, patch);
   bump();

@@ -140,7 +140,8 @@ export async function getStudent(id: string): Promise<Student | undefined> {
 // school_id and instructor_id so RLS lets the row through.
 async function ownContext() {
   const { data: sessionData } = await supabase.auth.getSession();
-  const uid = sessionData.session?.user.id;
+  const user = sessionData.session?.user;
+  const uid = user?.id;
   if (!uid) throw new Error('Not signed in');
 
   const { data: instructor, error } = await supabase
@@ -149,8 +150,29 @@ async function ownContext() {
     .eq('auth_user_id', uid)
     .maybeSingle();
   if (error) throw error;
-  if (!instructor) throw new Error('No instructor profile for current user');
-  return { schoolId: instructor.school_id as string, instructorId: instructor.id as string };
+  if (instructor) return { schoolId: instructor.school_id as string, instructorId: instructor.id as string };
+
+  // Not linked by auth_user_id yet — this is expected for a newly-invited
+  // instructor's very first sign-in (25 Aug 2026): the owner's invite form
+  // creates the instructors row ahead of time with auth_user_id left null,
+  // the same pattern the existing student invite flow already relies on
+  // (see getStudentByEmail). Fall back to matching by email, and self-heal
+  // the link so every future call goes straight through the fast path
+  // above instead of hitting this fallback every time.
+  const email = user?.email;
+  if (email) {
+    const { data: byEmail, error: emailErr } = await supabase
+      .from('instructors')
+      .select('id, school_id')
+      .eq('email', email.toLowerCase())
+      .is('auth_user_id', null)
+      .maybeSingle();
+    if (!emailErr && byEmail) {
+      await supabase.from('instructors').update({ auth_user_id: uid }).eq('id', byEmail.id);
+      return { schoolId: byEmail.school_id as string, instructorId: byEmail.id as string };
+    }
+  }
+  throw new Error('No instructor profile for current user');
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +237,84 @@ export async function getInstructorProfile(): Promise<InstructorProfile | null> 
     tc_signed_at: (data as any).tc_signed_at ?? null,
     tc_signature_name: (data as any).tc_signature_name ?? null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Invite a new instructor (25 Aug 2026) — owner-only. RLS already enforces
+// this at the database level (the ins_owner_all policy restricts ALL
+// commands on this table to is_school_owner(school_id)), so a non-owner
+// instructor calling this gets a real RLS rejection, not just a hidden UI
+// button — the UI-side owner check (see owner-dashboard-screen.tsx) is
+// for a good experience, not the actual security boundary.
+// ---------------------------------------------------------------------------
+
+export type InviteInstructorInput = {
+  full_name: string;
+  adi_number: string;
+  mobile_number: string;
+  email: string;
+  address: string;
+  car_make: string;
+  car_model: string;
+  number_plate: string;
+};
+
+export type InvitedInstructor = {
+  id: string;
+  school_id: string;
+  full_name: string;
+  adi_number: string;
+  email: string;
+  mobile_number: string | null;
+  address: string | null;
+  car_make: string | null;
+  car_model: string | null;
+  number_plate: string | null;
+};
+
+/**
+ * Creates the new instructor's row ahead of time, with auth_user_id left
+ * null. Their own auth account gets linked to this row automatically on
+ * first sign-in via ownContext()'s email-fallback (see above) — the same
+ * "create the row first, link it on first login" pattern the existing
+ * student invite flow already relies on, not something new invented here.
+ */
+export async function inviteInstructor(input: InviteInstructorInput): Promise<InvitedInstructor> {
+  const { schoolId } = await ownContext();
+  const payload = {
+    school_id: schoolId,
+    auth_user_id: null,
+    full_name: input.full_name.trim(),
+    adi_number: input.adi_number.trim(),
+    email: input.email.trim().toLowerCase(),
+    mobile_number: input.mobile_number?.trim() || null,
+    address: input.address?.trim() || null,
+    car_make: input.car_make?.trim() || null,
+    car_model: input.car_model?.trim() || null,
+    number_plate: input.number_plate?.trim().toUpperCase() || null,
+  };
+  const { data, error } = await supabase.from('instructors').insert(payload).select('*').single();
+  if (error) throw error;
+  return data as InvitedInstructor;
+}
+
+/**
+ * Builds the invite link client-side — same base64 payload + fallback-link
+ * pattern the student invite flow already uses (see student-crm-screen.tsx's
+ * submitAddStudent), deliberately NOT calling a backend email-send endpoint
+ * yet. /v2/students/invite is hardcoded to role=student and can't be reused
+ * as-is; sending a real email for instructors is a separate follow-up piece,
+ * not bundled into this function.
+ */
+export function buildInstructorInviteLink(instructor: InvitedInstructor, appOrigin: string): string {
+  const payload = btoa(JSON.stringify({
+    type: 'instructor',
+    email: instructor.email,
+    name: instructor.full_name,
+    instructor_id: instructor.id,
+    school_id: instructor.school_id,
+  }));
+  return `${appOrigin}/?invite=${payload}`;
 }
 
 // Persists the Pupil Agreement signature (name + server-generated timestamp)

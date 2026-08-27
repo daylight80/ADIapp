@@ -109,6 +109,10 @@ type InvitePreview = {
   instructor_name: string;
   instructor_adi: string;
   expires_at: string;
+  /** Absent on existing student invite links (predates this field) — an
+   * absent type must still mean 'student', not silently break every link
+   * generated before this. */
+  type?: 'student' | 'instructor';
 };
 
 export default function SignInV2Screen() {
@@ -208,11 +212,17 @@ export default function SignInV2Screen() {
           {isInvite && (
             <View style={s.inviteCard} testID="v2-invite-banner">
               <Text style={s.inviteLabel}>You&apos;ve been invited</Text>
-              <Text style={s.inviteLine}>
-                {invitePreview?.instructor_name || 'Your instructor'}
-                {invitePreview?.instructor_adi ? ` (ADI ${invitePreview.instructor_adi})` : ''} has invited you to join
-                ADI Pro as a student. Choose a password to finish setting up your account.
-              </Text>
+              {invitePreview?.type === 'instructor' ? (
+                <Text style={s.inviteLine}>
+                  You&apos;ve been added as an instructor on ADI Pro. Choose a password to finish setting up your account.
+                </Text>
+              ) : (
+                <Text style={s.inviteLine}>
+                  {invitePreview?.instructor_name || 'Your instructor'}
+                  {invitePreview?.instructor_adi ? ` (ADI ${invitePreview.instructor_adi})` : ''} has invited you to join
+                  ADI Pro as a student. Choose a password to finish setting up your account.
+                </Text>
+              )}
             </View>
           )}
 

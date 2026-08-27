@@ -40,7 +40,12 @@ STRIPE_API_KEY = os.environ.get("STRIPE_API_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 APP_DOMAIN = os.environ.get("APP_DOMAIN", "http://localhost:3000")
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
-EMERGENT_LLM_KEY    = os.environ.get("EMERGENT_LLM_KEY", "")
+# Receipt OCR (25 Aug 2026) — replaces the old emergentintegrations/Gemini
+# call, which stopped working entirely once Grant moved off the emergent.sh
+# platform (that key/package were tied specifically to it). A real,
+# standard Anthropic API key instead — get one from console.anthropic.com
+# and set it as an env var on Render.
+ANTHROPIC_API_KEY   = os.environ.get("ANTHROPIC_API_KEY", "")
 
 # Stripe Price IDs per subscription tier (set in backend/.env)
 STRIPE_PRICE_GROWTH         = os.environ.get("STRIPE_PRICE_GROWTH", "")
@@ -1492,11 +1497,19 @@ _RECEIPT_CATEGORIES = [
 
 @api_router.post("/receipts/scan", response_model=ReceiptScanResponse)
 async def receipts_scan(req: ReceiptScanRequest, sb_user: dict = Depends(get_current_supabase_user)):
-    """OCR a receipt image using Gemini 2.5 Flash and return structured fields.
+    """OCR a receipt image using Claude Haiku 4.5 and return structured fields.
     Falls back gracefully if the model returns unparseable JSON.
+
+    Replaces the old emergentintegrations/Gemini call (25 Aug 2026) — that
+    package and its EMERGENT_LLM_KEY were tied specifically to the
+    emergent.sh platform Grant has since moved off, so this had been
+    completely non-functional the whole time, not just outdated. At
+    Grant's estimated volume (10-15 receipts/week per instructor), the
+    real-world cost of this is negligible — roughly £2/year per instructor
+    at Haiku 4.5's published rates ($1/MTok input, $5/MTok output).
     """
-    if not EMERGENT_LLM_KEY:
-        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY not configured on backend.")
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured on backend.")
     if not req.image_base64:
         raise HTTPException(status_code=400, detail="image_base64 is required")
     # Strip any data: URI prefix if the client included one.
@@ -1513,11 +1526,18 @@ async def receipts_scan(req: ReceiptScanRequest, sb_user: dict = Depends(get_cur
     except Exception:
         raise HTTPException(status_code=400, detail="image_base64 is not valid base64")
 
+    # The frontend already sends this (receipts-screen.tsx defaults to
+    # 'image/jpeg'); the old implementation never actually read it. Claude's
+    # vision API needs one of these four exact values.
+    media_type = req.mime_type if req.mime_type in (
+        "image/jpeg", "image/png", "image/gif", "image/webp",
+    ) else "image/jpeg"
+
     # Lazy import to avoid cold-start cost on unrelated routes.
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+        import anthropic
     except ImportError as e:
-        raise HTTPException(status_code=500, detail=f"emergentintegrations not installed: {e}")
+        raise HTTPException(status_code=500, detail=f"anthropic package not installed: {e}")
 
     system_msg = (
         "You are an expert OCR engine for UK driving-instructor receipts. "
@@ -1534,24 +1554,25 @@ async def receipts_scan(req: ReceiptScanRequest, sb_user: dict = Depends(get_cur
         "vat_amount, category. If a field cannot be read, return null for it."
     )
 
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"receipt-scan-{sb_user['auth_user_id']}-{uuid.uuid4().hex[:8]}",
-        system_message=system_msg,
-    ).with_model("gemini", "gemini-2.5-flash")
-
-    user_msg = UserMessage(
-        text="Extract the receipt fields as JSON.",
-        file_contents=[ImageContent(image_base64=img_b64)],
-    )
-
+    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
     try:
-        raw = await chat.send_message(user_msg)
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            system=system_msg,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": img_b64}},
+                    {"type": "text", "text": "Extract the receipt fields as JSON."},
+                ],
+            }],
+        )
     except Exception as e:
-        logging.exception("[receipts/scan] Gemini call failed")
+        logging.exception("[receipts/scan] Anthropic call failed")
         raise HTTPException(status_code=502, detail=f"OCR backend failure: {e}")
 
-    raw_text = str(raw).strip()
+    raw_text = "".join(block.text for block in response.content if block.type == "text").strip()
 
     # Strip ```json fences if the model added them despite instructions.
     fenced = _re.search(r"```(?:json)?\s*(\{[\s\S]+?\})\s*```", raw_text, _re.I)

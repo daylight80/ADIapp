@@ -6,6 +6,7 @@
   "build": {
     "development": {
       "developmentClient": true,
+<<<<<<< HEAD
       "distribution": "internal"
     },
     "preview": {
@@ -13,6 +14,18 @@
     },
     "production": {
       "autoIncrement": true
+=======
+      "distribution": "internal",
+      "environment": "development"
+    },
+    "preview": {
+      "distribution": "internal",
+      "environment": "preview"
+    },
+    "production": {
+      "autoIncrement": true,
+      "environment": "production"
+>>>>>>> b326d2c99285e3e7a7f5abd18ea0b12c2e115eec
     }
   },
   "submit": {

@@ -20,6 +20,8 @@ import {
   fmtDistance, fmtDuration, msToMph, haversineMeters,
   type SavedRoute, type RoutePoint,
 } from '../src/routeRecorder';
+import { useAuth } from '../src/AuthContext';
+import { isPaidTier } from '../src/tiers';
 
 /**
  * Route Recorder — GPS breadcrumb tracking saved on device.
@@ -37,6 +39,21 @@ import {
  */
 export default function RouteRecorderScreen() {
   const router = useRouter();
+  const { user } = useAuth();
+
+  // Route recording is a Growth+ feature (31 Aug 2026) — the
+  // LessonToolsSheet button already greys itself out and shows a paywall
+  // instead of navigating here for a Starter-tier instructor, but that's
+  // only one of two entry points to this screen (see the diary-header
+  // comment below for the other) and doesn't stop direct navigation
+  // either. This is a client-side UX safeguard, not a real security
+  // boundary — same caveat as the equivalent receipts-screen redirect.
+  useEffect(() => {
+    if (user && !isPaidTier(user.tier)) {
+      router.replace('/home-screen' as any);
+    }
+  }, [user]);
+
   // Present only when launched from a specific lesson's LessonToolsSheet
   // ("Record route for this lesson") — absent when opened generically from
   // the diary header, in which case the saved route stays unlinked as before.

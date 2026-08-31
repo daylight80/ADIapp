@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft } from 'lucide-react-native';
+import { ArrowLeft, Lock } from 'lucide-react-native';
+import { PaywallModal } from '../src/PaywallModal';
 import { useAuth } from '../src/AuthContext';
 import { mockDb } from '../src/mockDb';
 import { BottomSheet } from '../src/BottomSheet';
@@ -100,6 +101,10 @@ export default function StudentProfileV2Screen() {
   const params = useLocalSearchParams();
   const { user } = useAuth();
   const pro = isPaidTier(user?.tier);
+  // Route recording is a Growth+ feature (31 Aug 2026) — this is the
+  // second of two entry points to route-recorder-screen (the other is
+  // LessonToolsSheet's identical button), found while fixing the first one.
+  const [routePaywallOpen, setRoutePaywallOpen] = useState(false);
   const id = (params.id as string) || '';
 
   const [tab, setTab] = useState<Tab>('overview');
@@ -436,7 +441,12 @@ export default function StudentProfileV2Screen() {
                 >
                   <Text style={s.qaBtnText}>I&apos;ve arrived</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={s.qaBtn} onPress={() => router.push('/route-recorder-screen' as any)} testID="v2-record-route">
+                <TouchableOpacity
+                  style={[s.qaBtn, !pro && { opacity: 0.55, flexDirection: 'row' }]}
+                  onPress={() => pro ? router.push('/route-recorder-screen' as any) : setRoutePaywallOpen(true)}
+                  testID="v2-record-route"
+                >
+                  {!pro && <Lock size={12} color={C.textMuted} style={{ marginRight: 4 }} />}
                   <Text style={s.qaBtnText}>Record route</Text>
                 </TouchableOpacity>
               </View>
@@ -786,6 +796,12 @@ export default function StudentProfileV2Screen() {
           onClose={() => setTestOutcomeOpen(false)}
         />
       )}
+
+      <PaywallModal
+        visible={routePaywallOpen}
+        onClose={() => setRoutePaywallOpen(false)}
+        reason="Route recording is available from Growth tier."
+      />
     </SafeAreaView>
   );
 }

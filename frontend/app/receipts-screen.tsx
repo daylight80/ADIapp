@@ -13,6 +13,8 @@ import { theme } from '../src/theme';
 import { Card, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { supabase } from '../src/supabaseClient';
+import { useAuth } from '../src/AuthContext';
+import { isPaidTier } from '../src/tiers';
 import {
   listReceipts, createReceipt, deleteReceipt, uploadReceiptImage,
   RECEIPT_CATEGORIES, ExpenseReceipt, ReceiptCategory,
@@ -48,6 +50,22 @@ type ScanResult = {
 
 export default function ReceiptsScreen() {
   const router = useRouter();
+  const { user } = useAuth();
+
+  // Receipts is a Growth+ feature (31 Aug 2026) — the home screen button
+  // already greys itself out and shows a paywall instead of navigating
+  // here for a Starter-tier instructor, but that only stops navigation
+  // from that one button. This catches the direct-navigation case (a deep
+  // link, or just typing the URL on web) too. Worth being clear this is
+  // still only a client-side UX safeguard, not a real security boundary —
+  // the underlying receipt read/write calls aren't tier-gated at the RLS
+  // level, so this doesn't stop a determined user, only an accidental one.
+  useEffect(() => {
+    if (user && !isPaidTier(user.tier)) {
+      router.replace('/home-screen' as any);
+    }
+  }, [user]);
+
   const [items, setItems] = useState<ExpenseReceipt[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);

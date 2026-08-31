@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react-native';
@@ -97,6 +97,15 @@ export default function LessonDiaryV2Screen() {
   // gesture-handler has exclusive control of the touch; without this,
   // dragging vertically fights the screen's own scroll.
   const [dragScrollLocked, setDragScrollLocked] = useState(false);
+  // Drag-confirmation modal (31 Aug 2026) — found via Grant's screen
+  // recording: dropping a lesson saved the new time immediately with no
+  // confirmation at all, and the visual drop position didn't snap to a
+  // clean time grid. resolve is captured from the promise handleLessonDrop
+  // is awaiting, so tapping Confirm/Cancel in the modal settles that same
+  // promise rather than needing a second, separate mechanism.
+  const [dragConfirm, setDragConfirm] = useState<{
+    lesson: Lesson; newStart: string; newEnd: string; resolve: (v: boolean) => void;
+  } | null>(null);
 
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
   const { lessons } = useLessonsForWeek(weekStart);
@@ -169,6 +178,14 @@ export default function LessonDiaryV2Screen() {
 
     const newStartTime = minutesToTime(newStartMin);
     const newEndTime = minutesToTime(newStartMin + durationMinutes);
+
+    // Wait for the instructor to actually confirm before saving anything —
+    // the modal's Confirm/Cancel buttons resolve this same promise.
+    const confirmed = await new Promise<boolean>((resolve) => {
+      setDragConfirm({ lesson: l, newStart: newStartTime, newEnd: newEndTime, resolve });
+    });
+    if (!confirmed) return false;
+
     try {
       await patchLesson(l.id, { start_time: newStartTime, end_time: newEndTime });
       return true;
@@ -444,6 +461,7 @@ export default function LessonDiaryV2Screen() {
                           disabled={isCancelled}
                           allowDayChange={false}
                           resetKey={`${l.id}-${l.date}-${l.start_time}`}
+                          snapIncrementPx={HOUR_H / 12}
                           onDragStart={() => setDragScrollLocked(true)}
                           onDragEnd={() => setDragScrollLocked(false)}
                           onDrop={(tx, ty) => handleLessonDrop(l, tx, ty)}
@@ -504,6 +522,46 @@ export default function LessonDiaryV2Screen() {
         pro
         onCreated={() => { setAddOpen(false); setSelectedDate(new Date(selectedDate)); }}
       />
+
+      {/* Drag-confirmation modal (31 Aug 2026) — deliberately a custom
+          in-app Modal, not Alert.alert(): on web, Alert falls back to the
+          browser's window.confirm(), which was already found to be
+          silently suppressed in some preview/embedded contexts during the
+          double-booking clash-confirmation work earlier this session —
+          same reasoning applies here. */}
+      <Modal
+        visible={!!dragConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => dragConfirm?.resolve(false)}
+      >
+        <View style={s.dragConfirmBackdrop}>
+          <View style={s.dragConfirmCard} testID="drag-confirm-modal">
+            <Text style={s.dragConfirmTitle}>Move this lesson?</Text>
+            {dragConfirm && (
+              <Text style={s.dragConfirmLine}>
+                {studentName(dragConfirm.lesson.student_id)}'s lesson to {dragConfirm.newStart}–{dragConfirm.newEnd}
+              </Text>
+            )}
+            <View style={{ flexDirection: 'row', gap: 9, marginTop: 16 }}>
+              <TouchableOpacity
+                style={s.dragConfirmCancelBtn}
+                onPress={() => { dragConfirm?.resolve(false); setDragConfirm(null); }}
+                testID="drag-confirm-cancel"
+              >
+                <Text style={s.dragConfirmCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.dragConfirmOkBtn}
+                onPress={() => { dragConfirm?.resolve(true); setDragConfirm(null); }}
+                testID="drag-confirm-ok"
+              >
+                <Text style={s.dragConfirmOkBtnText}>Move lesson</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -557,4 +615,13 @@ const s = StyleSheet.create({
   monthLessonChip: { borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2 },
   monthLessonChipText: { fontFamily: 'Barlow_500Medium', fontSize: 10, color: C.text },
   monthMoreText: { fontFamily: 'Barlow_700Bold', fontSize: 10, color: C.textMuted },
+
+  dragConfirmBackdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  dragConfirmCard: { width: '100%', maxWidth: 360, backgroundColor: '#fff', borderRadius: 18, padding: 20 },
+  dragConfirmTitle: { fontFamily: 'Archivo_800ExtraBold', fontSize: 17, color: C.text },
+  dragConfirmLine: { fontFamily: 'Barlow_500Medium', fontSize: 14, color: C.textMuted, marginTop: 8, lineHeight: 19 },
+  dragConfirmCancelBtn: { flex: 1, minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  dragConfirmCancelBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 14, color: C.textMuted },
+  dragConfirmOkBtn: { flex: 1, minHeight: 46, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  dragConfirmOkBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 14, color: '#fff' },
 });

@@ -16,7 +16,7 @@ import { isPaidTier, tierById, studentUsageUrgency, studentUsageMessage } from '
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { ContactsImportBanner } from '../src/ContactsImportBanner';
 import { PaywallModal } from '../src/PaywallModal';
-import { Crown, ChevronRight, Users, CalendarDays, Receipt, Lock } from 'lucide-react-native';
+import { Crown, ChevronRight, Users, CalendarDays, Receipt, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { usePendingSyncCount } from '../src/offlineSync';
 
 /**
@@ -66,6 +66,17 @@ const DAY_START = 450; // 07:30
 const DAY_END = 1200;  // 20:00
 const SPAN = DAY_END - DAY_START;
 
+// Earnings privacy (31 Aug 2026, per Grant) — same masking pattern already
+// used for revenue on owner-dashboard-screen.tsx, applied here to an
+// instructor's own month-to-date earnings. isEarningsHidden deliberately
+// starts true on every mount and is never persisted — an instructor
+// shouldn't have earnings accidentally left visible in front of a
+// student glancing at their phone, same reasoning as the owner dashboard.
+const EARNINGS_MASK = '£•••';
+function maskEarnings(value: string, hidden: boolean): string {
+  return hidden ? EARNINGS_MASK : value;
+}
+
 function toMin(hhmm: string): number {
   const [h, m] = hhmm.split(':').map(Number);
   return h * 60 + m;
@@ -100,6 +111,7 @@ export default function InstructorHomeV2Screen() {
   // hiding one of a fixed 3-button row (Students/Diary/Receipts) would
   // leave an awkward, unbalanced gap rather than a clean 2-button row.
   const [receiptsPaywallOpen, setReceiptsPaywallOpen] = useState(false);
+  const [isEarningsHidden, setIsEarningsHidden] = useState(true);
 
   const sorted = useMemo(
     () => [...todayLessons].sort((a, b) => toMin(a.start_time) - toMin(b.start_time)),
@@ -367,10 +379,19 @@ export default function InstructorHomeV2Screen() {
                 <View style={s.mtdCard}>
                   <View style={{ gap: 3 }}>
                     <Text style={s.mtdLabel}>Earned month to date</Text>
-                    <Text style={s.mtdValue}>£{mtdEarned.toFixed(0)}</Text>
+                    <Text style={s.mtdValue}>{maskEarnings(`£${mtdEarned.toFixed(0)}`, isEarningsHidden)}</Text>
                   </View>
                   <View style={{ alignItems: 'flex-end', gap: 3 }}>
-                    {mtdUnpaid > 0 && <Text style={s.mtdUnpaid}>£{mtdUnpaid.toFixed(0)} unpaid</Text>}
+                    <TouchableOpacity
+                      onPress={() => setIsEarningsHidden((v) => !v)}
+                      hitSlop={8}
+                      testID="v2-toggle-earnings"
+                    >
+                      {isEarningsHidden
+                        ? <Eye size={18} color="rgba(255,255,255,.7)" />
+                        : <EyeOff size={18} color="rgba(255,255,255,.7)" />}
+                    </TouchableOpacity>
+                    {mtdUnpaid > 0 && <Text style={s.mtdUnpaid}>{maskEarnings(`£${mtdUnpaid.toFixed(0)} unpaid`, isEarningsHidden)}</Text>}
                     <Text style={s.mtdCount}>{mtdLessonCount} lessons</Text>
                   </View>
                 </View>
@@ -411,7 +432,7 @@ export default function InstructorHomeV2Screen() {
                   return (
                     <View key={b.label} style={{ flex: 1, alignItems: 'center', gap: 7, height: '100%', justifyContent: 'flex-end' }}>
                       <Text style={[s.barValue, isLast && { color: C.warmText }]}>
-                        {b.value >= 1000 ? `£${(b.value / 1000).toFixed(1)}k` : `£${b.value.toFixed(0)}`}
+                        {maskEarnings(b.value >= 1000 ? `£${(b.value / 1000).toFixed(1)}k` : `£${b.value.toFixed(0)}`, isEarningsHidden)}
                       </Text>
                       <View style={{
                         width: '100%',

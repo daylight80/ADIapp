@@ -15,7 +15,8 @@ import { colorForLessonType } from '../src/diary/lessonTypes';
 import { isPaidTier, tierById, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { ContactsImportBanner } from '../src/ContactsImportBanner';
-import { Crown, ChevronRight, Users, CalendarDays, Receipt } from 'lucide-react-native';
+import { PaywallModal } from '../src/PaywallModal';
+import { Crown, ChevronRight, Users, CalendarDays, Receipt, Lock } from 'lucide-react-native';
 import { usePendingSyncCount } from '../src/offlineSync';
 
 /**
@@ -93,6 +94,12 @@ export default function InstructorHomeV2Screen() {
 
   const tier = tierById(user?.tier);
   const paid = isPaidTier(user?.tier);
+  // Receipts is a Growth+ feature (31 Aug 2026, per Grant testing on
+  // Starter) — was showing fully active with no gating at all. Greyed out
+  // rather than hidden, unlike this file's other `{paid && ...}` sections:
+  // hiding one of a fixed 3-button row (Students/Diary/Receipts) would
+  // leave an awkward, unbalanced gap rather than a clean 2-button row.
+  const [receiptsPaywallOpen, setReceiptsPaywallOpen] = useState(false);
 
   const sorted = useMemo(
     () => [...todayLessons].sort((a, b) => toMin(a.start_time) - toMin(b.start_time)),
@@ -175,8 +182,12 @@ export default function InstructorHomeV2Screen() {
               <CalendarDays size={18} color="#fff" />
               <Text style={s.qaText}>Diary</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[s.qaBtn, { backgroundColor: '#047857' }]} onPress={() => router.push('/receipts-screen' as any)} testID="v2-qa-receipts">
-              <Receipt size={18} color="#fff" />
+            <TouchableOpacity
+              style={[s.qaBtn, { backgroundColor: paid ? '#047857' : '#9CA3AF' }]}
+              onPress={() => paid ? router.push('/receipts-screen' as any) : setReceiptsPaywallOpen(true)}
+              testID="v2-qa-receipts"
+            >
+              {paid ? <Receipt size={18} color="#fff" /> : <Lock size={16} color="#fff" />}
               <Text style={s.qaText}>Receipts</Text>
             </TouchableOpacity>
           </View>
@@ -441,6 +452,12 @@ export default function InstructorHomeV2Screen() {
         onClose={() => setDetailLesson(null)}
         lesson={detailLesson}
         onChanged={() => setSelId(selId)}
+      />
+
+      <PaywallModal
+        visible={receiptsPaywallOpen}
+        onClose={() => setReceiptsPaywallOpen(false)}
+        reason="Receipt scanning and expense tracking is available from Growth tier."
       />
     </SafeAreaView>
   );

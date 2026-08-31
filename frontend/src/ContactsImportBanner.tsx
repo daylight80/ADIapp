@@ -49,9 +49,16 @@ export function ContactsImportBanner({ studentCount, isInstructor }: ContactsImp
 
   const handleImport = () => {
     setSheetOpen(true);
-    // Tapping the primary CTA also counts as "handled" — never re-show.
+    // Marked as "handled" server-side right away, so it won't re-show on a
+    // future login even if the instructor closes the app mid-import — but
+    // NOT hidden locally yet (that was the bug, 31 Aug 2026): setting
+    // hidden=true here immediately triggered the `if (hidden) return null`
+    // above, unmounting this entire component — including the
+    // <ContactsImportSheet> nested inside its returned JSX — before the
+    // sheet ever got a chance to render. Tapping "Import" looked exactly
+    // like the whole banner just closing, because that's genuinely what
+    // was happening. Now hidden is only set once the sheet actually closes.
     markContactsImportDismissed();
-    setHidden(true);
   };
 
   const handleLater = () => {
@@ -101,7 +108,7 @@ export function ContactsImportBanner({ studentCount, isInstructor }: ContactsImp
 
       <ContactsImportSheet
         visible={sheetOpen}
-        onClose={() => setSheetOpen(false)}
+        onClose={() => { setSheetOpen(false); setHidden(true); }}
       />
     </>
   );

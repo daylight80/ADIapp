@@ -17,12 +17,16 @@ import {
   PoundSterling,
   MapPin,
   BookOpen,
+  Lock,
 } from 'lucide-react-native';
 import { theme } from './theme';
 import { Lesson, Student, mockDb } from './mockDb';
 import { patchLesson } from './useSupabaseData';
 import { useStudent } from './useSupabaseData';
 import { countUpcomingInSeries, cancelSeriesFromDate } from './useSupabaseData';
+import { useAuth } from './AuthContext';
+import { isPaidTier } from './tiers';
+import { PaywallModal } from './PaywallModal';
 import { queueLessonWrite, useIsOnline } from './offlineSync';
 import { openNavigation, openSmsComposer } from './tools';
 import { fireInstantNotification } from './notifications';
@@ -69,6 +73,11 @@ type Props = {
 export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props) {
   const router = useRouter();
   const isOnline = useIsOnline();
+  const { user } = useAuth();
+  // Route recording is a Growth+ feature (31 Aug 2026, per Grant testing
+  // Starter on Android) — was fully active on every tier with no gating.
+  const paid = isPaidTier(user?.tier);
+  const [routePaywallOpen, setRoutePaywallOpen] = useState(false);
   const [precheck, setPrecheck] = useState<{ eye: boolean; fit: boolean; lic: boolean }>({ eye: false, fit: false, lic: false });
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -389,6 +398,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   };
 
   return (
+    <>
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
@@ -474,10 +484,13 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
             </TouchableOpacity>
 
             {/* Record route — tags the recording with this lesson + student
-                so it shows up linked instead of as a generic unnamed trip. */}
+                so it shows up linked instead of as a generic unnamed trip.
+                Greyed out on non-paid tiers rather than hidden, matching
+                the Receipts button's convention on the home screen. */}
             <TouchableOpacity
-              style={styles.recordRouteBtn}
+              style={[styles.recordRouteBtn, !paid && styles.recordRouteBtnLocked]}
               onPress={() => {
+                if (!paid) { setRoutePaywallOpen(true); return; }
                 onClose();
                 router.push({
                   pathname: '/route-recorder-screen',
@@ -486,8 +499,8 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
               }}
               testID="btn-record-route"
             >
-              <MapPin size={18} color={theme.colors.primary} />
-              <Text style={styles.recordRouteText}>Record route for this lesson</Text>
+              {paid ? <MapPin size={18} color={theme.colors.primary} /> : <Lock size={16} color={theme.colors.textMuted} />}
+              <Text style={[styles.recordRouteText, !paid && styles.recordRouteTextLocked]}>Record route for this lesson</Text>
             </TouchableOpacity>
 
             {/* Show Me, Tell Me quick reference — for glancing at during the
@@ -762,6 +775,13 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
         onSave={saveCompletion}
       />
     </Modal>
+
+    <PaywallModal
+      visible={routePaywallOpen}
+      onClose={() => setRoutePaywallOpen(false)}
+      reason="Route recording is available from Growth tier."
+    />
+    </>
   );
 }
 
@@ -1018,7 +1038,9 @@ const styles = StyleSheet.create({
   imHereBtn: { marginTop: 12, backgroundColor: theme.colors.accent, height: 50, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   imHereText: { color: '#fff', fontWeight: '700' },
   recordRouteBtn: { marginTop: 10, height: 46, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: theme.colors.primary },
+  recordRouteBtnLocked: { borderColor: theme.colors.border, backgroundColor: theme.colors.background },
   recordRouteText: { color: theme.colors.primary, fontWeight: '700', fontSize: 14 },
+  recordRouteTextLocked: { color: theme.colors.textMuted },
   smtmLinkBtn: { marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8 },
   smtmLinkText: { color: theme.colors.textMuted, fontWeight: '600', fontSize: 13, textDecorationLine: 'underline' },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border },

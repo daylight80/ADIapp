@@ -34,6 +34,7 @@ export function DraggableLessonBlock({
   disabled,
   allowDayChange,
   resetKey,
+  snapIncrementPx,
   onDragStart,
   onDragEnd,
   onDrop,
@@ -45,6 +46,15 @@ export function DraggableLessonBlock({
   /** Week view: true (can cross day columns). Day view: false (time only). */
   allowDayChange?: boolean;
   resetKey: string;
+  /** When set, translateY snaps live to the nearest multiple of this many
+   * pixels while dragging (31 Aug 2026) — e.g. HOUR_H / 12 for a 5-minute
+   * grid at the diary's current hour height. Without this the block
+   * followed the finger's raw pixel position, so where it visually landed
+   * didn't match the rounded time it actually saved as — the block would
+   * appear to be at a slightly different position than its own label until
+   * the next re-render caught up. allowDayChange's X axis isn't snapped;
+   * day columns don't have a sub-day grid to snap to. */
+  snapIncrementPx?: number;
   onDragStart?: () => void;
   onDragEnd?: () => void;
   onDrop: (translationX: number, translationY: number) => Promise<boolean>;
@@ -94,12 +104,18 @@ export function DraggableLessonBlock({
       if (onDragStart) runOnJS(onDragStart)();
     })
     .onUpdate((e) => {
-      translateY.value = e.translationY;
+      translateY.value = snapIncrementPx
+        ? Math.round(e.translationY / snapIncrementPx) * snapIncrementPx
+        : e.translationY;
       if (allowDayChange) translateX.value = e.translationX;
     })
     .onEnd((e) => {
       const tx = allowDayChange ? e.translationX : 0;
-      const ty = e.translationY;
+      // Use the already-snapped shared value, not the gesture's raw
+      // e.translationY — guarantees the position the block is visually
+      // sitting at and the value onDrop receives are exactly the same
+      // number, not two separately-rounded values that merely usually agree.
+      const ty = translateY.value;
       runOnJS(handleDropAsync)(tx, ty);
     })
     .onFinalize(() => {

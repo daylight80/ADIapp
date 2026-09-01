@@ -2,12 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Lock } from 'lucide-react-native';
+import { ArrowLeft, Lock, FileText, Download } from 'lucide-react-native';
 import { PaywallModal } from '../src/PaywallModal';
 import { useAuth } from '../src/AuthContext';
 import { mockDb } from '../src/mockDb';
 import { BottomSheet } from '../src/BottomSheet';
 import { TestOutcomeModal } from '../src/TestOutcomeModal';
+import { buildInvoiceHtml, generateAndShareInvoicePdf } from '../src/invoice';
 import {
   useStudent, patchStudent, passStudent, useLessonsForStudent, useCompetencies,
   useTestOutcomesForStudent, useMockTestAttempts, setStudentStatusAsync, removeStudentViaApi,
@@ -105,6 +106,8 @@ export default function StudentProfileV2Screen() {
   // second of two entry points to route-recorder-screen (the other is
   // LessonToolsSheet's identical button), found while fixing the first one.
   const [routePaywallOpen, setRoutePaywallOpen] = useState(false);
+  const [invoicePaywallOpen, setInvoicePaywallOpen] = useState(false);
+  const [generatingInvoice, setGeneratingInvoice] = useState(false);
   const id = (params.id as string) || '';
 
   const [tab, setTab] = useState<Tab>('overview');
@@ -185,6 +188,48 @@ export default function StudentProfileV2Screen() {
     const firstName = (student?.name || 'there').split(' ')[0];
     const message = `Hi ${firstName}, congratulations again on passing! If you have a moment, we'd love a Google review: ${reviewUrl}\n\nP.s. include your pass photo!`;
     openSmsComposer(student?.phone || '', message);
+  };
+
+  // PDF invoices (31 Aug 2026) — Growth+ per tiers.ts, but buildInvoiceHtml/
+  // generateAndShareInvoicePdf were fully built and never actually called
+  // from anywhere in the app at all, found during a tier-gating audit.
+  // Invoices the student's paid lessons (matches what the Earnings tab's
+  // "Recent payments" list already shows) rather than every lesson,
+  // since an invoice for unpaid/free lessons wouldn't make sense.
+  const handleGenerateInvoice = async () => {
+    if (!pro) { setInvoicePaywallOpen(true); return; }
+    if (!student) return;
+    const paidLessons = lessons.filter((l) => l.amount_paid);
+    if (paidLessons.length === 0) {
+      Alert.alert('No paid lessons yet', "This student doesn't have any paid lessons to invoice yet.");
+      return;
+    }
+    setGeneratingInvoice(true);
+    try {
+      let schoolProfile: Awaited<ReturnType<typeof getMySchoolProfile>> = null;
+      try { schoolProfile = await getMySchoolProfile(); } catch { /* falls back to default branding below */ }
+      const issuedAt = new Date();
+      const invoiceNo = `${issuedAt.getFullYear()}${String(issuedAt.getMonth() + 1).padStart(2, '0')}${String(issuedAt.getDate()).padStart(2, '0')}-${student.id.slice(0, 6).toUpperCase()}`;
+      const html = buildInvoiceHtml({
+        invoiceNo,
+        instructorName: user?.name || 'Your instructor',
+        instructorEmail: user?.email || '',
+        student,
+        lessons: paidLessons,
+        issuedAt,
+        schoolName: schoolProfile?.business_name,
+        schoolLogoUrl: schoolProfile?.logo_url,
+        schoolContactEmail: schoolProfile?.contact_email,
+        schoolContactPhone: schoolProfile?.contact_phone,
+        schoolAddress: schoolProfile?.address,
+      });
+      const result = await generateAndShareInvoicePdf(html, `Invoice-${invoiceNo}.pdf`);
+      if (!result.ok) Alert.alert('Could not generate invoice', result.error || 'Please try again.');
+    } catch (e: any) {
+      Alert.alert('Could not generate invoice', e?.message || 'Please try again.');
+    } finally {
+      setGeneratingInvoice(false);
+    }
   };
 
   const levelByKey = useMemo(() => {
@@ -732,6 +777,22 @@ export default function StudentProfileV2Screen() {
                   )}
                 </View>
               </View>
+
+              <TouchableOpacity
+                style={[s.invoiceBtn, !pro && { opacity: 0.55 }]}
+                onPress={handleGenerateInvoice}
+                disabled={generatingInvoice}
+                testID="v2-generate-invoice"
+              >
+                {generatingInvoice ? (
+                  <ActivityIndicator color={C.primary} />
+                ) : (
+                  <>
+                    {pro ? <FileText size={18} color={C.primary} /> : <Lock size={16} color={C.textMuted} />}
+                    <Text style={[s.invoiceBtnText, !pro && { color: C.textMuted }]}>Generate PDF invoice</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </>
           )}
         </ScrollView>
@@ -802,6 +863,12 @@ export default function StudentProfileV2Screen() {
         onClose={() => setRoutePaywallOpen(false)}
         reason="Route recording is available from Growth tier."
       />
+
+      <PaywallModal
+        visible={invoicePaywallOpen}
+        onClose={() => setInvoicePaywallOpen(false)}
+        reason="PDF invoices are available from Growth tier."
+      />
     </SafeAreaView>
   );
 }
@@ -841,6 +908,8 @@ const s = StyleSheet.create({
 
   qaBtn: { flex: 1, minHeight: 42, borderWidth: 1, borderColor: C.border, backgroundColor: '#fff', borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   qaBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 12, color: C.text },
+  invoiceBtn: { marginTop: 14, minHeight: 48, borderRadius: 13, borderWidth: 1, borderColor: C.primary, backgroundColor: '#fff', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  invoiceBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 14, color: C.primary },
   reviewBtn: { marginTop: 9, minHeight: 44, backgroundColor: C.warmBg, borderWidth: 1, borderColor: C.accent, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   reviewBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: C.warmText },
 

@@ -96,6 +96,15 @@ export function isFranchiseTier(tier: string | null | undefined): boolean {
   return tier === 'franchise';
 }
 
+// For features exclusive to Pro and above — e.g. block booking & wallet
+// management, per tiers.ts's own feature list. Added 1 Sept 2026 during a
+// tier-gating audit that found wallet-screen.tsx (block booking + wallet
+// management) with zero gating at all — this helper genuinely didn't exist
+// before, only isPaidTier (Growth+) and isFranchiseTier did.
+export function isProTier(tier: string | null | undefined): boolean {
+  return tier === 'pro' || tier === 'franchise';
+}
+
 // Tier-aware replacement for the old proPlan.ts binary canAddStudent — checks
 // the real per-tier limit (Starter 5, Growth 15, Pro/Franchise unlimited)
 // instead of a flat free/pro split.

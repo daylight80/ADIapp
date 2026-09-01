@@ -21,8 +21,12 @@ import {
   Star,
   StarOff,
   CheckCircle2,
+  Lock,
 } from 'lucide-react-native';
 import { theme } from '../src/theme';
+import { useAuth } from '../src/AuthContext';
+import { isFranchiseTier } from '../src/tiers';
+import { PaywallModal } from '../src/PaywallModal';
 import { Card, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import {
@@ -43,7 +47,19 @@ const UK_PLATE_RX = /^[A-Z0-9 ]{2,8}$/i;
 
 export default function VehiclesScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const { vehicles, loading, error, refresh } = useVehicles();
+
+  // Multi-vehicle management is Franchise-only (1 Sept 2026, tier-gating
+  // audit, per Grant directly) — everyone can have one vehicle regardless
+  // of tier, only adding a 2nd+ requires Franchise. Gated inside openAdd
+  // itself below, rather than at each call site, so both the header "+"
+  // button and the empty-state "Add your first vehicle" button get this
+  // correctly through the same shared function — the latter only ever
+  // shows when vehicles.length is 0 anyway, so the gate condition never
+  // actually applies to it, but this keeps the logic in one place.
+  const franchise = isFranchiseTier(user?.tier);
+  const [vehiclePaywallOpen, setVehiclePaywallOpen] = useState(false);
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState<Vehicle | null>(null);
@@ -54,6 +70,7 @@ export default function VehiclesScreen() {
   const [saving, setSaving] = useState(false);
 
   const openAdd = () => {
+    if (vehicles.length >= 1 && !franchise) { setVehiclePaywallOpen(true); return; }
     setEditing(null);
     setMakeModel('');
     setPlate('');
@@ -163,7 +180,9 @@ export default function VehiclesScreen() {
         </TouchableOpacity>
         <Text style={styles.title}>Vehicles</Text>
         <TouchableOpacity onPress={openAdd} style={styles.iconBtn} testID="btn-add-vehicle">
-          <Plus size={22} color={theme.colors.primary} />
+          {vehicles.length >= 1 && !franchise
+            ? <Lock size={20} color={theme.colors.textMuted} />
+            : <Plus size={22} color={theme.colors.primary} />}
         </TouchableOpacity>
       </View>
 
@@ -306,6 +325,13 @@ export default function VehiclesScreen() {
           <Text style={styles.cancelLinkText}>Cancel</Text>
         </TouchableOpacity>
       </BottomSheet>
+
+      <PaywallModal
+        visible={vehiclePaywallOpen}
+        onClose={() => setVehiclePaywallOpen(false)}
+        reason="Managing more than one vehicle is available on Franchise tier."
+        targetTier="franchise"
+      />
     </SafeAreaView>
   );
 }

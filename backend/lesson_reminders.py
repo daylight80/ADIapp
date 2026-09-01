@@ -57,6 +57,19 @@ REMINDER_OFFSETS = [
     {"kind": "h1",  "minutes":      60, "label": "Lesson in 1 hour"},
 ]
 
+# Growth+ feature per tiers.ts's isPaidTier (31 Aug 2026, tier-gating
+# audit) — this dispatcher previously sent to every student regardless of
+# their instructor's tier, with zero tier-checking anywhere in this file.
+# Mirrors the frontend's isPaidTier() exactly, including its "unknown tier
+# defaults to Starter" behaviour (tierById() falls back to TIERS[0]) — an
+# instructor with a missing/unrecognised tier should not receive a paid
+# feature by accident.
+PAID_TIERS = {"growth", "pro", "franchise"}
+
+
+def _is_paid_tier(tier: Optional[str]) -> bool:
+    return tier in PAID_TIERS
+
 _scheduler: Optional[AsyncIOScheduler] = None
 
 
@@ -100,7 +113,7 @@ async def _find_due_lessons(
         "select": (
             "id,start_time,end_time,status,pickup_address,topic,student_id,"
             "students(id,auth_user_id,full_name),"
-            "instructors(id,full_name)"
+            "instructors(id,full_name,driving_schools(tier))"
         ),
         "start_time": f"gte.{lo.isoformat()}",
         "and": f"(start_time.lte.{hi.isoformat()})",
@@ -234,7 +247,13 @@ async def _process_kind(kind: str, minutes: int, label: str) -> Dict[str, int]:
     skipped_no_token = 0
     skipped_no_link = 0
     skipped_dup = 0
+    skipped_tier = 0
     for lesson in lessons:
+        instructor = lesson.get("instructors") or {}
+        tier = ((instructor.get("driving_schools") or {}).get("tier"))
+        if not _is_paid_tier(tier):
+            skipped_tier += 1
+            continue
         student = lesson.get("students") or {}
         auth_user_id = student.get("auth_user_id")
         if not auth_user_id:
@@ -269,6 +288,7 @@ async def _process_kind(kind: str, minutes: int, label: str) -> Dict[str, int]:
         "skipped_no_link": skipped_no_link,
         "skipped_no_token": skipped_no_token,
         "skipped_dup": skipped_dup,
+        "skipped_tier": skipped_tier,
     }
 
 

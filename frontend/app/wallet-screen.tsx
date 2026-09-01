@@ -2,10 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, PoundSterling, Clock, Plus, Receipt } from 'lucide-react-native';
+import { ArrowLeft, PoundSterling, Clock, Plus, Receipt, Lock } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { mockDb } from '../src/mockDb';
 import { useAuth } from '../src/AuthContext';
+import { isProTier } from '../src/tiers';
+import { PaywallModal } from '../src/PaywallModal';
 import {
   useBlockBookings,
   purchaseBlock,
@@ -45,6 +47,18 @@ export default function WalletScreen() {
   const mockFallbackId = isPassedSupabaseUuid || user ? undefined : (passedId || 's2');
   const studentId = isPassedSupabaseUuid ? passedId : (supabaseStudent?.id || mockFallbackId);
   const noRealLinkFound = !isPassedSupabaseUuid && !!user && !supabaseStudent && !mockFallbackId;
+
+  // Block booking & wallet management is Pro+ (1 Sept 2026, tier-gating
+  // audit) — wallet-screen.tsx had zero gating at all. Deliberately scoped
+  // to ONLY the instructor-initiated flow (isPassedSupabaseUuid true, i.e.
+  // an instructor opened a specific student's wallet to manage it) — this
+  // screen is genuinely dual-purpose, and a student viewing their OWN
+  // wallet balance must never be affected by their instructor's
+  // subscription tier. Gating the whole screen by tier would have broken
+  // that student-facing case, which isn't the tier-gated capability here.
+  const isInstructorManaging = isPassedSupabaseUuid;
+  const pro = isProTier(user?.tier);
+  const [walletPaywallOpen, setWalletPaywallOpen] = useState(false);
 
   const mockStudent = studentId ? mockDb.getStudent(studentId) : undefined;
   const student = supabaseStudent
@@ -143,8 +157,12 @@ export default function WalletScreen() {
           </View>
         </Card>
 
-        <TouchableOpacity style={styles.buyBtn} onPress={() => setBuyOpen(true)} testID="btn-buy-block">
-          <Plus size={18} color="#fff" />
+        <TouchableOpacity
+          style={[styles.buyBtn, isInstructorManaging && !pro && { backgroundColor: theme.colors.textMuted }]}
+          onPress={() => (isInstructorManaging && !pro) ? setWalletPaywallOpen(true) : setBuyOpen(true)}
+          testID="btn-buy-block"
+        >
+          {isInstructorManaging && !pro ? <Lock size={16} color="#fff" /> : <Plus size={18} color="#fff" />}
           <Text style={styles.buyBtnText}>Buy block booking</Text>
         </TouchableOpacity>
 
@@ -253,6 +271,13 @@ export default function WalletScreen() {
           </View>
         )}
       </BottomSheet>
+
+      <PaywallModal
+        visible={walletPaywallOpen}
+        onClose={() => setWalletPaywallOpen(false)}
+        reason="Block booking and wallet management is available from Pro tier."
+        targetTier="pro"
+      />
     </SafeAreaView>
   );
 }

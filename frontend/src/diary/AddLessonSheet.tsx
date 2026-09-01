@@ -100,8 +100,12 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
   const getStudent = (id: string) => students.find((s) => s.id === id);
 
   // Travel-time auto-suggest when a student is picked for a new lesson.
+  // Growth+ (31 Aug 2026, tier-gating audit) — ran completely
+  // unconditionally before, on every tier including free Starter. The
+  // travelInfo box below already only renders when non-null, so simply
+  // never fetching it on a non-paid tier is enough.
   useEffect(() => {
-    if (!visible || !studentId || !date) return;
+    if (!visible || !studentId || !date || !pro) return;
     const newStudent = getStudent(studentId);
     if (!newStudent) return;
     const todays = lessons
@@ -124,7 +128,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, studentId, date, startTime, lessons]);
+  }, [visible, studentId, date, startTime, lessons, pro]);
 
   // Suggest a lesson rate from the student's own hourly rate × duration —
   // a genuine head start, not a forced value. Only auto-fills while the
@@ -412,7 +416,6 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     // by the backend scheduler in `dispatch_lesson_reminders()`. We intentionally
     // do NOT schedule local instructor reminders here — per spec, only students
     // receive lesson reminder push notifications.
-    void pro; // kept for future use; no-op for now
     void firstCreated;
 
     // Summary toast — only when recurring, to avoid noise on a single save.

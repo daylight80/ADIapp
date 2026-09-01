@@ -110,6 +110,12 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   useEffect(() => {
     setEta(null);
     if (!visible || !lesson) return;
+    // Traffic-aware travel time is Growth+ (31 Aug 2026, tier-gating audit)
+    // — this ran completely unconditionally before, on every tier including
+    // free Starter. The eta card below already only renders when eta is
+    // non-null, so simply never fetching it on a non-paid tier is enough;
+    // no separate UI-level check needed.
+    if (!paid) return;
     const student = mockDb.getStudent(lesson.student_id);
     const dest = lessonAddress(lesson, student);
     if (!dest) return;
@@ -132,7 +138,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
       });
     });
     return () => { cancelled = true; };
-  }, [visible, lesson]);
+  }, [visible, lesson, paid]);
 
   // Hydrate completion-form fields from the current lesson row each time the sheet opens.
   useEffect(() => {

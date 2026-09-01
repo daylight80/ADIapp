@@ -11,6 +11,8 @@ import { startOfWeek, addDays, localDateKey, startOfMonthGrid, endOfMonthGrid, a
 import { colorForLessonType, LESSON_TYPES } from '../src/diary/lessonTypes';
 import { AddLessonSheet } from '../src/diary/AddLessonSheet';
 import { DraggableLessonBlock } from '../src/diary/DraggableLessonBlock';
+import { useAuth } from '../src/AuthContext';
+import { isPaidTier } from '../src/tiers';
 
 /**
  * Lesson Diary — redesigned visual direction from the Claude Design
@@ -86,6 +88,14 @@ function getISOWeek(d: Date): number {
 
 export default function LessonDiaryV2Screen() {
   const router = useRouter();
+  const { user } = useAuth();
+  // Was previously hardcoded to a bare `pro` (always true) on the
+  // <AddLessonSheet> below, unrelated to the actual signed-in user's tier
+  // — found and fixed alongside the travel-time gating (31 Aug 2026,
+  // tier-gating audit), since the travel-time fix needs a genuine value
+  // here to gate on, and reusing this existing (if broken) prop is
+  // cleaner than adding a second, parallel tier check to the same sheet.
+  const paid = isPaidTier(user?.tier);
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('day');
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return d;
@@ -519,7 +529,7 @@ export default function LessonDiaryV2Screen() {
         students={students}
         lessons={lessons}
         availBlocks={[]}
-        pro
+        pro={paid}
         onCreated={() => { setAddOpen(false); setSelectedDate(new Date(selectedDate)); }}
       />
 

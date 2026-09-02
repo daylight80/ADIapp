@@ -507,8 +507,17 @@ export default function OwnerDashboardV2Screen() {
           ))}
         </View>
 
-        {leaderboard?.can_add_instructor && (
-          <TouchableOpacity style={s.inviteBtn} onPress={() => router.push('/manage-assignments-screen' as any)} testID="v2-invite-instructor">
+        {/* Was previously mislabeled — linked to /manage-assignments-screen
+            (student reassignment, not an invite flow at all). The label
+            and can_add_instructor gating (a seat-availability check) both
+            clearly signal this was always meant to open the real
+            add-instructor flow, just wired to the wrong destination.
+            Found 1 Sept 2026 while confirming how Franchise
+            multi-instructor schools work. Also added the missing isOwner
+            check — this button's own form is owner-only, matching the
+            other Add Instructor button elsewhere on this same page. */}
+        {isOwner && leaderboard?.can_add_instructor && (
+          <TouchableOpacity style={s.inviteBtn} onPress={() => setAddInstructorOpen(true)} testID="v2-invite-instructor">
             <Text style={s.inviteBtnText}>+ Invite instructor</Text>
           </TouchableOpacity>
         )}

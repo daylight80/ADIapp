@@ -447,7 +447,7 @@ export default function OwnerDashboardV2Screen() {
           <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <Text style={s.sectionLabel}>Test performance</Text>
             <TouchableOpacity onPress={() => router.push('/student-crm-screen' as any)}>
-              <Text style={s.linkText}>Log a test</Text>
+              <Text style={s.sectionLinkText}>Log a test</Text>
             </TouchableOpacity>
           </View>
           <View style={s.perfCard}>
@@ -614,7 +614,7 @@ export default function OwnerDashboardV2Screen() {
           <View style={{ marginHorizontal: 20, marginTop: 22, marginBottom: 20 }}>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
               <Text style={s.sectionLabel}>Today across the school</Text>
-              <Text style={s.linkText}>{today.length} lesson{today.length === 1 ? '' : 's'}</Text>
+              <Text style={s.sectionLinkText}>{today.length} lesson{today.length === 1 ? '' : 's'}</Text>
             </View>
             {today.length === 0 ? (
               <View style={s.perfCard}>
@@ -784,7 +784,13 @@ const s = StyleSheet.create({
   heroStatTrend: { fontFamily: 'Barlow_600SemiBold', fontSize: 10.5, color: '#6EE7B7', marginTop: 2 },
 
   sectionLabel: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1.8, textTransform: 'uppercase', color: C.textMuted },
-  linkText: { fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: C.primary },
+  // Fixed a real, silent duplicate-StyleSheet-key bug (1 Sept 2026): this
+  // was also named `linkText`, identical to the muted, informational one
+  // further down (for the invite-link display text) — JS's last-key-wins
+  // behavior meant this one was dead, and the two tappable section links
+  // below ("Log a test", "N lessons") were silently rendering in muted
+  // grey instead of the intended primary-colored, link-like text.
+  sectionLinkText: { fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: C.primary },
 
   perfCard: { marginTop: 9, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 18, padding: 15 },
   perfPct: { fontFamily: 'Archivo_800ExtraBold', fontSize: 42, letterSpacing: -1.3, color: C.success },

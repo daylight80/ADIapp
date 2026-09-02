@@ -189,6 +189,12 @@ export type InstructorProfile = {
   preferred_nav_app: NavApp;
   tc_signed_at: string | null;
   tc_signature_name: string | null;
+  // Added 1 Sept 2026 for the dedicated, view-only instructor profile
+  // screen — these columns have existed since the add-instructor
+  // migration, just never surfaced through this function before.
+  mobile_number: string | null;
+  address: string | null;
+  email: string | null;
 };
 
 // Returns the currently signed-in instructor's profile row. Gracefully
@@ -196,15 +202,26 @@ export type InstructorProfile = {
 // (preferred_nav_app defaults to 'google'; tc fields default to null).
 export async function getInstructorProfile(): Promise<InstructorProfile | null> {
   const { data: sessionData } = await supabase.auth.getSession();
-  const uid = sessionData.session?.user.id;
+  const user = sessionData.session?.user;
+  const uid = user?.id;
   if (!uid) return null;
   // Try the full column set first; fall back a step at a time if older
   // migrations haven't been applied yet.
   let { data, error } = await supabase
     .from('instructors')
-    .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app, tc_signed_at, tc_signature_name')
+    .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app, tc_signed_at, tc_signature_name, mobile_number, address, email')
     .eq('auth_user_id', uid)
     .maybeSingle();
+  if (error && /mobile_number|address|email/i.test(error.message || '')) {
+    const fallback = await supabase
+      .from('instructors')
+      .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app, tc_signed_at, tc_signature_name')
+      .eq('auth_user_id', uid)
+      .maybeSingle();
+    if (fallback.error) throw fallback.error;
+    data = fallback.data as any;
+    error = null;
+  }
   if (error && /tc_signed_at|tc_signature_name/i.test(error.message || '')) {
     const fallback = await supabase
       .from('instructors')
@@ -226,6 +243,27 @@ export async function getInstructorProfile(): Promise<InstructorProfile | null> 
     error = null;
   }
   if (error) throw error;
+
+  // Not linked by auth_user_id yet — the same gap already found and
+  // fixed in ownContext() and loadProfile() (25/31 Aug 2026): a newly-
+  // invited instructor's row has auth_user_id left null until their
+  // first sign-in. Added here too for the same reason, even though in
+  // practice ownContext()/loadProfile() will usually have already
+  // self-healed the link by the time someone reaches a profile screen
+  // post-login — better to be consistent than rely on that ordering.
+  if (!data && user?.email) {
+    const { data: byEmail, error: emailErr } = await supabase
+      .from('instructors')
+      .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app, tc_signed_at, tc_signature_name, mobile_number, address, email')
+      .eq('email', user.email.toLowerCase())
+      .is('auth_user_id', null)
+      .maybeSingle();
+    if (!emailErr && byEmail) {
+      await supabase.from('instructors').update({ auth_user_id: uid }).eq('id', byEmail.id);
+      data = byEmail;
+    }
+  }
+
   if (!data) return null;
   return {
     id: data.id,
@@ -236,6 +274,9 @@ export async function getInstructorProfile(): Promise<InstructorProfile | null> 
     preferred_nav_app: ((data as any).preferred_nav_app as NavApp) || 'google',
     tc_signed_at: (data as any).tc_signed_at ?? null,
     tc_signature_name: (data as any).tc_signature_name ?? null,
+    mobile_number: (data as any).mobile_number ?? null,
+    address: (data as any).address ?? null,
+    email: (data as any).email ?? null,
   };
 }
 

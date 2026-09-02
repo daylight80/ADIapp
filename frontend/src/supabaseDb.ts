@@ -818,9 +818,25 @@ export async function listLessonsForStudent(studentId: string): Promise<Lesson[]
 }
 
 export async function listLessonsBetween(fromISO: string, toISO: string): Promise<Lesson[]> {
+  // Explicit instructor_id filter (1 Sept 2026) — found while checking a
+  // question about how Franchise multi-instructor schools actually work.
+  // This previously relied entirely on RLS, which is fine for a regular
+  // instructor (les_instructor_all already restricts them to their own
+  // lessons) — but the school owner ALSO has a separate, broader policy
+  // (les_owner_all, needed for the owner dashboard's "today across the
+  // school" view) granting them every lesson at their school. RLS
+  // policies are OR'd together, so with no explicit filter here, an
+  // owner's own personal diary would have shown every instructor's
+  // lessons mixed together, not just their own. Only used by the diary
+  // screen (useLessonsForWeek/useLessonsForMonth, confirmed the only
+  // callers), where "just my own teaching schedule" is always correct
+  // regardless of owner status — the owner dashboard's own "everyone at
+  // the school" view is a genuinely separate screen with its own queries.
+  const { instructorId } = await ownContext();
   const { data, error } = await supabase
     .from('lessons')
     .select('*')
+    .eq('instructor_id', instructorId)
     .gte('start_time', fromISO)
     .lt('start_time', toISO)
     .order('start_time', { ascending: true });

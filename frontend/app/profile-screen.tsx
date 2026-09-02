@@ -25,7 +25,6 @@ export default function ProfileScreen() {
   const role = user?.role || 'student';
   const student = user?.email ? mockDb.getStudentByEmail(user.email) : undefined;
   const pro = isPaidTier(user?.tier);
-  const [adi, setAdi] = useState(instructorProfile.adi_number);
 
   // Preferred navigation app for the diary's one-tap 🧭 button.
   const { profile: sbInstructor } = useInstructorProfile();
@@ -108,11 +107,6 @@ export default function ProfileScreen() {
     }
   };
 
-  const saveAdi = () => {
-    instructorProfile.adi_number = adi.trim();
-    Alert.alert('ADI number saved', `Students can copy this number when booking their test.`);
-  };
-
   const copyAdi = () => {
     if (!instructorProfile.adi_number) {
       Alert.alert('Your instructor has not provided an ADI number yet.');
@@ -181,30 +175,6 @@ export default function ProfileScreen() {
           </>
         )}
 
-        {role === 'instructor' && (
-          <Card style={{ gap: 10 }}>
-            <View style={styles.contactRow}>
-              <IdCard size={18} color={theme.colors.primary} />
-              <Text style={styles.cardTitle}>ADI number</Text>
-            </View>
-            <Text style={styles.hint}>Your DVSA Approved Driving Instructor number. Students can copy it for the DVSA booking site.</Text>
-            <View style={styles.adiRow}>
-              <TextInput
-                style={styles.adiInput}
-                value={adi}
-                onChangeText={setAdi}
-                placeholder="e.g. 123456"
-                placeholderTextColor={theme.colors.textMuted}
-                keyboardType="numeric"
-                testID="input-adi"
-              />
-              <TouchableOpacity style={styles.adiSave} onPress={saveAdi} testID="btn-save-adi">
-                <Text style={styles.adiSaveText}>Save</Text>
-              </TouchableOpacity>
-            </View>
-          </Card>
-        )}
-
         {role === 'student' && instructorProfile.adi_number ? (
           <Card style={{ gap: 10 }}>
             <View style={styles.contactRow}>
@@ -262,6 +232,17 @@ export default function ProfileScreen() {
               ))}
             </View>
           </Card>
+        )}
+
+        {role === 'instructor' && (
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => router.push('/instructor-profile-screen')}
+            testID="link-instructor-profile"
+          >
+            <IdCard size={18} color={theme.colors.primary} />
+            <Text style={styles.linkRowText}>My instructor profile</Text>
+          </TouchableOpacity>
         )}
 
         {role === 'instructor' && (
@@ -465,7 +446,6 @@ const styles = StyleSheet.create({
   proCtaText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   hint: { color: theme.colors.textMuted, fontSize: 12 },
   adiRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
-  adiInput: { flex: 1, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, paddingHorizontal: 12, height: 44, backgroundColor: theme.colors.background },
   adiSave: { backgroundColor: theme.colors.primary, paddingHorizontal: 16, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 },
   adiSaveText: { color: '#fff', fontWeight: '700' },
   adiValue: { flex: 1, fontSize: 18, fontWeight: '700', color: theme.colors.primary, letterSpacing: 2 },

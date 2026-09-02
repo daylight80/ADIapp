@@ -1,106 +1,226 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  FlatList,
-  RefreshControl,
-  Animated,
-  Platform,
-} from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, Text, TextInput, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, ActivityIndicator, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Search, Plus, ArrowLeft, Mail, Phone, MapPin, CalendarDays, Check, Crown, Send, Copy, BookUser, PenLine, Smartphone, X } from 'lucide-react-native';
-import { theme } from '../src/theme';
-import { mockDb, StudentStatus } from '../src/mockDb';
-import { useStudents, createStudent, ensureDemoStudentsSeeded } from '../src/useSupabaseData';
-import { listStudentBalances, listHoursBalanceForStudents } from '../src/supabaseDb';
-import { explainLimitError, canAddStudent, isPaidTier, tierById, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
-import { Card, ProgressBar, StatusBadge } from '../src/ui';
-import { BottomSheet } from '../src/BottomSheet';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { BottomNav } from '../src/BottomNav';
-import { useAuth } from '../src/AuthContext';
-import { PaywallModal } from '../src/PaywallModal';
-import { fireInstantNotification } from '../src/notifications';
-import { openSmsComposer, copyToClipboard } from '../src/tools';
-import { api } from '../src/api';
+import { BottomSheet } from '../src/BottomSheet';
 import { ContactsImportSheet } from '../src/ContactsImportSheet';
+import { PaywallModal } from '../src/PaywallModal';
+import { useAuth } from '../src/AuthContext';
+import { useStudents, createStudent } from '../src/useSupabaseData';
+import { listStudentBalances, listHoursBalanceForStudents, type StudentStatus } from '../src/supabaseDb';
+import { canAddStudent, explainLimitError, tierById, isPaidTier, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
+import { copyToClipboard, openSmsComposer } from '../src/tools';
+import { fireInstantNotification } from '../src/notifications';
+import { api } from '../src/api';
+
+/**
+ * Students list — redesigned visual direction from the Claude Design
+ * handoff (23 Aug 2026), promoted to live on 24 Aug 2026 after review as
+ * students-v2-screen. This is now the real, live student list.
+ *
+ * Behaviour preserved from the original: the same 7 filter chips with live
+ * counts, the same search matching (name OR email), and the ?filter=arrears
+ * deep-link from the owner dashboard's arrears tile.
+ *
+ * New from the redesign, and genuinely useful: tapping a row expands it
+ * inline to reveal quick actions and detail rows, rather than navigating
+ * straight to the profile.
+ *
+ * The full add-student flow — manual entry form, Contacts import, invite
+ * link generation, and paywall gating — was deliberately deferred during
+ * the trial (this file linked to the old screen for it) and has now been
+ * fully ported in as part of promoting this screen to live, since the old
+ * screen it depended on no longer exists.
+ */
+
+const C = {
+  surface: '#F5F2EC',
+  border: '#E4DED2',
+  divider: '#EDE8DE',
+  text: '#0F172A',
+  textMuted: '#8A8172',
+  textMuted2: '#64748B',
+  faint: '#A69C8B',
+  primary: '#00539F',
+  accent: '#FF6B00',
+  chipTrack: '#EDE8DE',
+  danger: '#EF4444',
+  warning: '#F59E0B',
+};
+
+const STATUS_STYLE: Record<string, { solid: string; bg: string; fg: string }> = {
+  New: { solid: '#00539F', bg: '#E5F0FA', fg: '#00539F' },
+  Active: { solid: '#047857', bg: '#D1FAE5', fg: '#047857' },
+  'Test Ready': { solid: '#C2410C', bg: '#FFF7ED', fg: '#C2410C' },
+  Passed: { solid: '#0F172A', bg: '#0F172A', fg: '#FFFFFF' },
+  Inactive: { solid: '#A69C8B', bg: '#EDE8DE', fg: '#8A8172' },
+  Waitlist: { solid: '#92400E', bg: '#FEF3C7', fg: '#92400E' },
+};
 
 type FilterChip = 'All' | StudentStatus;
-
 const FILTERS: FilterChip[] = ['All', 'Active', 'Test Ready', 'New', 'Passed', 'Inactive', 'Waitlist'];
 
-export default function StudentCrmScreen() {
+function initialsOf(name: string): string {
+  return name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+}
+
+export default function StudentsV2Screen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ filter?: string }>();
-  const { user } = useAuth();
-  const pro = isPaidTier(user?.tier);
+  const { students, loading, refresh } = useStudents();
+
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterChip>('All');
-
-  // -----------------------------------------------------------------------
-  // Arrears filter — toggled on when the screen is opened via the
-  // dashboard's "Students in arrears" tile (?filter=arrears). When active
-  // we hide every student whose outstanding balance is ≤ £0. The chip at
-  // the top of the list shows an explicit "Arrears Active" pill the user
-  // can dismiss to return to the full roster.
-  // -----------------------------------------------------------------------
   const [arrearsActive, setArrearsActive] = useState(false);
-  // Two more tap-to-filter toggles for the "at a glance" summary, matching
-  // the existing arrearsActive pattern rather than inventing a new one.
+  // "At a glance" toggles, ported in during the final redesign promotion
+  // (1 Sept 2026) — added to the live screen after this file was first
+  // built, matching the same pattern as arrearsActive rather than
+  // inventing a new one.
   const [noBookingActive, setNoBookingActive] = useState(false);
   const [lowCreditActive, setLowCreditActive] = useState(false);
   const [balances, setBalances] = useState<Record<string, number>>({});
-  // Apply on initial mount only — toggling the chip later sets state directly.
-  React.useEffect(() => {
-    if (params?.filter === 'arrears') setArrearsActive(true);
-  }, [params?.filter]);
-  React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const rows = await listStudentBalances();
-        if (cancelled) return;
-        const map: Record<string, number> = {};
-        for (const r of rows) map[r.student_id] = r.outstanding_gbp;
-        setBalances(map);
-      } catch {
-        // best-effort — leave map empty so all students render as £0
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-  const [addOpen, setAddOpen] = useState(false);
+  const [hoursBalances, setHoursBalances] = useState<Record<string, number>>({});
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // ---- Add-student flow, ported from the real student-crm-screen (24 Aug
+  // 2026) — this was deliberately deferred to the old screen during the
+  // trial; now that this file is taking over the real route, the full
+  // flow needs to genuinely live here rather than link to a screen that
+  // no longer exists. ----
+  const { user } = useAuth();
+  const pro = isPaidTier(user?.tier);
   const [methodPickerOpen, setMethodPickerOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [contactsImportOpen, setContactsImportOpen] = useState(false);
   const [paywallOpen, setPaywallOpen] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [snack, setSnack] = useState<string | null>(null);
   const [busyInvite, setBusyInvite] = useState(false);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviteRecipient, setInviteRecipient] = useState<{ name: string; phone: string; email_sent?: boolean; detail?: string } | null>(null);
+  const [addName, setAddName] = useState('');
+  const [addEmail, setAddEmail] = useState('');
+  const [addPhone, setAddPhone] = useState('');
+  const [addAddress, setAddAddress] = useState('');
+  const [addPostcode, setAddPostcode] = useState('');
+  const [addLicence, setAddLicence] = useState('');
+  const [addFormError, setAddFormError] = useState<string | null>(null);
+  const [snack, setSnack] = useState<string | null>(null);
+  const showSnack = (msg: string) => { setSnack(msg); setTimeout(() => setSnack(null), 3500); };
 
-  // Form
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [address, setAddress] = useState('');
-  const [postcode, setPostcode] = useState('');
-  const [provisionalLicence, setProvisionalLicence] = useState('');
-  const [formError, setFormError] = useState<string | null>(null);
+  const handleFabPress = () => {
+    if (!canAddStudent(user?.tier, students.length)) { setPaywallOpen(true); return; }
+    setMethodPickerOpen(true);
+  };
+  const chooseManualEntry = () => {
+    setMethodPickerOpen(false);
+    setTimeout(() => setAddOpen(true), 220);
+  };
+  const chooseContactsImport = () => {
+    setMethodPickerOpen(false);
+    setTimeout(() => setContactsImportOpen(true), 220);
+  };
+  const copyInviteLink = () => { if (inviteLink) copyToClipboard(inviteLink); };
+  const smsInviteLink = async () => {
+    if (!inviteLink || !inviteRecipient) return;
+    const body = `Hi ${inviteRecipient.name.split(' ')[0]}, your driving instructor has invited you to ADI Pro. Tap to sign up: ${inviteLink}`;
+    await openSmsComposer(inviteRecipient.phone, body);
+  };
 
-  const [reloadKey, setReloadKey] = useState(0);
+  const submitAddStudent = async () => {
+    setAddFormError(null);
+    if (!addName.trim()) { setAddFormError('Please enter the student\u2019s full name'); return; }
+    if (!addEmail.trim()) { setAddFormError('Please enter an email address'); return; }
+    if (!addPhone.trim()) { setAddFormError('Please enter a phone number'); return; }
+    const licence = addLicence.replace(/\s+/g, '').toUpperCase();
+    if (!licence) { setAddFormError('Please enter the provisional licence number'); return; }
+    if (licence.length !== 16) { setAddFormError('Provisional licence number must be 16 characters'); return; }
+    if (!canAddStudent(user?.tier, students.length)) { setAddOpen(false); setPaywallOpen(true); return; }
 
-  const { students, loading: studentsLoading, refresh: refreshStudents } = useStudents();
+    setBusyInvite(true);
+    try {
+      const studentName = addName.trim();
+      const studentPhone = addPhone.trim();
+      const created = await createStudent({
+        name: studentName,
+        email: addEmail.trim().toLowerCase(),
+        phone: studentPhone,
+        address: addAddress.trim(),
+        postcode: addPostcode.trim().toUpperCase(),
+        provisional_licence: licence,
+      });
 
-  // Prepaid-hours balance, fetched in bulk once we know the roster — shown
-  // inline on each row so the instructor sees who needs a top-up or has
-  // credit sitting unused, without opening every profile individually.
-  const [hoursBalances, setHoursBalances] = useState<Record<string, number>>({});
-  React.useEffect(() => {
+      let emailSent = false;
+      let inviteDetail = '';
+      try {
+        const res = await api.post('/v2/students/invite', {
+          email: addEmail.trim().toLowerCase(),
+          student_name: studentName,
+          student_id: created.id,
+        });
+        emailSent = !!res.data?.sent;
+        inviteDetail = res.data?.detail || '';
+      } catch (err: any) {
+        inviteDetail = err?.response?.data?.detail || err?.message || 'Could not send invite email';
+      }
+
+      const payload = btoa(JSON.stringify({
+        email: addEmail.trim().toLowerCase(),
+        name: studentName,
+        student_id: created.id,
+        instructor_id: created.instructor_id,
+        school_id: created.school_id,
+      }));
+      const appOrigin = Platform.OS === 'web' && typeof window !== 'undefined'
+        ? window.location.origin
+        : (process.env.EXPO_PUBLIC_APP_URL || 'https://adiapp.netlify.app');
+      const inviteUrl = `${appOrigin}/?invite=${payload}`;
+
+      setAddName(''); setAddEmail(''); setAddPhone(''); setAddAddress(''); setAddPostcode(''); setAddLicence('');
+      setAddOpen(false);
+      setInviteLink(inviteUrl);
+      setInviteRecipient({ name: studentName, phone: studentPhone, email_sent: emailSent, detail: inviteDetail });
+
+      if (pro) {
+        const note = emailSent
+          ? `Invite email sent to ${addEmail.trim().toLowerCase()}.`
+          : `${studentName} added. ${inviteDetail || 'Share the invite link manually.'}`;
+        fireInstantNotification('Student invited', note).catch(() => {});
+      }
+      refresh?.();
+    } catch (e: any) {
+      const upgradeMsg = explainLimitError(e);
+      if (upgradeMsg) {
+        setAddFormError(upgradeMsg + ' Tap below to upgrade.');
+        Alert.alert('Student limit reached', upgradeMsg, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'See plans', onPress: () => router.push('/pricing-screen' as any) },
+        ]);
+      } else {
+        setAddFormError(e?.message || e?.response?.data?.detail || 'Failed to create student');
+      }
+    } finally {
+      setBusyInvite(false);
+    }
+  };
+  // ---- End of add-student flow ----
+
+
+  useEffect(() => {
+    if (params?.filter === 'arrears') setArrearsActive(true);
+  }, [params?.filter]);
+
+  useEffect(() => {
+    listStudentBalances()
+      .then((rows) => {
+        const map: Record<string, number> = {};
+        for (const r of rows) map[r.student_id] = r.outstanding_gbp;
+        setBalances(map);
+      })
+      .catch(() => {});
+  }, [students.length]);
+
+  useEffect(() => {
     if (students.length === 0) return;
     let cancelled = false;
     listHoursBalanceForStudents(students.map((s) => s.id))
@@ -109,15 +229,10 @@ export default function StudentCrmScreen() {
     return () => { cancelled = true; };
   }, [students]);
 
-  // Seed demo students on first login for this instructor (idempotent)
-  React.useEffect(() => {
-    ensureDemoStudentsSeeded().catch(() => {});
-  }, []);
-
-  // "Low credit" is a judgment call, not something the data defines for us —
-  // less than one typical lesson's worth of prepaid hours remaining, while
-  // still genuinely having some balance (0 or untracked isn't "low", it's
-  // just "not using the prepaid-hours system").
+  // "Low credit" is a judgment call, not something the data defines for
+  // us — less than one typical lesson's worth of prepaid hours remaining,
+  // while still genuinely having some balance (0 or untracked isn't
+  // "low", it's just "not using the prepaid-hours system").
   const LOW_CREDIT_THRESHOLD_HOURS = 2;
 
   const filtered = useMemo(() => {
@@ -134,9 +249,9 @@ export default function StudentCrmScreen() {
   }, [students, search, filter, arrearsActive, balances, noBookingActive, lowCreditActive, hoursBalances]);
 
   // "At a glance" attention-needed counts — actual numbers for things
-  // needing action, not just status filter tabs. Each tile below is
-  // tappable and toggles the matching filter, reusing the same pattern
-  // as the existing arrears deep-link from the owner dashboard.
+  // needing action, not just status filter tabs. Each tile is tappable
+  // and toggles the matching filter, reusing the arrears deep-link's
+  // existing pattern.
   const glanceStats = useMemo(() => {
     const noBooking = students.filter((s) => !s.next_lesson).length;
     const lowCredit = students.filter((s) => {
@@ -147,400 +262,235 @@ export default function StudentCrmScreen() {
     return { noBooking, lowCredit, inArrears };
   }, [students, hoursBalances, balances]);
 
-  const counts = useMemo(() => {
-    return {
-      Active: students.filter((s) => s.status === 'Active').length,
-      'Test Ready': students.filter((s) => s.status === 'Test Ready').length,
-      New: students.filter((s) => s.status === 'New').length,
-      Passed: students.filter((s) => s.status === 'Passed').length,
-      Inactive: students.filter((s) => s.status === 'Inactive').length,
-      Waitlist: students.filter((s) => s.status === 'Waitlist').length,
-    };
-  }, [students]);
+  const counts = useMemo(() => ({
+    Active: students.filter((s) => s.status === 'Active').length,
+    'Test Ready': students.filter((s) => s.status === 'Test Ready').length,
+    New: students.filter((s) => s.status === 'New').length,
+    Passed: students.filter((s) => s.status === 'Passed').length,
+    Inactive: students.filter((s) => s.status === 'Inactive').length,
+    Waitlist: students.filter((s) => s.status === 'Waitlist').length,
+  }), [students]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    refreshStudents().finally(() => setRefreshing(false));
-  }, [refreshStudents]);
-
-  const showSnack = (msg: string) => {
-    setSnack(msg);
-    setTimeout(() => setSnack(null), 2500);
-  };
-
-  const submit = async () => {
-    setFormError(null);
-    if (!name.trim() || name.trim().length < 2) {
-      setFormError('Please enter the full name');
-      return;
-    }
-    if (!email.includes('@')) {
-      setFormError('Please enter a valid email');
-      return;
-    }
-    if (!phone.trim()) {
-      setFormError('Please enter a phone number');
-      return;
-    }
-    // UK provisional licence numbers are 16 characters (letters + digits).
-    // We strip spaces before checking length so "SMITH9 11206 23A6L 79" is OK.
-    const licence = provisionalLicence.replace(/\s+/g, '').toUpperCase();
-    if (!licence) {
-      setFormError('Please enter the provisional licence number');
-      return;
-    }
-    if (licence.length !== 16) {
-      setFormError('Provisional licence number must be 16 characters');
-      return;
-    }
-    // Enforce limit (defensive — FAB also gates)
-    if (!canAddStudent(user?.tier, students.length)) {
-      setAddOpen(false);
-      setPaywallOpen(true);
-      return;
-    }
-
-    setBusyInvite(true);
-    try {
-      const studentName = name.trim();
-      const studentPhone = phone.trim();
-
-      // Persist student into Supabase (RLS enforced by school_id/instructor_id)
-      const created = await createStudent({
-        name: studentName,
-        email: email.trim().toLowerCase(),
-        phone: studentPhone,
-        address: address.trim(),
-        postcode: postcode.trim().toUpperCase(),
-        provisional_licence: licence,
-      });
-
-      // Trigger Supabase Auth invite email (Supabase's built-in email provider).
-      // The recipient gets a magic-link email and can set a password on landing.
-      let emailSent = false;
-      let inviteDetail = '';
-      try {
-        const res = await api.post('/v2/students/invite', {
-          email: email.trim().toLowerCase(),
-          student_name: studentName,
-          student_id: created.id,
-        });
-        emailSent = !!res.data?.sent;
-        inviteDetail = res.data?.detail || '';
-      } catch (err: any) {
-        inviteDetail = err?.response?.data?.detail || err?.message || 'Could not send invite email';
-      }
-
-      // Build a shareable link as a fallback for sharing manually (SMS / WhatsApp).
-      const payload = btoa(
-        JSON.stringify({
-          email: email.trim().toLowerCase(),
-          name: studentName,
-          student_id: created.id,
-          instructor_id: created.instructor_id,
-          school_id: created.school_id,
-        }),
-      );
-      // This link is meant to be opened in a browser/app by the student —
-      // it must point at the actual app, not the backend API server (which
-      // has no UI at all). Same platform-aware origin resolution already
-      // used for the password-reset redirect in AuthContext.
-      const appOrigin = Platform.OS === 'web' && typeof window !== 'undefined'
-        ? window.location.origin
-        : (process.env.EXPO_PUBLIC_APP_URL || 'https://adiapp.netlify.app');
-      const inviteUrl = `${appOrigin}/?invite=${payload}`;
-
-      // Clear form
-      setName('');
-      setEmail('');
-      setPhone('');
-      setAddress('');
-      setPostcode('');
-      setProvisionalLicence('');
-      setReloadKey((k) => k + 1);
-      setAddOpen(false);
-
-      // Show invite-link sheet
-      setInviteLink(inviteUrl);
-      setInviteRecipient({ name: studentName, phone: studentPhone, email_sent: emailSent, detail: inviteDetail });
-
-      if (pro) {
-        const note = emailSent
-          ? `Invite email sent to ${email.trim().toLowerCase()}.`
-          : `${studentName} added. ${inviteDetail || 'Share the invite link manually.'}`;
-        fireInstantNotification('Student invited', note).catch(() => {});
-      }
-    } catch (e: any) {
-      const upgradeMsg = explainLimitError(e);
-      if (upgradeMsg) {
-        setFormError(upgradeMsg + ' Tap below to upgrade.');
-        // Surface an Upgrade CTA via Alert as well so it's clearly actionable
-        Alert.alert(
-          'Student limit reached',
-          upgradeMsg,
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'See plans', onPress: () => router.push('/pricing-screen') },
-          ],
-        );
-      } else {
-        setFormError(e?.message || e?.response?.data?.detail || 'Failed to create student');
-      }
-    } finally {
-      setBusyInvite(false);
-    }
-  };
-
-  const handleFabPress = () => {
-    if (!canAddStudent(user?.tier, students.length)) {
-      setPaywallOpen(true);
-      return;
-    }
-    setMethodPickerOpen(true);
-  };
-
-  const chooseManualEntry = () => {
-    setMethodPickerOpen(false);
-    // Small delay so the picker has time to dismiss before the form slides up.
-    setTimeout(() => setAddOpen(true), 220);
-  };
-
-  const chooseContactsImport = () => {
-    setMethodPickerOpen(false);
-    setTimeout(() => setContactsImportOpen(true), 220);
-  };
-
-  const copyInviteLink = () => {
-    if (!inviteLink) return;
-    const ok = copyToClipboard(inviteLink);
-    showSnack(ok ? 'Invite link copied to clipboard' : 'Could not copy automatically — long-press to copy.');
-  };
-
-  const smsInviteLink = async () => {
-    if (!inviteLink || !inviteRecipient) return;
-    const body = `Hi ${inviteRecipient.name.split(' ')[0]}, your driving instructor has invited you to ADI Pro. Tap to sign up: ${inviteLink}`;
-    await openSmsComposer(inviteRecipient.phone, body);
-  };
+    Promise.resolve(refresh?.()).finally(() => setRefreshing(false));
+  }, [refresh]);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="btn-back">
-          <ArrowLeft size={22} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Students</Text>
-        <View style={styles.iconBtn} />
-      </View>
+    <SafeAreaView style={s.safe} edges={['top']}>
+      {/* Header + search */}
+      <View style={s.headerBlock}>
+        <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+          <Text style={s.title}>Students</Text>
+          <Text style={s.countLine}>
+            {filtered.length} of {students.length}
+          </Text>
+        </View>
 
-      <View style={styles.searchRow}>
-        <View style={styles.searchField}>
-          <Search size={18} color={theme.colors.textMuted} />
+        <View style={s.searchWrap}>
+          <View style={s.searchDot} />
           <TextInput
-            placeholder="Search by name or email"
-            placeholderTextColor={theme.colors.textMuted}
+            style={s.searchInput}
             value={search}
             onChangeText={setSearch}
-            style={styles.searchInput}
-            testID="input-search"
+            placeholder="Search name or email"
+            placeholderTextColor={C.faint}
+            testID="v2-students-search"
           />
+          {!!search && (
+            <TouchableOpacity style={s.clearBtn} onPress={() => setSearch('')} testID="v2-clear-search">
+              <Text style={s.clearBtnText}>×</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
       {/* At a glance — actual counts for things needing action, not just
-          status filter tabs. Each tile toggles a filter when tapped,
-          same pattern as the arrears deep-link below. */}
-      <View style={styles.glanceRow}>
+          status filter tabs. Each tile toggles a filter when tapped, same
+          pattern as arrearsActive/the arrears banner below. Ported in
+          during the final redesign promotion (1 Sept 2026) — added to the
+          live screen after this file was first built. */}
+      <View style={s.glanceRow}>
         <TouchableOpacity
-          style={[styles.glanceTile, noBookingActive && styles.glanceTileActive]}
+          style={[s.glanceTile, noBookingActive && s.glanceTileActive]}
           onPress={() => setNoBookingActive((v) => !v)}
-          testID="glance-no-booking"
+          testID="v2-glance-no-booking"
         >
-          <Text style={styles.glanceValue}>{glanceStats.noBooking}</Text>
-          <Text style={styles.glanceLabel}>No booking</Text>
+          <Text style={[s.glanceValue, noBookingActive && s.glanceValueActive]}>{glanceStats.noBooking}</Text>
+          <Text style={[s.glanceLabel, noBookingActive && s.glanceLabelActive]}>No booking</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.glanceTile, lowCreditActive && styles.glanceTileActive]}
+          style={[s.glanceTile, lowCreditActive && s.glanceTileActive]}
           onPress={() => setLowCreditActive((v) => !v)}
-          testID="glance-low-credit"
+          testID="v2-glance-low-credit"
         >
-          <Text style={styles.glanceValue}>{glanceStats.lowCredit}</Text>
-          <Text style={styles.glanceLabel}>Low credit</Text>
+          <Text style={[s.glanceValue, lowCreditActive && s.glanceValueActive]}>{glanceStats.lowCredit}</Text>
+          <Text style={[s.glanceLabel, lowCreditActive && s.glanceLabelActive]}>Low credit</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.glanceTile, arrearsActive && styles.glanceTileActive]}
+          style={[s.glanceTile, arrearsActive && s.glanceTileActive]}
           onPress={() => setArrearsActive((v) => !v)}
-          testID="glance-in-arrears"
+          testID="v2-glance-in-arrears"
         >
-          <Text style={[styles.glanceValue, glanceStats.inArrears > 0 && styles.glanceValueWarn]}>
+          <Text style={[s.glanceValue, arrearsActive && s.glanceValueActive, !arrearsActive && glanceStats.inArrears > 0 && s.glanceValueWarn]}>
             {glanceStats.inArrears}
           </Text>
-          <Text style={styles.glanceLabel}>In arrears</Text>
+          <Text style={[s.glanceLabel, arrearsActive && s.glanceLabelActive]}>In arrears</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Arrears chip — only shown while the arrears filter is active.
-          Tapping the ✕ clears the filter and returns the full roster. */}
-      {arrearsActive && (
-        <View style={styles.arrearsChipRow}>
-          <View style={styles.arrearsChip} testID="chip-arrears-active">
-            <Text style={styles.arrearsChipText}>Arrears Active</Text>
-            <TouchableOpacity
-              onPress={() => setArrearsActive(false)}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              testID="btn-clear-arrears"
-              accessibilityLabel="Clear arrears filter"
-            >
-              <X size={14} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
-        {FILTERS.map((f) => {
-          const count = f === 'All' ? students.length : counts[f as Exclude<FilterChip, 'All'>];
-          const active = filter === f;
-          return (
-            <TouchableOpacity
-              key={f}
-              style={[styles.chip, active && styles.chipActive]}
-              onPress={() => setFilter(f)}
-              testID={`filter-${f.replace(/\s+/g, '-').toLowerCase()}`}
-            >
-              <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                {f} <Text style={[styles.chipCount, active && styles.chipCountActive]}>{count}</Text>
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-
+      {/* Tier usage — ported in alongside the at-a-glance tiles (1 Sept
+          2026), same source and same reason. */}
       {!pro && (() => {
         const limit = tierById(user?.tier).student_limit;
         const urgency = studentUsageUrgency(students.length, limit);
-        const urgencyColor = urgency === 'critical' ? theme.colors.danger
-          : urgency === 'warning' ? theme.colors.warning
-          : theme.colors.accent;
+        const urgencyColor = urgency === 'critical' ? C.danger : urgency === 'warning' ? C.warning : C.accent;
         return (
           <TouchableOpacity
-            style={[styles.tierBanner, urgency !== 'ok' && { borderColor: urgencyColor, backgroundColor: urgency === 'critical' ? '#FEF2F2' : '#FFFBEB' }]}
+            style={[s.tierBanner, urgency !== 'ok' && { borderColor: urgencyColor }]}
             onPress={() => router.push('/pricing-screen')}
-            testID="tier-usage-banner"
+            testID="v2-tier-usage-banner"
             activeOpacity={0.9}
           >
-            <Crown size={16} color={urgencyColor} />
-            <Text style={styles.tierText}>
-              <Text style={{ fontWeight: '700' }}>{students.length}/{limit} students used</Text>
+            <Text style={s.tierText}>
+              <Text style={{ fontWeight: '700', color: urgencyColor }}>{students.length}/{limit} students used</Text>
               {' — '}{studentUsageMessage(students.length, limit)}
             </Text>
           </TouchableOpacity>
         );
       })()}
 
-      <FlatList
-        data={filtered}
-        keyExtractor={(s) => s.id}
-        contentContainerStyle={styles.list}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        renderItem={({ item: s }) => (
-          <TouchableOpacity
-            onPress={() => router.push({ pathname: '/student-lifecycle-screen', params: { id: s.id } })}
-            activeOpacity={0.8}
-            testID={`student-card-${s.id}`}
-          >
-            <Card style={styles.studentCard}>
-              <View style={styles.studentTop}>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{s.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.studentName}>{s.name}</Text>
-                  <Text style={styles.studentEmail}>{s.email}</Text>
-                </View>
-                <StatusBadge status={s.status} testID={`status-${s.id}`} />
-              </View>
-
-              <View style={styles.progressRow}>
-                <View style={{ flex: 1 }}>
-                  <View style={styles.progressLabel}>
-                    <Text style={styles.progressText}>Progress</Text>
-                    <Text style={styles.progressText}>{s.progress}%</Text>
-                  </View>
-                  <ProgressBar progress={s.progress} />
-                </View>
-              </View>
-
-              <View style={styles.metaRow}>
-                <Text style={styles.metaText}>{s.lessons_count} lessons</Text>
-                {s.next_lesson && (
-                  <Text style={styles.metaText}>
-                    Next: {new Date(s.next_lesson).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                  </Text>
-                )}
-                {s.test_date && (
-                  <Text style={[styles.metaText, { color: theme.colors.accent, fontWeight: '600' }]}>
-                    Test: {new Date(s.test_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                  </Text>
-                )}
-              </View>
-
-              {/* Prepaid-hours balance / arrears — shown inline so an
-                  instructor sees who needs a top-up or is overdue without
-                  opening every profile. Arrears takes priority when both
-                  are present, since it needs more urgent attention. */}
-              {(balances[s.id] ?? 0) > 0 ? (
-                <View style={styles.metaRow}>
-                  <Text style={[styles.metaText, { color: theme.colors.danger, fontWeight: '600' }]} testID={`arrears-${s.id}`}>
-                    £{(balances[s.id] ?? 0).toFixed(2)} owed
-                  </Text>
-                </View>
-              ) : (hoursBalances[s.id] ?? 0) > 0 ? (
-                <View style={styles.metaRow}>
-                  <Text style={[styles.metaText, { color: theme.colors.success, fontWeight: '600' }]} testID={`balance-${s.id}`}>
-                    {(hoursBalances[s.id] ?? 0).toFixed(1)}h available
-                  </Text>
-                </View>
-              ) : null}
-            </Card>
-          </TouchableOpacity>
-        )}
-        ListEmptyComponent={
-          arrearsActive ? (
-            <View style={styles.arrearsEmpty} testID="empty-arrears-up-to-date">
-              <View style={styles.arrearsEmptyBadge}>
-                <Check size={20} color={theme.colors.success} />
-              </View>
-              <Text style={styles.arrearsEmptyTitle}>All up to date</Text>
-              <Text style={styles.arrearsEmptySub}>
-                Every pupil&apos;s payments are currently up to date. Great work!
-              </Text>
+      {/* Filter chips */}
+      <View style={{ flexDirection: 'row' }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 7, paddingHorizontal: 20, paddingVertical: 12 }}>
+          {FILTERS.map((f) => {
+            const active = filter === f;
+            const count = f === 'All' ? students.length : counts[f as Exclude<FilterChip, 'All'>];
+            return (
               <TouchableOpacity
-                style={styles.arrearsEmptyBtn}
-                onPress={() => setArrearsActive(false)}
-                testID="btn-empty-clear-arrears"
+                key={f}
+                style={[s.filterChip, active && s.filterChipActive]}
+                onPress={() => setFilter(f)}
+                testID={`v2-filter-${f}`}
               >
-                <Text style={styles.arrearsEmptyBtnText}>Show full roster</Text>
+                <Text style={[s.filterChipText, active && s.filterChipTextActive]}>{f}</Text>
+                <Text style={[s.filterCount, active && s.filterCountActive]}>{count}</Text>
               </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>No students match your filters.</Text>
-            </View>
-          )
-        }
-      />
+            );
+          })}
+        </ScrollView>
+      </View>
 
-      {/* FAB */}
-      <TouchableOpacity
-        style={[styles.fab, !canAddStudent(user?.tier, students.length) && styles.fabLocked]}
-        onPress={handleFabPress}
-        testID="fab-add-student"
+      {arrearsActive && (
+        <TouchableOpacity style={s.arrearsBanner} onPress={() => setArrearsActive(false)} testID="v2-clear-arrears">
+          <Text style={s.arrearsBannerText}>Showing pupils in arrears only — tap to clear</Text>
+        </TouchableOpacity>
+      )}
+
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        {!canAddStudent(user?.tier, students.length) ? (
-          <Crown size={24} color="#fff" />
+        {loading && students.length === 0 ? (
+          <ActivityIndicator color={C.primary} style={{ marginTop: 40 }} />
+        ) : filtered.length === 0 ? (
+          <View style={{ paddingVertical: 44, alignItems: 'center', gap: 6 }}>
+            <Text style={s.emptyTitle}>No students match</Text>
+            <Text style={s.emptySub}>Try a different name or clear the filter.</Text>
+          </View>
         ) : (
-          <Plus size={26} color="#fff" />
+          <View style={{ gap: 8 }}>
+            {filtered.map((st) => {
+              const status = STATUS_STYLE[st.status] || STATUS_STYLE.New;
+              const isOpen = expandedId === st.id;
+              const owed = balances[st.id] ?? 0;
+              const hours = hoursBalances[st.id] ?? 0;
+              return (
+                <View key={st.id} style={[s.card, isOpen && s.cardOpen]} testID={`v2-student-${st.id}`}>
+                  <TouchableOpacity
+                    style={s.cardHead}
+                    onPress={() => setExpandedId(isOpen ? null : st.id)}
+                    testID={`v2-student-toggle-${st.id}`}
+                  >
+                    <View style={[s.tile, { backgroundColor: status.solid }]}>
+                      <Text style={s.tileText}>{initialsOf(st.name)}</Text>
+                    </View>
+
+                    <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+                      {!!st.test_date && (
+                        <Text style={s.testBadge}>
+                          Test {new Date(`${st.test_date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                        </Text>
+                      )}
+                      <Text style={s.name} numberOfLines={1}>{st.name}</Text>
+                      <Text style={s.meta} numberOfLines={1}>
+                        {st.lessons_count} lesson{st.lessons_count === 1 ? '' : 's'}
+                        {st.progress != null ? ` · ${st.progress}% ready` : ''}
+                      </Text>
+                    </View>
+
+                    <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                      <Text style={[s.statusBadge, { backgroundColor: status.bg, color: status.fg }]}>
+                        {st.status}
+                      </Text>
+                      {owed > 0 ? (
+                        <Text style={s.owedBadge}>£{owed.toFixed(2)} due</Text>
+                      ) : hours > 0 ? (
+                        <Text style={s.hoursBadge}>{hours.toFixed(1)}h left</Text>
+                      ) : null}
+                    </View>
+                  </TouchableOpacity>
+
+                  {isOpen && (
+                    <View style={{ paddingHorizontal: 14, paddingBottom: 13, gap: 10 }}>
+                      <View style={s.actionRow}>
+                        <TouchableOpacity
+                          style={[s.action, s.actionPrimary]}
+                          onPress={() => router.push({ pathname: '/student-lifecycle-screen', params: { id: st.id } } as any)}
+                          testID={`v2-open-profile-${st.id}`}
+                        >
+                          <Text style={s.actionPrimaryText}>Open profile</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={s.action}
+                          onPress={() => router.push('/lesson-diary-screen' as any)}
+                          testID={`v2-book-${st.id}`}
+                        >
+                          <Text style={s.actionText}>Book</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <View style={{ gap: 5 }}>
+                        {[
+                          { k: 'Email', v: st.email || '—' },
+                          { k: 'Phone', v: st.phone || '—' },
+                          { k: 'Rate', v: st.hourly_rate ? `£${st.hourly_rate}/hr` : '—' },
+                          ...(st.next_lesson
+                            ? [{ k: 'Next', v: new Date(st.next_lesson).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) }]
+                            : []),
+                        ].map((d) => (
+                          <View key={d.k} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+                            <Text style={s.detailKey}>{d.k}</Text>
+                            <Text style={s.detailValue} numberOfLines={1}>{d.v}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+
+                  <View style={s.progressTrack}>
+                    <View style={[s.progressFill, { width: `${Math.min(100, st.progress ?? 0)}%`, backgroundColor: status.solid }]} />
+                  </View>
+                </View>
+              );
+            })}
+          </View>
         )}
+      </ScrollView>
+
+      <TouchableOpacity style={s.fab} onPress={handleFabPress} testID="v2-add-student">
+        <Text style={s.fabText}>{pro || canAddStudent(user?.tier, students.length) ? '+ Add student' : '★ Add student'}</Text>
       </TouchableOpacity>
 
       <BottomNav role="instructor" />
@@ -551,218 +501,89 @@ export default function StudentCrmScreen() {
         reason={`${tierById(user?.tier).name} tier is limited to ${tierById(user?.tier).student_limit} students. You currently have ${students.length}.`}
       />
 
-      {/* Snackbar */}
       {snack && (
-        <View style={styles.snackbar} testID="snackbar-success">
-          <Check size={18} color="#fff" />
-          <Text style={styles.snackText}>{snack}</Text>
+        <View style={s.snackbar} testID="v2-snackbar">
+          <Text style={s.snackbarText}>{snack}</Text>
         </View>
       )}
 
-      {/* Method picker — shown when the FAB is tapped. Lets the instructor
-          choose between importing from Contacts or typing details manually. */}
-      <BottomSheet
-        visible={methodPickerOpen}
-        onClose={() => setMethodPickerOpen(false)}
-        title="Add new student"
-        testID="sheet-add-method-picker"
-      >
-        <Text style={styles.hint}>
-          How would you like to add this student?
-        </Text>
-
-        {Platform.OS !== 'web' ? (
-          <TouchableOpacity
-            style={styles.methodCard}
-            onPress={chooseContactsImport}
-            testID="btn-method-contacts"
-            activeOpacity={0.85}
-          >
-            <View style={styles.methodIconWrap}>
-              <BookUser size={24} color={theme.colors.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.methodTitle}>Import from address book</Text>
-              <Text style={styles.methodSub}>
-                Pick from your phone Contacts. Quickest for several students at once.
-              </Text>
-            </View>
+      {/* Method picker */}
+      <BottomSheet visible={methodPickerOpen} onClose={() => setMethodPickerOpen(false)} title="Add new student" testID="v2-sheet-method-picker">
+        <Text style={s.sheetHint}>How would you like to add this student?</Text>
+        {Platform.OS !== 'web' && (
+          <TouchableOpacity style={s.methodCard} onPress={chooseContactsImport} testID="v2-method-contacts">
+            <Text style={s.methodTitle}>Import from address book</Text>
+            <Text style={s.methodSub}>Pick from your phone Contacts. Quickest for several students at once.</Text>
           </TouchableOpacity>
-        ) : (
-          <View style={[styles.methodCard, styles.methodCardDisabled]}>
-            <View style={styles.methodIconWrap}>
-              <Smartphone size={24} color={theme.colors.textMuted} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.methodTitle, { color: theme.colors.textMuted }]}>
-                Import from address book
-              </Text>
-              <Text style={styles.methodSub}>
-                Open ADI Pro on your phone to import directly from your contacts.
-              </Text>
-            </View>
-          </View>
         )}
-
-        <TouchableOpacity
-          style={styles.methodCard}
-          onPress={chooseManualEntry}
-          testID="btn-method-manual"
-          activeOpacity={0.85}
-        >
-          <View style={styles.methodIconWrap}>
-            <PenLine size={24} color={theme.colors.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.methodTitle}>Enter details manually</Text>
-            <Text style={styles.methodSub}>
-              Type the student&apos;s name, contact details and licence number.
-            </Text>
-          </View>
+        <TouchableOpacity style={s.methodCard} onPress={chooseManualEntry} testID="v2-method-manual">
+          <Text style={s.methodTitle}>Enter details manually</Text>
+          <Text style={s.methodSub}>Type the student&apos;s name, contact details and licence number.</Text>
         </TouchableOpacity>
       </BottomSheet>
 
-      {/* Bulk contacts import sheet — opens after the picker if the
-          instructor chose "Import from address book". */}
       <ContactsImportSheet
         visible={contactsImportOpen}
         onClose={() => setContactsImportOpen(false)}
         onImported={(count) => {
-          if (count > 0) {
-            showSnack(`${count} student${count === 1 ? '' : 's'} imported from Contacts`);
-            setReloadKey((k) => k + 1);
-          }
+          if (count > 0) { showSnack(`${count} student${count === 1 ? '' : 's'} imported from Contacts`); refresh?.(); }
         }}
       />
 
-      <BottomSheet visible={addOpen} onClose={() => setAddOpen(false)} title="Invite New Student" testID="sheet-add-student">
-        <Text style={styles.hint}>We&apos;ll generate a private invite link you can copy or send by SMS.</Text>
-
-        <Text style={styles.label}>
-          Full name <Text style={{ color: theme.colors.danger }}>*</Text>
-        </Text>
-        <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="e.g. Charlotte Smith" placeholderTextColor={theme.colors.textMuted} testID="input-student-name" />
-
-        <Text style={styles.label}>
-          Email address <Text style={{ color: theme.colors.danger }}>*</Text>
-        </Text>
-        <TextInput
-          style={styles.input}
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          placeholder="name@example.co.uk"
-          placeholderTextColor={theme.colors.textMuted}
-          testID="input-student-email"
-        />
-
-        <Text style={styles.label}>
-          Phone <Text style={{ color: theme.colors.danger }}>*</Text>
-        </Text>
-        <TextInput
-          style={styles.input}
-          value={phone}
-          onChangeText={setPhone}
-          keyboardType="phone-pad"
-          placeholder="07700 900000"
-          placeholderTextColor={theme.colors.textMuted}
-          testID="input-student-phone"
-        />
-
-        <Text style={styles.label}>Address (optional)</Text>
-        <TextInput
-          style={styles.input}
-          value={address}
-          onChangeText={setAddress}
-          placeholder="12 High Street"
-          placeholderTextColor={theme.colors.textMuted}
-          testID="input-student-address"
-        />
-
-        <Text style={styles.label}>Postcode (optional)</Text>
-        <TextInput
-          style={styles.input}
-          value={postcode}
-          onChangeText={setPostcode}
-          autoCapitalize="characters"
-          placeholder="SW1A 1AA"
-          placeholderTextColor={theme.colors.textMuted}
-          testID="input-student-postcode"
-        />
-
-        <Text style={styles.label}>
-          Provisional licence number <Text style={{ color: theme.colors.danger }}>*</Text>
-        </Text>
-        <TextInput
-          style={styles.input}
-          value={provisionalLicence}
-          onChangeText={(v) => setProvisionalLicence(v.toUpperCase())}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          maxLength={20}
-          placeholder="SMITH911206 23A6L 79"
-          placeholderTextColor={theme.colors.textMuted}
-          testID="input-student-licence"
-        />
-        <Text style={styles.helperText}>
-          16-character DVLA driver number on the front of the pink licence (DD1).
-        </Text>
-
-        {formError && <Text style={styles.error}>{formError}</Text>}
-
-        <TouchableOpacity
-          style={[styles.submitBtn, busyInvite && styles.submitBtnDisabled]}
-          onPress={submit}
-          disabled={busyInvite}
-          testID="btn-submit-student"
-        >
-          <Send size={16} color="#fff" />
-          <Text style={styles.submitBtnText}>{busyInvite ? 'Creating invite...' : 'Generate invite link'}</Text>
+      {/* Manual entry form */}
+      <BottomSheet visible={addOpen} onClose={() => setAddOpen(false)} title="Invite new student" testID="v2-sheet-add-student">
+        <Text style={s.sheetHint}>We&apos;ll generate a private invite link you can copy or send by SMS.</Text>
+        <Text style={s.fieldLabel}>Full name *</Text>
+        <TextInput style={s.fieldInput} value={addName} onChangeText={setAddName} placeholder="e.g. Charlotte Smith" placeholderTextColor={C.faint} testID="v2-input-name" />
+        <Text style={s.fieldLabel}>Email address *</Text>
+        <TextInput style={s.fieldInput} value={addEmail} onChangeText={setAddEmail} autoCapitalize="none" keyboardType="email-address" placeholder="name@example.co.uk" placeholderTextColor={C.faint} testID="v2-input-email" />
+        <Text style={s.fieldLabel}>Phone *</Text>
+        <TextInput style={s.fieldInput} value={addPhone} onChangeText={setAddPhone} keyboardType="phone-pad" placeholder="07700 900000" placeholderTextColor={C.faint} testID="v2-input-phone" />
+        <Text style={s.fieldLabel}>Address (optional)</Text>
+        <TextInput style={s.fieldInput} value={addAddress} onChangeText={setAddAddress} placeholder="12 High Street" placeholderTextColor={C.faint} testID="v2-input-address" />
+        <Text style={s.fieldLabel}>Postcode (optional)</Text>
+        <TextInput style={s.fieldInput} value={addPostcode} onChangeText={setAddPostcode} autoCapitalize="characters" placeholder="SW1A 1AA" placeholderTextColor={C.faint} testID="v2-input-postcode" />
+        <Text style={s.fieldLabel}>Provisional licence number *</Text>
+        <TextInput style={s.fieldInput} value={addLicence} onChangeText={(v) => setAddLicence(v.toUpperCase())} autoCapitalize="characters" autoCorrect={false} maxLength={20} placeholder="SMITH911206 23A6L 79" placeholderTextColor={C.faint} testID="v2-input-licence" />
+        <Text style={s.fieldHelper}>16-character DVLA driver number on the front of the pink licence (DD1).</Text>
+        {!!addFormError && <Text style={s.formError}>{addFormError}</Text>}
+        <TouchableOpacity style={[s.submitBtn, busyInvite && { opacity: 0.6 }]} onPress={submitAddStudent} disabled={busyInvite} testID="v2-btn-submit-student">
+          {busyInvite ? <ActivityIndicator color="#fff" /> : <Text style={s.submitBtnText}>Generate invite link</Text>}
         </TouchableOpacity>
       </BottomSheet>
 
-      {/* Invite link reveal sheet */}
+      {/* Invite link result */}
       <BottomSheet
         visible={!!inviteLink}
-        onClose={() => {
-          setInviteLink(null);
-          setInviteRecipient(null);
-        }}
+        onClose={() => { setInviteLink(null); setInviteRecipient(null); }}
         title="Invite link ready"
-        testID="sheet-invite-link"
+        testID="v2-sheet-invite-link"
       >
         {inviteLink && inviteRecipient && (
           <View style={{ gap: 14 }}>
             {inviteRecipient.email_sent ? (
-              <View style={styles.emailBanner} testID="invite-email-sent">
-                <Text style={styles.emailBannerTitle}>📧 Invite email sent</Text>
-                <Text style={styles.emailBannerText}>
-                  {inviteRecipient.detail || `${inviteRecipient.name} will receive a sign-up link in their inbox.`}
-                </Text>
+              <View style={s.emailBanner} testID="v2-invite-email-sent">
+                <Text style={s.emailBannerTitle}>Invite email sent</Text>
+                <Text style={s.emailBannerText}>{inviteRecipient.detail || `${inviteRecipient.name} will receive a sign-up link in their inbox.`}</Text>
               </View>
             ) : (
-              <View style={styles.emailBannerWarn} testID="invite-email-fallback">
-                <Text style={styles.emailBannerWarnTitle}>⚠️ Email not sent</Text>
-                <Text style={styles.emailBannerText}>
-                  {inviteRecipient.detail || 'Could not send the invite email automatically. Share the link below manually.'}
-                </Text>
+              <View style={s.emailBannerWarn} testID="v2-invite-email-fallback">
+                <Text style={s.emailBannerWarnTitle}>Email not sent</Text>
+                <Text style={s.emailBannerText}>{inviteRecipient.detail || 'Could not send the invite email automatically. Share the link below manually.'}</Text>
               </View>
             )}
-            <Text style={styles.hint}>
+            <Text style={s.sheetHint}>
               You can also share this back-up link with {inviteRecipient.name}. They&apos;ll set their own password and join your roster.
             </Text>
-            <View style={styles.linkBox} testID="invite-link-value">
-              <Text style={styles.linkText} numberOfLines={2}>{inviteLink}</Text>
+            <View style={s.linkBox} testID="v2-invite-link-value">
+              <Text style={s.linkText} numberOfLines={2}>{inviteLink}</Text>
             </View>
-            <View style={styles.linkRow}>
-              <TouchableOpacity style={[styles.linkBtn, { backgroundColor: theme.colors.primary }]} onPress={copyInviteLink} testID="btn-copy-invite">
-                <Copy size={16} color="#fff" />
-                <Text style={styles.linkBtnText}>Copy link</Text>
+            <View style={{ flexDirection: 'row', gap: 9 }}>
+              <TouchableOpacity style={[s.linkBtn, { backgroundColor: C.primary }]} onPress={copyInviteLink} testID="v2-btn-copy-invite">
+                <Text style={s.linkBtnText}>Copy link</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.linkBtn, { backgroundColor: theme.colors.accent }]} onPress={smsInviteLink} testID="btn-sms-invite">
-                <Send size={16} color="#fff" />
-                <Text style={styles.linkBtnText}>Send via SMS</Text>
+              <TouchableOpacity style={[s.linkBtn, { backgroundColor: C.accent }]} onPress={smsInviteLink} testID="v2-btn-sms-invite">
+                <Text style={s.linkBtnText}>Send via SMS</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -772,209 +593,93 @@ export default function StudentCrmScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: theme.colors.background },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12 },
-  iconBtn: { padding: 8, borderRadius: 8, width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
-  title: { ...theme.font.h2 },
-  searchRow: { paddingHorizontal: 16, paddingBottom: 8 },
-  glanceRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 10 },
-  glanceTile: {
-    flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 12,
-    backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border,
-  },
-  glanceTileActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primaryLight },
-  glanceValue: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
-  glanceValueWarn: { color: theme.colors.danger },
-  glanceLabel: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
-  searchField: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
-    paddingHorizontal: 12,
-    height: 48,
-  },
-  searchInput: { flex: 1, fontSize: 15 },
-  chipsRow: {
-    paddingHorizontal: 16,
-    gap: 8,
-    paddingVertical: 8,
-    alignItems: 'center', // prevent chips from stretching vertically inside the row
-  },
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: C.surface },
 
-  // ----- Arrears filter chip + empty state ---------------------------------
-  arrearsChipRow: {
-    paddingHorizontal: 16, paddingTop: 8,
-    flexDirection: 'row',
-  },
-  arrearsChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingLeft: 12, paddingRight: 8,
-    height: 32, borderRadius: 16,
-    backgroundColor: theme.colors.danger,
-  },
-  arrearsChipText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  arrearsEmpty: {
-    alignItems: 'center', paddingVertical: 48, paddingHorizontal: 32,
-    gap: 12,
-  },
-  arrearsEmptyBadge: {
-    width: 56, height: 56, borderRadius: 28,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: theme.colors.successLight,
-  },
-  arrearsEmptyTitle: { fontSize: 18, fontWeight: '800', color: theme.colors.text },
-  arrearsEmptySub: {
-    fontSize: 14, color: theme.colors.textMuted, textAlign: 'center', lineHeight: 20,
-  },
-  arrearsEmptyBtn: {
-    marginTop: 4,
-    paddingHorizontal: 16, height: 40, borderRadius: 999,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1, borderColor: theme.colors.border,
-  },
-  arrearsEmptyBtnText: { fontWeight: '700', color: theme.colors.text, fontSize: 13 },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 32,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  chipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  chipText: { fontSize: 13, fontWeight: '600', color: theme.colors.text, lineHeight: 16 },
-  chipTextActive: { color: '#fff' },
-  chipCount: { color: theme.colors.textMuted, marginLeft: 2 },
-  chipCountActive: { color: '#ffffffcc' },
-  list: { padding: 16, gap: 12, paddingBottom: 120 },
-  studentCard: { gap: 12, marginBottom: 12 },
-  studentTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: theme.colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: { fontWeight: '700', color: theme.colors.primary, fontSize: 16 },
-  studentName: { fontSize: 16, fontWeight: '700', color: theme.colors.text },
-  studentEmail: { fontSize: 13, color: theme.colors.textMuted, marginTop: 2 },
-  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  progressLabel: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  progressText: { fontSize: 13, color: theme.colors.textMuted, fontWeight: '500' },
-  metaRow: { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
-  metaText: { fontSize: 13, color: theme.colors.textMuted },
-  empty: { padding: 32, alignItems: 'center' },
-  emptyText: { color: theme.colors.textMuted },
-  fab: {
-    position: 'absolute',
-    bottom: 90,
-    right: 20,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: theme.colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.2)',
-    elevation: 6,
-  },
-  fabLocked: { backgroundColor: theme.colors.textMuted },
-  tierBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: theme.colors.lockedBg,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.accent,
-  },
-  tierText: { color: theme.colors.text, fontSize: 13, flex: 1 },
-  label: { ...theme.font.caption, fontWeight: '600', marginBottom: 6, color: theme.colors.text },
-  helperText: { ...theme.font.caption, color: theme.colors.textMuted, marginTop: -4, marginBottom: 4 },
-  methodCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 14,
-    marginTop: 12,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-  },
-  methodCardDisabled: { opacity: 0.6 },
-  methodIconWrap: {
-    width: 44, height: 44, borderRadius: 22,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: theme.colors.primaryLight,
-  },
-  methodTitle: { ...theme.font.body, fontWeight: '700', color: theme.colors.text, marginBottom: 2 },
-  methodSub: { ...theme.font.caption, color: theme.colors.textMuted, lineHeight: 17 },
-  input: {
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
-    paddingHorizontal: 14,
-    height: 48,
-    marginBottom: 12,
-    backgroundColor: theme.colors.background,
-    fontSize: 15,
-  },
-  error: { color: theme.colors.danger, marginBottom: 8 },
-  submitBtn: { backgroundColor: theme.colors.primary, height: 52, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', marginTop: 8, flexDirection: 'row', gap: 8 },
-  submitBtnDisabled: { opacity: 0.6 },
-  submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  hint: { color: theme.colors.textMuted, marginBottom: 12, fontSize: 13 },
-  linkBox: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, padding: 12, backgroundColor: theme.colors.background },
-  linkText: { color: theme.colors.primary, fontWeight: '600', fontSize: 13 },
-  linkRow: { flexDirection: 'row', gap: 10 },
-  linkBtn: { flex: 1, height: 48, borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  linkBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  emailBanner: {
-    backgroundColor: theme.colors.successLight,
-    borderColor: theme.colors.success,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    gap: 4,
-  },
-  emailBannerTitle: { color: theme.colors.success, fontSize: 14, fontWeight: '700' },
-  emailBannerText:  { color: theme.colors.text, fontSize: 13, lineHeight: 18 },
-  emailBannerWarn: {
-    backgroundColor: theme.colors.warningLight,
-    borderColor: theme.colors.accent,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    gap: 4,
-  },
-  emailBannerWarnTitle: { color: theme.colors.accent, fontSize: 14, fontWeight: '700' },
-  snackbar: {
-    position: 'absolute',
-    bottom: 110,
-    left: 16,
-    right: 16,
-    backgroundColor: theme.colors.success,
-    borderRadius: theme.radius.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  snackText: { color: '#fff', fontWeight: '600' },
+  headerBlock: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border },
+  title: { fontFamily: 'Archivo_800ExtraBold', fontSize: 30, letterSpacing: -0.75, color: C.text },
+  countLine: { fontFamily: 'Barlow_600SemiBold', fontSize: 13, color: C.textMuted },
+
+  searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 9, height: 46, marginTop: 12, paddingHorizontal: 14, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 14 },
+  searchDot: { width: 14, height: 14, borderWidth: 2, borderColor: C.faint, borderRadius: 999 },
+  searchInput: { flex: 1, minWidth: 0, fontFamily: 'Barlow_500Medium', fontSize: 15, color: C.text },
+  clearBtn: { width: 26, height: 26, borderRadius: 999, backgroundColor: C.chipTrack, alignItems: 'center', justifyContent: 'center' },
+  clearBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 13, color: C.textMuted },
+
+  glanceRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingTop: 12 },
+  glanceTile: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 13, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border },
+  glanceTileActive: { backgroundColor: C.text, borderColor: C.text },
+  glanceValue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 20, color: C.text },
+  glanceValueActive: { color: '#fff' },
+  glanceValueWarn: { color: C.danger },
+  glanceLabel: { fontFamily: 'Barlow_600SemiBold', fontSize: 11, color: C.textMuted, marginTop: 2 },
+  glanceLabelActive: { color: 'rgba(255,255,255,.7)' },
+
+  tierBanner: { marginHorizontal: 20, marginTop: 10, paddingVertical: 10, paddingHorizontal: 13, borderRadius: 12, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border },
+  tierText: { fontFamily: 'Barlow_500Medium', fontSize: 12.5, color: C.textMuted },
+
+  filterChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 13, paddingVertical: 8, borderRadius: 999, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border },
+  filterChipActive: { backgroundColor: C.text, borderColor: C.text },
+  filterChipText: { fontFamily: 'Barlow_700Bold', fontSize: 13, color: C.textMuted },
+  filterChipTextActive: { color: '#fff' },
+  filterCount: { fontFamily: 'Archivo_700Bold', fontSize: 11.5, color: C.faint },
+  filterCountActive: { color: 'rgba(255,255,255,.7)' },
+
+  arrearsBanner: { marginHorizontal: 20, marginBottom: 10, paddingVertical: 9, paddingHorizontal: 13, borderRadius: 12, backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA' },
+  arrearsBannerText: { fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: '#C2410C' },
+
+  card: { backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 16, overflow: 'hidden' },
+  cardOpen: { borderColor: C.text, borderWidth: 1.5 },
+  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 13 },
+  tile: { width: 44, height: 44, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  tileText: { fontFamily: 'Archivo_800ExtraBold', fontSize: 15, color: '#fff' },
+  testBadge: { alignSelf: 'flex-start', fontFamily: 'Archivo_800ExtraBold', fontSize: 9.5, letterSpacing: 1.5, textTransform: 'uppercase', color: '#fff', backgroundColor: C.text, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 4, overflow: 'hidden' },
+  name: { fontFamily: 'Archivo_700Bold', fontSize: 16.5, letterSpacing: -0.15, color: C.text },
+  meta: { fontFamily: 'Barlow_500Medium', fontSize: 12.5, color: C.textMuted2 },
+  statusBadge: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 0.9, textTransform: 'uppercase', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, overflow: 'hidden' },
+  owedBadge: { fontFamily: 'Barlow_700Bold', fontSize: 11.5, color: '#C2410C', backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 5, overflow: 'hidden' },
+  hoursBadge: { fontFamily: 'Barlow_700Bold', fontSize: 11.5, color: '#047857', backgroundColor: '#D1FAE5', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 5, overflow: 'hidden' },
+
+  actionRow: { flexDirection: 'row', gap: 7, paddingTop: 11, borderTopWidth: 1, borderTopColor: C.divider },
+  action: { flex: 1, minHeight: 42, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border, borderRadius: 11, backgroundColor: '#fff' },
+  actionPrimary: { backgroundColor: C.primary, borderColor: C.primary },
+  actionText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: C.text },
+  actionPrimaryText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: '#fff' },
+
+  detailKey: { fontFamily: 'Barlow_600SemiBold', fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase', color: C.faint, paddingTop: 2 },
+  detailValue: { flex: 1, fontFamily: 'Barlow_600SemiBold', fontSize: 13, color: C.text, textAlign: 'right' },
+
+  progressTrack: { height: 4, backgroundColor: C.divider },
+  progressFill: { height: '100%' },
+
+  emptyTitle: { fontFamily: 'Archivo_700Bold', fontSize: 17, color: C.text },
+  emptySub: { fontFamily: 'Barlow_500Medium', fontSize: 14, color: C.textMuted },
+
+  fab: { position: 'absolute', right: 20, bottom: 96, height: 52, paddingHorizontal: 20, borderRadius: 999, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center', shadowColor: C.accent, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.4, shadowRadius: 20, elevation: 8 },
+  fabText: { fontFamily: 'Barlow_700Bold', fontSize: 15, color: '#fff' },
+
+  snackbar: { position: 'absolute', left: 20, right: 20, bottom: 96, backgroundColor: '#0F172A', borderRadius: 14, paddingVertical: 12, paddingHorizontal: 16 },
+  snackbarText: { fontFamily: 'Barlow_600SemiBold', fontSize: 13.5, color: '#fff' },
+
+  sheetHint: { fontFamily: 'Barlow_400Regular', fontSize: 13.5, lineHeight: 19, color: C.textMuted, marginBottom: 12 },
+  methodCard: { flexDirection: 'column', gap: 4, padding: 14, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 14, marginBottom: 10 },
+  methodTitle: { fontFamily: 'Archivo_700Bold', fontSize: 15, color: C.text },
+  methodSub: { fontFamily: 'Barlow_400Regular', fontSize: 12.5, lineHeight: 17.5, color: C.textMuted },
+
+  fieldLabel: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase', color: C.faint, marginTop: 12, marginBottom: 5 },
+  fieldInput: { height: 46, paddingHorizontal: 13, borderWidth: 1, borderColor: C.border, borderRadius: 12, backgroundColor: '#fff', fontFamily: 'Barlow_400Regular', fontSize: 14, color: C.text },
+  fieldHelper: { fontFamily: 'Barlow_400Regular', fontSize: 11.5, lineHeight: 16, color: C.textMuted, marginTop: 5 },
+  formError: { fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: '#B91C1C', marginTop: 10 },
+  submitBtn: { marginTop: 18, minHeight: 50, borderRadius: 14, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  submitBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 15, color: '#fff' },
+
+  emailBanner: { backgroundColor: '#D1FAE5', borderWidth: 1, borderColor: '#10B981', borderRadius: 13, padding: 12 },
+  emailBannerTitle: { fontFamily: 'Barlow_700Bold', fontSize: 12.5, color: '#047857' },
+  emailBannerWarn: { backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 13, padding: 12 },
+  emailBannerWarnTitle: { fontFamily: 'Barlow_700Bold', fontSize: 12.5, color: '#92400E' },
+  emailBannerText: { fontFamily: 'Barlow_400Regular', fontSize: 12.5, lineHeight: 17.5, color: C.text, marginTop: 4 },
+  linkBox: { backgroundColor: C.chipTrack, borderRadius: 12, padding: 12 },
+  linkText: { fontFamily: 'Barlow_500Medium', fontSize: 12.5, color: C.textMuted2 },
+  linkBtn: { flex: 1, minHeight: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  linkBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: '#fff' },
 });

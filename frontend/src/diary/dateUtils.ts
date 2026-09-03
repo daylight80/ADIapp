@@ -130,3 +130,52 @@ export function assignOverlapColumns(
   }
   return assignment;
 }
+
+/**
+ * Finds groups of lessons that overlap in time on the same date — a
+ * "persistent Fix clash" feature for the diary (2 Sept 2026), per Grant
+ * directly, catching clashes that already exist in the schedule rather
+ * than checking a lesson being added/moved right now (that's a separate,
+ * already-existing check in AddLessonSheet/handleLessonDrop). Existing
+ * clashes shouldn't normally happen given that check, but can slip
+ * through via legacy data, migrations, or edge cases that check doesn't
+ * cover — this is a safety net, not a duplicate of it.
+ *
+ * Takes a minimal, generic shape (not the full Lesson type) to stay pure
+ * and easily testable, matching assignOverlapColumns above. Cancelled
+ * lessons are the caller's responsibility to filter out beforehand —
+ * this function has no opinion on lesson status.
+ *
+ * Returns each clashing group as an array of 2+ ids, grouped by date.
+ * Lessons with no overlap at all are omitted entirely, not returned as
+ * singleton groups.
+ */
+export function findClashingLessons(
+  lessons: { id: string; date: string; startMin: number; endMin: number }[],
+): string[][] {
+  const byDate = new Map<string, typeof lessons>();
+  for (const l of lessons) {
+    const arr = byDate.get(l.date);
+    if (arr) arr.push(l);
+    else byDate.set(l.date, [l]);
+  }
+
+  const groups: string[][] = [];
+  for (const dayLessons of byDate.values()) {
+    const sorted = [...dayLessons].sort((a, b) => a.startMin - b.startMin);
+    let clusterEnd = -Infinity;
+    let cluster: typeof sorted = [];
+    for (const it of sorted) {
+      if (it.startMin >= clusterEnd) {
+        if (cluster.length > 1) groups.push(cluster.map((c) => c.id));
+        cluster = [];
+        clusterEnd = it.endMin;
+      } else {
+        clusterEnd = Math.max(clusterEnd, it.endMin);
+      }
+      cluster.push(it);
+    }
+    if (cluster.length > 1) groups.push(cluster.map((c) => c.id));
+  }
+  return groups;
+}

@@ -2,12 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { ArrowLeft, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react-native';
 import { useLessonsForWeek, useLessonsForMonth, useStudents, patchLesson } from '../src/useSupabaseData';
 import { BottomNav } from '../src/BottomNav';
 import { LessonToolsSheet } from '../src/LessonToolsSheet';
 import { Lesson } from '../src/mockDb';
-import { startOfWeek, addDays, localDateKey, startOfMonthGrid, endOfMonthGrid, addMonths, isSameMonth, assignOverlapColumns, snapMinutes, minutesToTime } from '../src/diary/dateUtils';
+import { startOfWeek, addDays, localDateKey, startOfMonthGrid, endOfMonthGrid, addMonths, isSameMonth, assignOverlapColumns, findClashingLessons, snapMinutes, minutesToTime } from '../src/diary/dateUtils';
 import { colorForLessonType, LESSON_TYPES } from '../src/diary/lessonTypes';
 import { AddLessonSheet } from '../src/diary/AddLessonSheet';
 import { DraggableLessonBlock } from '../src/diary/DraggableLessonBlock';
@@ -125,7 +125,47 @@ export default function LessonDiaryV2Screen() {
   const { students } = useStudents();
   const hourlyRate = 38; // reference rate for the "billable" summary figure only
 
+  // Persistent "Fix clash" (2 Sept 2026, per Grant directly) — a safety
+  // net for existing schedule conflicts already in the data, independent
+  // of whatever week/month is currently on screen. Deliberately a
+  // separate, wide-window fetch (today to +60 days) rather than reusing
+  // `lessons`/`monthLessons` above, which are both scoped to whatever the
+  // instructor happens to be viewing right now — a clash next month
+  // wouldn't be caught by either of those while on today's Day view.
+  const clashWindowStart = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
+  const clashWindowEnd = useMemo(() => addDays(clashWindowStart, 60), [clashWindowStart]);
+  const { lessons: clashWindowLessons } = useLessonsForMonth(clashWindowStart, clashWindowEnd);
+  const clashes = useMemo(() => {
+    const active = clashWindowLessons.filter((l) => l.status !== 'Cancelled');
+    const byId = new Map(active.map((l) => [l.id, l]));
+    const groups = findClashingLessons(active.map((l) => ({
+      id: l.id, date: l.date,
+      startMin: toMinutesOfDay(l.start_time), endMin: toMinutesOfDay(l.end_time),
+    })));
+    return groups
+      .map((ids) => ids.map((id) => byId.get(id)!).filter(Boolean))
+      .filter((group) => group.length > 1)
+      .sort((a, b) => a[0].date.localeCompare(b[0].date) || toMinutesOfDay(a[0].start_time) - toMinutesOfDay(b[0].start_time));
+  }, [clashWindowLessons]);
+  const [clashCursor, setClashCursor] = useState(0);
+
   const selectedDayIdx = Math.round((selectedDate.getTime() - weekStart.getTime()) / 86400000);
+
+  // Keeps the cursor valid as clashes shrink over time (one gets fixed
+  // and the list gets shorter) — without this, tapping "Fix clash" again
+  // after resolving the last one in the list would silently read
+  // undefined instead of wrapping back to the first.
+  useEffect(() => {
+    if (clashCursor >= clashes.length) setClashCursor(0);
+  }, [clashes.length, clashCursor]);
+
+  const jumpToClash = () => {
+    if (clashes.length === 0) return;
+    const group = clashes[clashCursor % clashes.length];
+    setSelectedDate(new Date(`${group[0].date}T00:00:00`));
+    setViewMode('day');
+    setClashCursor((c) => (c + 1) % clashes.length);
+  };
   const todayKey = localDateKey(new Date());
 
   const lessonsByDay = useMemo(() => {
@@ -254,6 +294,24 @@ export default function LessonDiaryV2Screen() {
             <ArrowLeft size={17} color={C.text} />
           </TouchableOpacity>
         </View>
+
+        {clashes.length > 0 && (
+          <TouchableOpacity style={s.clashBanner} onPress={jumpToClash} testID="v2-fix-clash">
+            <AlertTriangle size={16} color="#B91C1C" />
+            <Text style={s.clashBannerText}>
+              {clashes.length === 1 ? '1 clash found' : `${clashes.length} clashes found`}
+              {' — '}
+              {(() => {
+                const group = clashes[clashCursor % clashes.length];
+                const names = group.map((l) => studentName(l.student_id));
+                return names.length > 2
+                  ? `${names[0]}, ${names[1]} +${names.length - 2} more`
+                  : names.join(' vs ');
+              })()}
+            </Text>
+            <Text style={s.clashBannerAction}>Fix clash</Text>
+          </TouchableOpacity>
+        )}
 
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, marginTop: 4 }}>
           <View style={s.toggleTrack}>
@@ -583,6 +641,13 @@ const s = StyleSheet.create({
   eyebrow: { fontFamily: 'Barlow_600SemiBold', fontSize: 12, letterSpacing: 2, textTransform: 'uppercase', color: C.textMuted },
   headline: { fontFamily: 'Archivo_800ExtraBold', fontSize: 27, letterSpacing: -0.6, color: C.text, marginTop: 1 },
   navBtn: { width: 38, height: 38, borderRadius: 11, borderWidth: 1, borderColor: C.border, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  clashBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 20, marginTop: 8, paddingVertical: 9, paddingHorizontal: 12,
+    borderRadius: 11, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA',
+  },
+  clashBannerText: { flex: 1, fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: '#991B1B' },
+  clashBannerAction: { fontFamily: 'Barlow_700Bold', fontSize: 12.5, color: '#B91C1C', textDecorationLine: 'underline' },
   toggleTrack: { flexDirection: 'row', padding: 3, backgroundColor: '#EAE5DA', borderRadius: 11 },
   toggleTab: { minWidth: 62, minHeight: 34, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, borderRadius: 9 },
   toggleTabActive: { backgroundColor: '#fff' },

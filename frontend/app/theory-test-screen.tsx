@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Check, X, RotateCcw } from 'lucide-react-native';
 import { theme } from '../src/theme';
-import { THEORY_BANK, mockDb_ext, mockDb } from '../src/mockDb';
+import { THEORY_BANK } from '../src/mockDb';
 import { useAuth } from '../src/AuthContext';
 import { useStudentByAuthId, useStudentByEmail } from '../src/useSupabaseData';
 import { awardBadge } from '../src/supabaseDb';
@@ -13,18 +13,16 @@ import { Card, ProgressBar, Badge } from '../src/ui';
 export default function TheoryTestScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  // Resolve the learner row: Supabase via auth uid → email → mockDb fallback.
+  // Resolve the learner row: Supabase via auth uid → email.
   const { student: sbStudentByAuth } = useStudentByAuthId(user?.id);
   const { student: sbStudentByEmail } = useStudentByEmail(
     !sbStudentByAuth ? user?.email : undefined,
   );
   const supabaseStudent = sbStudentByAuth || sbStudentByEmail;
-  // Same principle as the other student-facing screens: only fall back to
-  // a hardcoded demo student when there's genuinely no real session at
-  // all, not whenever a real logged-in user's own link happens to be
-  // missing.
-  const mockStudent = !user ? mockDb.getStudent('s2') : undefined;
-  const student = supabaseStudent || mockStudent;
+  // Mock fallback removed entirely (3 Sept 2026), per Grant directly —
+  // already confirmed safe (only ever triggered when !user), but he
+  // wanted it gone regardless, same as student-home-screen/wallet-screen.
+  const student = supabaseStudent;
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [submitted, setSubmitted] = useState(false);
 
@@ -53,8 +51,6 @@ export default function TheoryTestScreen() {
             console.warn('[theory-test] awardBadge failed', e);
           }
         }
-      } else {
-        mockDb_ext.awardBadge(student.id, 'theory_passed');
       }
     }
   };

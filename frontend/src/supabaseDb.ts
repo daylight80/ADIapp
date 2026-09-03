@@ -2563,6 +2563,10 @@ export type InstructorLessonNote = {
   answers: Record<string, string>;
   created_at: string;
   updated_at: string;
+  // AI-generated debrief (2 Sept 2026) — text version. Null until the
+  // instructor generates one from their saved notes.
+  ai_debrief: string | null;
+  ai_debrief_generated_at: string | null;
 };
 
 export async function getLessonNotes(lessonId: string): Promise<InstructorLessonNote | null> {

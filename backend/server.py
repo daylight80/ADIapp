@@ -375,6 +375,23 @@ async def sb_get_school_by_auth_user(auth_user_id: str) -> Optional[dict]:
     return rows[0] if rows else None
 
 
+async def sb_get_instructor_by_auth_user(auth_user_id: str) -> Optional[dict]:
+    """Return the instructors row for the given auth user, or None. Unlike
+    sb_get_school_by_auth_user (owner-only, via owner_auth_id), this works
+    for ANY instructor — added 2 Sept 2026 for the lesson-debrief endpoint,
+    which any instructor can use, not just the school owner."""
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.get(
+            f"{_sb_rest_base}/instructors",
+            params={"auth_user_id": f"eq.{auth_user_id}", "select": "*", "limit": "1"},
+            headers=_sb_headers(),
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase read failed: {r.text}")
+    rows = r.json()
+    return rows[0] if rows else None
+
+
 async def sb_get_school_by_customer(stripe_customer_id: str) -> Optional[dict]:
     async with httpx.AsyncClient(timeout=10.0) as client_http:
         r = await client_http.get(
@@ -1615,6 +1632,142 @@ async def receipts_scan(req: ReceiptScanRequest, sb_user: dict = Depends(get_cur
         raw_text=raw_text,
         status="ok",
     )
+
+
+# =============================================================================
+# AI-generated lesson debriefs (2 Sept 2026) — text version, per Grant's
+# decision after comparing against a voice-note approach. Turns an
+# instructor's own lesson notes (already-existing feature — their
+# customizable per-lesson Q&A) into a short, polished, student-facing
+# summary. Estimated cost: ~£1.55/year per instructor at 5 lessons/day,
+# Haiku 4.5's published rates — genuinely negligible, same conclusion as
+# the receipt scanner above it.
+# =============================================================================
+
+class LessonDebriefResponse(BaseModel):
+    debrief: str
+    generated_at: str
+
+
+@api_router.post("/v2/lessons/{lesson_id}/debrief", response_model=LessonDebriefResponse)
+async def generate_lesson_debrief(lesson_id: str, sb_user: dict = Depends(get_current_supabase_user)):
+    """Generates a short, student-facing debrief from an instructor's own
+    saved lesson notes (instructor_lesson_notes.answers), using Claude
+    Haiku 4.5. Requires notes to already be saved for this lesson — the
+    debrief is generated FROM them, not instead of them."""
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured on backend.")
+
+    instructor = await sb_get_instructor_by_auth_user(sb_user["auth_user_id"])
+    if not instructor:
+        raise HTTPException(status_code=403, detail="No instructor profile found for this account.")
+
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        lesson_resp = await client_http.get(
+            f"{_sb_rest_base}/lessons",
+            params={"id": f"eq.{lesson_id}", "select": "id,instructor_id,student_id,topic", "limit": "1"},
+            headers=_sb_headers(),
+        )
+    if lesson_resp.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase read failed: {lesson_resp.text}")
+    lessons = lesson_resp.json()
+    if not lessons:
+        raise HTTPException(status_code=404, detail="Lesson not found.")
+    lesson = lessons[0]
+    # Ownership check — an instructor can only generate a debrief for their
+    # own lesson, not one taught by a colleague at the same school.
+    if lesson.get("instructor_id") != instructor["id"]:
+        raise HTTPException(status_code=403, detail="This lesson does not belong to you.")
+
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        notes_resp = await client_http.get(
+            f"{_sb_rest_base}/instructor_lesson_notes",
+            params={"lesson_id": f"eq.{lesson_id}", "select": "*", "limit": "1"},
+            headers=_sb_headers(),
+        )
+    if notes_resp.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase read failed: {notes_resp.text}")
+    notes_rows = notes_resp.json()
+    if not notes_rows:
+        raise HTTPException(status_code=400, detail="Save lesson notes for this lesson first.")
+    notes = notes_rows[0]
+    answers = notes.get("answers") or {}
+    if not any((v or "").strip() for v in answers.values()):
+        raise HTTPException(status_code=400, detail="Lesson notes are empty — add some notes first.")
+
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        q_resp = await client_http.get(
+            f"{_sb_rest_base}/lesson_note_questions",
+            params={"instructor_id": f"eq.{instructor['id']}", "select": "id,question_text"},
+            headers=_sb_headers(),
+        )
+    if q_resp.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase read failed: {q_resp.text}")
+    question_text_by_id = {q["id"]: q["question_text"] for q in q_resp.json()}
+
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        student_resp = await client_http.get(
+            f"{_sb_rest_base}/students",
+            params={"id": f"eq.{lesson['student_id']}", "select": "full_name", "limit": "1"},
+            headers=_sb_headers(),
+        )
+    students = student_resp.json() if student_resp.status_code < 400 else []
+    student_name = students[0]["full_name"] if students else "the student"
+
+    qa_lines = []
+    for qid, answer in answers.items():
+        if not (answer or "").strip():
+            continue
+        qtext = question_text_by_id.get(qid, "Note")
+        qa_lines.append(f"{qtext}: {answer.strip()}")
+    if not qa_lines:
+        raise HTTPException(status_code=400, detail="Lesson notes are empty — add some notes first.")
+    qa_block = "\n".join(qa_lines)
+
+    try:
+        import anthropic
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"anthropic package not installed: {e}")
+
+    system_msg = (
+        "You write short, encouraging debriefs for UK driving lesson pupils, "
+        "based on their instructor's own notes from that lesson. Write 2-4 "
+        "short sentences, second person ('you'), plain and warm — not "
+        "corporate or clinical. Cover what went well and one clear thing to "
+        "focus on next time. Do not invent details the notes don't support. "
+        "Respond with ONLY the debrief text — no heading, no markdown, no "
+        "preamble."
+    )
+    user_msg = f"Pupil: {student_name}\nLesson topic: {lesson.get('topic') or 'General lesson'}\n\nInstructor's notes:\n{qa_block}"
+
+    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    try:
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            system=system_msg,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+    except Exception as e:
+        logging.exception("[lessons/debrief] Anthropic call failed")
+        raise HTTPException(status_code=502, detail=f"Debrief generation failed: {e}")
+
+    debrief_text = "".join(block.text for block in response.content if block.type == "text").strip()
+    if not debrief_text:
+        raise HTTPException(status_code=502, detail="Model returned an empty debrief.")
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        patch_resp = await client_http.patch(
+            f"{_sb_rest_base}/instructor_lesson_notes",
+            params={"id": f"eq.{notes['id']}"},
+            headers=_sb_headers(),
+            json={"ai_debrief": debrief_text, "ai_debrief_generated_at": generated_at},
+        )
+    if patch_resp.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase write failed: {patch_resp.text}")
+
+    return LessonDebriefResponse(debrief=debrief_text, generated_at=generated_at)
 
 
 # ============================================================================

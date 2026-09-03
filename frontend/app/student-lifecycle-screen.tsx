@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, TextInput, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Lock, FileText, Download } from 'lucide-react-native';
+import { ArrowLeft, Lock, FileText, Download, X } from 'lucide-react-native';
 import { PaywallModal } from '../src/PaywallModal';
 import { useAuth } from '../src/AuthContext';
 import { mockDb } from '../src/mockDb';
@@ -11,11 +11,12 @@ import { TestOutcomeModal } from '../src/TestOutcomeModal';
 import { buildInvoiceHtml, generateAndShareInvoicePdf } from '../src/invoice';
 import {
   useStudent, patchStudent, passStudent, useLessonsForStudent, useCompetencies,
-  useTestOutcomesForStudent, useMockTestAttempts, setStudentStatusAsync, removeStudentViaApi,
+  useTestOutcomesForStudent, useMockTestAttempts, setStudentStatusAsync, removeStudentViaApi, bump,
 } from '../src/useSupabaseData';
 import {
   getPendingDeletionRequestForStudent, type GdprDeletionRequest, getMySchoolProfile,
   listLessonNotesForStudent, listMyLessonNoteQuestions, type InstructorLessonNote, type LessonNoteQuestion,
+  listMySyllabuses, applySyllabusToStudent, type InstructorSyllabus,
 } from '../src/supabaseDb';
 import { isPaidTier } from '../src/tiers';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
@@ -107,6 +108,12 @@ export default function StudentProfileV2Screen() {
   // LessonToolsSheet's identical button), found while fixing the first one.
   const [routePaywallOpen, setRoutePaywallOpen] = useState(false);
   const [invoicePaywallOpen, setInvoicePaywallOpen] = useState(false);
+  // Customizable/multiple DVSA syllabuses (2 Sept 2026) — a way to apply
+  // one of the instructor's own custom syllabuses to this student, on top
+  // of the standard 28-category DVSA one they already have by default.
+  const [syllabusPickerOpen, setSyllabusPickerOpen] = useState(false);
+  const [mySyllabuses, setMySyllabuses] = useState<InstructorSyllabus[]>([]);
+  const [applyingSyllabusId, setApplyingSyllabusId] = useState<string | null>(null);
   const [generatingInvoice, setGeneratingInvoice] = useState(false);
   const id = (params.id as string) || '';
 
@@ -229,6 +236,44 @@ export default function StudentProfileV2Screen() {
       Alert.alert('Could not generate invoice', e?.message || 'Please try again.');
     } finally {
       setGeneratingInvoice(false);
+    }
+  };
+
+  const openSyllabusPicker = async () => {
+    if (!user?.instructor_id) return;
+    try {
+      const rows = await listMySyllabuses(user.instructor_id);
+      if (rows.length === 0) {
+        Alert.alert(
+          'No custom syllabuses yet',
+          'Add one first from your Profile — "My syllabuses" — then come back here to apply it to this student.',
+        );
+        return;
+      }
+      setMySyllabuses(rows);
+      setSyllabusPickerOpen(true);
+    } catch (e: any) {
+      Alert.alert('Could not load syllabuses', e?.message || 'Please try again.');
+    }
+  };
+
+  const handleApplySyllabus = async (syllabus: InstructorSyllabus) => {
+    if (!student) return;
+    setApplyingSyllabusId(syllabus.id);
+    try {
+      const added = await applySyllabusToStudent(student.id, syllabus.id);
+      bump(); // refreshes useCompetencies — applySyllabusToStudent writes directly, not through a hook wrapper
+      setSyllabusPickerOpen(false);
+      Alert.alert(
+        added > 0 ? 'Syllabus added' : 'Already added',
+        added > 0
+          ? `${added} categor${added === 1 ? 'y' : 'ies'} from "${syllabus.name}" added to ${student.name.split(' ')[0]}'s progress.`
+          : `${student.name.split(' ')[0]} is already being tracked against every category in "${syllabus.name}".`,
+      );
+    } catch (e: any) {
+      Alert.alert('Could not apply syllabus', e?.message || 'Please try again.');
+    } finally {
+      setApplyingSyllabusId(null);
     }
   };
 
@@ -708,6 +753,10 @@ export default function StudentProfileV2Screen() {
               </View>
             ) : (
               <>
+                <TouchableOpacity style={s.addSyllabusBtn} onPress={openSyllabusPicker} testID="v2-add-syllabus">
+                  <Text style={s.addSyllabusBtnText}>+ Add a custom syllabus</Text>
+                </TouchableOpacity>
+
                 {competencies.length > 0 && (
                   <View style={s.card}>
                     <Text style={[s.sectionLabel, { color: C.warmText }]}>Focus next</Text>
@@ -869,6 +918,40 @@ export default function StudentProfileV2Screen() {
         onClose={() => setInvoicePaywallOpen(false)}
         reason="PDF invoices are available from Growth tier."
       />
+
+      <Modal
+        visible={syllabusPickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSyllabusPickerOpen(false)}
+      >
+        <View style={s.syllabusModalBackdrop}>
+          <View style={s.syllabusModalCard} testID="syllabus-picker-modal">
+            <View style={s.syllabusModalHeader}>
+              <Text style={s.syllabusModalTitle}>Add a syllabus</Text>
+              <TouchableOpacity onPress={() => setSyllabusPickerOpen(false)} hitSlop={8} testID="syllabus-picker-close">
+                <X size={20} color={C.textMuted} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 340 }}>
+              {mySyllabuses.map((syl) => (
+                <TouchableOpacity
+                  key={syl.id}
+                  style={s.syllabusOptionRow}
+                  onPress={() => handleApplySyllabus(syl)}
+                  disabled={applyingSyllabusId === syl.id}
+                  testID={`syllabus-option-${syl.id}`}
+                >
+                  <Text style={s.syllabusOptionName}>{syl.name}</Text>
+                  {applyingSyllabusId === syl.id
+                    ? <ActivityIndicator size="small" color={C.primary} />
+                    : <Text style={s.syllabusOptionAction}>Add</Text>}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -978,6 +1061,15 @@ const s = StyleSheet.create({
   focusName: { fontFamily: 'Barlow_600SemiBold', fontSize: 14, color: C.text, flex: 1 },
   focusLevel: { fontFamily: 'Barlow_600SemiBold', fontSize: 12, color: C.textMuted },
   compRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 13 },
+  addSyllabusBtn: { alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: C.primary, marginBottom: 10 },
+  addSyllabusBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 12.5, color: C.primary },
+  syllabusModalBackdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  syllabusModalCard: { width: '100%', maxWidth: 380, backgroundColor: '#fff', borderRadius: 18, padding: 18 },
+  syllabusModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  syllabusModalTitle: { fontFamily: 'Archivo_800ExtraBold', fontSize: 17, color: C.text },
+  syllabusOptionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.divider },
+  syllabusOptionName: { fontFamily: 'Barlow_600SemiBold', fontSize: 15, color: C.text },
+  syllabusOptionAction: { fontFamily: 'Barlow_700Bold', fontSize: 13, color: C.primary },
   compRowName: { fontFamily: 'Barlow_600SemiBold', fontSize: 14, color: C.text },
   pip: { width: 12, height: 5, borderRadius: 2.5, backgroundColor: C.divider },
   compRowSub: { fontFamily: 'Barlow_500Medium', fontSize: 11.5, color: C.faint },

@@ -21,7 +21,11 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 let _version = 0;
 const _listeners = new Set<() => void>();
-function bump() {
+// Exported (2 Sept 2026) — applySyllabusToStudent in supabaseDb.ts writes
+// directly to dvsa_syllabus_tracking via a plain supabase.insert(), not
+// through any wrapper in this file, so it has no other way to trigger the
+// useCompetencies refresh after a syllabus is applied to a student.
+export function bump() {
   _version += 1;
   _listeners.forEach((l) => l());
 }

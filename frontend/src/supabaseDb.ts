@@ -2574,6 +2574,152 @@ export async function reorderLessonNoteQuestions(orderedIds: string[]): Promise<
   );
 }
 
+// Customizable/multiple DVSA syllabuses (2 Sept 2026), per Grant's three
+// direct choices: separate, additional syllabuses alongside the standard
+// DVSA_SYLLABUS constant (never touched or replaced by any of this), per-
+// instructor scope, fully custom categories within each. Same shape and
+// soft-delete convention as lesson_note_questions above.
+
+export type InstructorSyllabus = {
+  id: string;
+  instructor_id: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type SyllabusCategory = {
+  id: string;
+  syllabus_id: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+};
+
+function isMissingSyllabusTable(msg: string): boolean {
+  return /(instructor_syllabuses|instructor_syllabus_categories)/i.test(msg) && /(does not exist|schema cache)/i.test(msg);
+}
+
+export async function listMySyllabuses(instructorId: string): Promise<InstructorSyllabus[]> {
+  const { data, error } = await supabase
+    .from('instructor_syllabuses')
+    .select('*')
+    .eq('instructor_id', instructorId)
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true });
+  if (error) {
+    if (isMissingSyllabusTable(error.message || '')) return [];
+    throw error;
+  }
+  return (data || []) as InstructorSyllabus[];
+}
+
+export async function addSyllabus(instructorId: string, name: string): Promise<InstructorSyllabus> {
+  const { data: existing } = await supabase
+    .from('instructor_syllabuses')
+    .select('sort_order')
+    .eq('instructor_id', instructorId)
+    .order('sort_order', { ascending: false })
+    .limit(1);
+  const nextOrder = existing && existing.length > 0 ? existing[0].sort_order + 1 : 0;
+  const { data, error } = await supabase
+    .from('instructor_syllabuses')
+    .insert({ instructor_id: instructorId, name: name.trim(), sort_order: nextOrder })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as InstructorSyllabus;
+}
+
+export async function renameSyllabus(id: string, name: string): Promise<void> {
+  const { error } = await supabase.from('instructor_syllabuses').update({ name: name.trim() }).eq('id', id);
+  if (error) throw error;
+}
+
+// Soft-delete only — matches removeLessonNoteQuestion's reasoning: past
+// per-student progress recorded against this syllabus's categories still
+// makes sense when viewed later even if the syllabus itself is retired.
+export async function removeSyllabus(id: string): Promise<void> {
+  const { error } = await supabase.from('instructor_syllabuses').update({ is_active: false }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function listSyllabusCategories(syllabusId: string): Promise<SyllabusCategory[]> {
+  const { data, error } = await supabase
+    .from('instructor_syllabus_categories')
+    .select('*')
+    .eq('syllabus_id', syllabusId)
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true });
+  if (error) throw error;
+  return (data || []) as SyllabusCategory[];
+}
+
+export async function addSyllabusCategory(syllabusId: string, name: string): Promise<SyllabusCategory> {
+  const { data: existing } = await supabase
+    .from('instructor_syllabus_categories')
+    .select('sort_order')
+    .eq('syllabus_id', syllabusId)
+    .order('sort_order', { ascending: false })
+    .limit(1);
+  const nextOrder = existing && existing.length > 0 ? existing[0].sort_order + 1 : 0;
+  const { data, error } = await supabase
+    .from('instructor_syllabus_categories')
+    .insert({ syllabus_id: syllabusId, name: name.trim(), sort_order: nextOrder })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as SyllabusCategory;
+}
+
+export async function renameSyllabusCategory(id: string, name: string): Promise<void> {
+  const { error } = await supabase.from('instructor_syllabus_categories').update({ name: name.trim() }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function removeSyllabusCategory(id: string): Promise<void> {
+  const { error } = await supabase.from('instructor_syllabus_categories').update({ is_active: false }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function reorderSyllabusCategories(orderedIds: string[]): Promise<void> {
+  await Promise.all(
+    orderedIds.map((id, i) =>
+      supabase.from('instructor_syllabus_categories').update({ sort_order: i }).eq('id', id),
+    ),
+  );
+}
+
+// Applies a custom syllabus to a student — seeds dvsa_syllabus_tracking
+// rows for each of the syllabus's active categories, using the category's
+// own row id as category_key (guarantees no collision with the fixed DVSA
+// keys or another custom syllabus's categories, since it's a real uuid).
+// Skips categories the student is already being tracked against, so this
+// is safe to call again later if the instructor adds more categories to
+// an already-applied syllabus.
+export async function applySyllabusToStudent(studentId: string, syllabusId: string): Promise<number> {
+  const categories = await listSyllabusCategories(syllabusId);
+  if (categories.length === 0) return 0;
+  const existing = await listCompetencies(studentId);
+  const existingKeys = new Set(existing.map((c) => c.category_key));
+  const toInsert = categories
+    .filter((c) => !existingKeys.has(c.id))
+    .map((c) => ({
+      student_id: studentId,
+      manoeuvre: c.name,
+      category_key: c.id,
+      category_name: c.name,
+      competency_level: 1,
+      progress: 0,
+    }));
+  if (toInsert.length === 0) return 0;
+  const { error } = await supabase.from('dvsa_syllabus_tracking').insert(toInsert);
+  if (error) throw error;
+  return toInsert.length;
+}
+
 export type InstructorLessonNote = {
   id: string;
   lesson_id: string;

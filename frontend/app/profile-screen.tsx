@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown, ShieldCheck, Wallet, Copy, IdCard, Car, Navigation as NavIcon, Users, FileSpreadsheet, Download, Trash2 } from 'lucide-react-native';
+import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown, ShieldCheck, Wallet, Copy, IdCard, Car, Navigation as NavIcon, Users, FileSpreadsheet, Download, Trash2, BookOpen } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { mockDb, instructorProfile } from '../src/mockDb';
@@ -242,6 +242,17 @@ export default function ProfileScreen() {
           >
             <IdCard size={18} color={theme.colors.primary} />
             <Text style={styles.linkRowText}>My instructor profile</Text>
+          </TouchableOpacity>
+        )}
+
+        {role === 'instructor' && (
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => router.push('/syllabuses-screen')}
+            testID="link-syllabuses"
+          >
+            <BookOpen size={18} color={theme.colors.primary} />
+            <Text style={styles.linkRowText}>My syllabuses</Text>
           </TouchableOpacity>
         )}
 

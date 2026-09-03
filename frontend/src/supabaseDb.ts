@@ -1739,6 +1739,9 @@ export type SchoolProfile = {
   default_hourly_rate: number | null;
   google_review_url: string | null;
   tier: string;
+  // Instructor-editable T&Cs (2 Sept 2026) — per-school, freeform. Null
+  // means the school hasn't set their own text yet.
+  pupil_agreement_text: string | null;
 };
 
 export async function getMySchoolProfile(): Promise<SchoolProfile | null> {
@@ -1747,7 +1750,7 @@ export async function getMySchoolProfile(): Promise<SchoolProfile | null> {
   if (!uid) return null;
   const { data, error } = await supabase
     .from('driving_schools')
-    .select('id, business_name, logo_url, contact_email, contact_phone, address, default_hourly_rate, google_review_url, tier')
+    .select('id, business_name, logo_url, contact_email, contact_phone, address, default_hourly_rate, google_review_url, tier, pupil_agreement_text')
     .eq('owner_auth_id', uid)
     .maybeSingle();
   if (error) throw error;
@@ -1761,6 +1764,7 @@ export async function updateMySchoolProfile(patch: Partial<{
   address: string | null;
   default_hourly_rate: number | null;
   google_review_url: string | null;
+  pupil_agreement_text: string | null;
 }>): Promise<void> {
   const { data: sessionData } = await supabase.auth.getSession();
   const uid = sessionData.session?.user.id;
@@ -1775,6 +1779,21 @@ export async function updateMySchoolProfile(patch: Partial<{
 // Uploads a logo image (base64, no data: prefix) to the school-logos bucket
 // under "<school_id>/logo.<ext>" — overwriting any existing logo — then
 // saves the resulting public URL onto the school's row.
+// Any instructor at a school can read their own school's pupil agreement
+// text (ds_instructor_read RLS policy already allows this) — unlike
+// getMySchoolProfile() above, which is owner-only. Added 2 Sept 2026 so a
+// regular (non-owner) instructor signing onboarding-tc-screen sees their
+// school's actual terms, not just the owner.
+export async function getSchoolPupilAgreementText(schoolId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('driving_schools')
+    .select('pupil_agreement_text')
+    .eq('id', schoolId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.pupil_agreement_text ?? null;
+}
+
 export async function uploadSchoolLogo(schoolId: string, base64: string, mimeType: string): Promise<string> {
   // Deliberately a fixed path with no extension, regardless of the source
   // image's format — Supabase Storage serves the correct Content-Type from

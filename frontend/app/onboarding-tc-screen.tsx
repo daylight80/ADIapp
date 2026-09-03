@@ -7,7 +7,7 @@ import { theme } from '../src/theme';
 import { instructorProfile } from '../src/mockDb';
 import { useAuth } from '../src/AuthContext';
 import { Card } from '../src/ui';
-import { getInstructorProfile, signPupilAgreement } from '../src/supabaseDb';
+import { getInstructorProfile, getSchoolPupilAgreementText, signPupilAgreement } from '../src/supabaseDb';
 
 export default function OnboardingTcScreen() {
   const router = useRouter();
@@ -20,6 +20,11 @@ export default function OnboardingTcScreen() {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [saving, setSaving] = useState(false);
   const [useMockFallback, setUseMockFallback] = useState(false);
+  // Instructor-editable T&Cs (2 Sept 2026) — per-school, freeform, set by
+  // the school owner on school-profile-screen.tsx. Null/empty means the
+  // school hasn't set their own text, so the original fixed sections
+  // below are shown instead — a sensible default, not a broken state.
+  const [customAgreementText, setCustomAgreementText] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,6 +38,14 @@ export default function OnboardingTcScreen() {
             setSaved(true);
             setSignedAt(profile.tc_signed_at);
             setSignedName(profile.tc_signature_name || '');
+          }
+          if (profile.school_id) {
+            try {
+              const text = await getSchoolPupilAgreementText(profile.school_id);
+              if (!cancelled) setCustomAgreementText(text);
+            } catch {
+              // Falls back to the default fixed text below — not fatal.
+            }
           }
         } else {
           // Not signed in as an instructor with a linked row (e.g. offline
@@ -108,6 +121,12 @@ export default function OnboardingTcScreen() {
           </Text>
         </Card>
 
+        {customAgreementText ? (
+          <Card>
+            <Text style={styles.tcHeading}>Your school's terms</Text>
+            <Text style={styles.tcText}>{customAgreementText}</Text>
+          </Card>
+        ) : (
         <Card>
           <Text style={styles.tcHeading}>1. Lessons & cancellations</Text>
           <Text style={styles.tcText}>
@@ -135,6 +154,7 @@ export default function OnboardingTcScreen() {
             VAT receipts are available on request.
           </Text>
         </Card>
+        )}
 
         <TouchableOpacity
           style={styles.checkbox}

@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { ArrowLeft, Building2, Camera } from 'lucide-react-native';
+import { ArrowLeft, Building2, Camera, FileText } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
 import { getMySchoolProfile, updateMySchoolProfile, uploadSchoolLogo, type SchoolProfile } from '../src/supabaseDb';
@@ -21,6 +21,8 @@ export default function SchoolProfileScreen() {
   const [address, setAddress] = useState('');
   const [hourlyRate, setHourlyRate] = useState('');
   const [googleReviewUrl, setGoogleReviewUrl] = useState('');
+  // Instructor-editable T&Cs (2 Sept 2026) — per-school, freeform.
+  const [pupilAgreementText, setPupilAgreementText] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -38,6 +40,7 @@ export default function SchoolProfileScreen() {
         setAddress(p.address || '');
         setHourlyRate(p.default_hourly_rate != null ? String(p.default_hourly_rate) : '');
         setGoogleReviewUrl(p.google_review_url || '');
+        setPupilAgreementText(p.pupil_agreement_text || '');
       } catch (e: any) {
         Alert.alert('Could not load school profile', e?.message || 'Please try again.');
       } finally {
@@ -74,6 +77,7 @@ export default function SchoolProfileScreen() {
         address: address.trim() || null,
         default_hourly_rate: rateValue,
         google_review_url: reviewUrl || null,
+        pupil_agreement_text: pupilAgreementText.trim() || null,
       });
       Alert.alert('Saved', 'Your school profile has been updated.');
       router.back();
@@ -252,6 +256,28 @@ export default function SchoolProfileScreen() {
             </Text>
           </Card>
 
+          <Card>
+            <View style={styles.sectionHeaderRow}>
+              <FileText size={18} color={theme.colors.primary} />
+              <Text style={styles.sectionHeaderText}>Pupil agreement</Text>
+            </View>
+            <Text style={styles.hint}>
+              Shown to every instructor at your school when they sign the pupil agreement — cancellations,
+              payment terms, whatever you want your own terms to say. Leave blank to use the standard default.
+            </Text>
+            <TextInput
+              style={styles.textArea}
+              value={pupilAgreementText}
+              onChangeText={setPupilAgreementText}
+              placeholder="e.g. Cancellations made less than 24 hours before the lesson are charged at the full rate..."
+              placeholderTextColor={theme.colors.textMuted}
+              multiline
+              numberOfLines={8}
+              textAlignVertical="top"
+              testID="input-pupil-agreement"
+            />
+          </Card>
+
           <TouchableOpacity
             style={[styles.saveBtn, saving && { opacity: 0.6 }]}
             onPress={handleSave}
@@ -277,10 +303,17 @@ const styles = StyleSheet.create({
   cardTitle: { ...theme.font.h3, marginBottom: 4 },
   label: { fontSize: 13, fontWeight: '600', color: theme.colors.text, marginTop: 4 },
   hint: { fontSize: 12, color: theme.colors.textMuted },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  sectionHeaderText: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
   input: {
     borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10,
     paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: theme.colors.text,
     backgroundColor: theme.colors.surface,
+  },
+  textArea: {
+    borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: theme.colors.text,
+    backgroundColor: theme.colors.surface, minHeight: 140, marginTop: 6,
   },
   logoBox: {
     width: 88, height: 88, borderRadius: 16,

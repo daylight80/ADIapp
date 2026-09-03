@@ -4,7 +4,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/AuthContext';
 import { BottomNav } from '../src/BottomNav';
-import { mockDb } from '../src/mockDb';
 import { isPaidTier } from '../src/tiers';
 import {
   useStudentByAuthId, useStudentByEmail, useCompetencies, useLessonsForStudent,
@@ -74,15 +73,17 @@ export default function StudentAppV2Screen() {
   const { student: sbStudentByAuth } = useStudentByAuthId(user?.id);
   const { student: sbStudentByEmail } = useStudentByEmail(!sbStudentByAuth ? user?.email : undefined);
   const supabaseStudent = sbStudentByAuth || sbStudentByEmail;
-  const mockStudent = !user ? mockDb.getStudent('s2') : undefined;
-  const student = supabaseStudent || mockStudent;
-  const noRealLinkFound = !!user && !supabaseStudent && !mockStudent;
+  const student = supabaseStudent;
+  // Mock fallback removed entirely (3 Sept 2026), per Grant directly —
+  // it was already confirmed safe (only ever triggered when !user, never
+  // for a real logged-in student), but he wanted it gone regardless.
+  const noRealLinkFound = !!user && !supabaseStudent;
 
-  const { competencies: sbCompetencies } = useCompetencies(supabaseStudent ? student?.id : undefined);
-  const competencies = supabaseStudent ? (sbCompetencies || []) : (student ? mockDb.getCompetencies(student.id) : []);
+  const { competencies: sbCompetencies } = useCompetencies(supabaseStudent?.id);
+  const competencies = sbCompetencies || [];
 
-  const { lessons: sbLessons } = useLessonsForStudent(supabaseStudent ? student?.id : undefined);
-  const lessons = supabaseStudent ? (sbLessons || []) : (student ? mockDb.listLessonsForStudent(student.id) : []);
+  const { lessons: sbLessons } = useLessonsForStudent(supabaseStudent?.id);
+  const lessons = sbLessons || [];
 
   const { badges } = useBadges(student?.id);
   const { logs: sbReflections } = useReflectiveLogs(supabaseStudent ? student?.id : undefined);

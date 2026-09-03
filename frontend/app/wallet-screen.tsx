@@ -4,7 +4,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, PoundSterling, Clock, Plus, Receipt, Lock } from 'lucide-react-native';
 import { theme } from '../src/theme';
-import { mockDb } from '../src/mockDb';
 import { useAuth } from '../src/AuthContext';
 import { isProTier } from '../src/tiers';
 import { PaywallModal } from '../src/PaywallModal';
@@ -29,7 +28,7 @@ export default function WalletScreen() {
   //   • If a Supabase student UUID is passed (instructor → Wallet flow), use it.
   //   • Otherwise, try Supabase Auth uid lookup (post Migration 004).
   //   • Otherwise, fall back to email lookup against Supabase students.
-  //   • Otherwise, fall back to the mockDb seed (legacy demo flow).
+  //   • Otherwise, no real link found — see noRealLinkFound below.
   // -----------------------------------------------------------------------
   const passedId = (params.studentId as string) || '';
   const isPassedSupabaseUuid = /^[0-9a-f-]{36}$/i.test(passedId);
@@ -42,11 +41,11 @@ export default function WalletScreen() {
   // Same principle as student-home-screen: a real logged-in user (user
   // exists) whose own link is missing is a genuine problem, not a reason
   // to silently show them a hardcoded demo student's identity/rate as if
-  // it were their own. Mock only applies for a passed legacy mock id, or
-  // truly no session at all.
-  const mockFallbackId = isPassedSupabaseUuid || user ? undefined : (passedId || 's2');
-  const studentId = isPassedSupabaseUuid ? passedId : (supabaseStudent?.id || mockFallbackId);
-  const noRealLinkFound = !isPassedSupabaseUuid && !!user && !supabaseStudent && !mockFallbackId;
+  // it were their own. Mock fallback removed entirely (3 Sept 2026), per
+  // Grant directly — already confirmed safe (mock IDs like 's2' never
+  // collide with a real UUID), but he wanted it gone regardless.
+  const studentId = isPassedSupabaseUuid ? passedId : supabaseStudent?.id;
+  const noRealLinkFound = !isPassedSupabaseUuid && !!user && !supabaseStudent;
 
   // Block booking & wallet management is Pro+ (1 Sept 2026, tier-gating
   // audit) — wallet-screen.tsx had zero gating at all. Deliberately scoped
@@ -60,25 +59,16 @@ export default function WalletScreen() {
   const pro = isProTier(user?.tier);
   const [walletPaywallOpen, setWalletPaywallOpen] = useState(false);
 
-  const mockStudent = studentId ? mockDb.getStudent(studentId) : undefined;
   const student = supabaseStudent
     ? { id: supabaseStudent.id, name: supabaseStudent.name, hourly_rate: supabaseStudent.hourly_rate ?? 38 }
-    : mockStudent
-      ? { id: mockStudent.id, name: mockStudent.name, hourly_rate: mockStudent.hourly_rate }
-      : { id: studentId || '', name: user?.name || 'Learner', hourly_rate: 38 };
+    : { id: studentId || '', name: user?.name || 'Learner', hourly_rate: 38 };
 
   // -----------------------------------------------------------------------
   // Live data from Supabase.
   // -----------------------------------------------------------------------
   const { bookings, loading: bookingsLoading } = useBlockBookings(studentId);
   const { lessons: sbLessons } = useLessonsForStudent(supabaseStudent ? studentId : undefined);
-  const lessons = useMemo(() => {
-    if (supabaseStudent) return (sbLessons || []).filter((l) => l.amount_paid);
-    // mockDb fallback — only reached when there's genuinely no real student
-    // linked at all (see studentId/mockFallbackId above), not as a
-    // substitute for a real student's legitimately-empty lesson history.
-    return studentId ? mockDb.listLessonsForStudent(studentId).filter((l) => l.amount_paid) : [];
-  }, [supabaseStudent, sbLessons, studentId]);
+  const lessons = useMemo(() => (sbLessons || []).filter((l) => l.amount_paid), [sbLessons]);
 
   // Wallet balance is derived client-side from the bookings array.
   const wallet = useMemo(() => {

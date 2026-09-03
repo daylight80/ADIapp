@@ -1770,6 +1770,108 @@ async def generate_lesson_debrief(lesson_id: str, sb_user: dict = Depends(get_cu
     return LessonDebriefResponse(debrief=debrief_text, generated_at=generated_at)
 
 
+# =============================================================================
+# Full school backup — Google Drive (2 Sept 2026), per Grant's three direct
+# choices: full business scope (all students, lessons, payments — the whole
+# school, not just one instructor's own data like the existing GDPR export
+# above), full Google Drive integration (the actual upload happens on the
+# frontend once signed in — this endpoint only gathers and returns the data),
+# and export-only for now — restore is a deliberately separate, later
+# decision given the real data-integrity risk of merging/overwriting.
+# =============================================================================
+
+@api_router.get("/v2/school/backup")
+async def v2_school_backup(sb_user: dict = Depends(get_current_supabase_user)):
+    """Owner-only. Gathers the whole school's data — instructors, students,
+    lessons, receipts, vehicles, block bookings, lesson notes — into one
+    JSON object for the frontend to upload to the owner's own Google Drive.
+    Not a raw table dump: scoped to exactly this school, same tables the
+    app's own screens already read from."""
+    if not await _is_school_owner(sb_user):
+        raise HTTPException(status_code=403, detail="Only the school owner can create a full backup.")
+    school = sb_user["school"]
+    school_id = school["id"]
+
+    async with httpx.AsyncClient(timeout=30.0) as client_http:
+        ir = await client_http.get(
+            f"{_sb_rest_base}/instructors",
+            params={"school_id": f"eq.{school_id}", "select": "*", "limit": "1000"},
+            headers=_sb_headers(),
+        )
+        if ir.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Failed to load instructors: {ir.text[:200]}")
+        instructors = ir.json() or []
+        instructor_ids = [i["id"] for i in instructors]
+
+        sr = await client_http.get(
+            f"{_sb_rest_base}/students",
+            params={"school_id": f"eq.{school_id}", "select": "*", "limit": "10000"},
+            headers=_sb_headers(),
+        )
+        if sr.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Failed to load students: {sr.text[:200]}")
+        students = sr.json() or []
+        student_ids = [s["id"] for s in students]
+
+        lessons: List[dict] = []
+        if instructor_ids:
+            ids_csv = ",".join(instructor_ids)
+            lr = await client_http.get(
+                f"{_sb_rest_base}/lessons",
+                params={"instructor_id": f"in.({ids_csv})", "select": "*", "limit": "10000"},
+                headers=_sb_headers(),
+            )
+            if lr.status_code >= 400:
+                raise HTTPException(status_code=502, detail=f"Failed to load lessons: {lr.text[:200]}")
+            lessons = lr.json() or []
+
+        rr = await client_http.get(
+            f"{_sb_rest_base}/expense_receipts",
+            params={"school_id": f"eq.{school_id}", "select": "*", "limit": "10000"},
+            headers=_sb_headers(),
+        )
+        receipts = rr.json() or [] if rr.status_code < 400 else []
+
+        vr = await client_http.get(
+            f"{_sb_rest_base}/vehicles",
+            params={"school_id": f"eq.{school_id}", "select": "*", "limit": "1000"},
+            headers=_sb_headers(),
+        )
+        vehicles = vr.json() or [] if vr.status_code < 400 else []
+
+        block_bookings: List[dict] = []
+        if student_ids:
+            ids_csv = ",".join(student_ids)
+            br = await client_http.get(
+                f"{_sb_rest_base}/block_bookings",
+                params={"student_id": f"in.({ids_csv})", "select": "*", "limit": "10000"},
+                headers=_sb_headers(),
+            )
+            block_bookings = br.json() or [] if br.status_code < 400 else []
+
+        lesson_notes: List[dict] = []
+        if instructor_ids:
+            ids_csv = ",".join(instructor_ids)
+            nr = await client_http.get(
+                f"{_sb_rest_base}/instructor_lesson_notes",
+                params={"instructor_id": f"in.({ids_csv})", "select": "*", "limit": "10000"},
+                headers=_sb_headers(),
+            )
+            lesson_notes = nr.json() or [] if nr.status_code < 400 else []
+
+    return {
+        "backed_up_at": datetime.now(timezone.utc).isoformat(),
+        "school": school,
+        "instructors": instructors,
+        "students": students,
+        "lessons": lessons,
+        "expense_receipts": receipts,
+        "vehicles": vehicles,
+        "block_bookings": block_bookings,
+        "instructor_lesson_notes": lesson_notes,
+    }
+
+
 # ============================================================================
 # CALENDAR FEED (.ics) — per-instructor iCal subscribable feed
 # ============================================================================

@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { ArrowLeft, Building2, Camera, FileText } from 'lucide-react-native';
+import { ArrowLeft, Building2, Camera, FileText, CloudUpload } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
 import { getMySchoolProfile, updateMySchoolProfile, uploadSchoolLogo, type SchoolProfile } from '../src/supabaseDb';
@@ -287,6 +287,15 @@ export default function SchoolProfileScreen() {
             {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Save changes</Text>}
           </TouchableOpacity>
 
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => router.push('/backup-screen' as any)}
+            testID="link-backup"
+          >
+            <CloudUpload size={18} color={theme.colors.primary} />
+            <Text style={styles.linkRowText}>Back up to Google Drive</Text>
+          </TouchableOpacity>
+
           <View style={{ height: 24 }} />
         </ScrollView>
       </KeyboardAvoidingView>
@@ -335,4 +344,6 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginTop: 4,
   },
   saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  linkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 14, justifyContent: 'center' },
+  linkRowText: { fontSize: 14.5, fontWeight: '600', color: theme.colors.primary },
 });

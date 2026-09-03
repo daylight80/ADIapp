@@ -1,10 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider, useAuth } from '../src/AuthContext';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { isBiometricEnabled, authenticateWithBiometrics } from '../src/biometrics';
+import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { theme } from '../src/theme';
 import { useFonts, Archivo_800ExtraBold, Archivo_700Bold } from '@expo-google-fonts/archivo';
 import { Barlow_400Regular, Barlow_500Medium, Barlow_600SemiBold, Barlow_700Bold } from '@expo-google-fonts/barlow';
@@ -26,6 +27,43 @@ function AuthGate() {
   const segments = useSegments();
   const params = useLocalSearchParams();
   const inviteToken = (params.invite as string) || '';
+
+  // Biometric app-unlock (3 Sept 2026), per Grant directly — opt-in,
+  // sitting entirely on top of the session-restore flow above (not a new
+  // Supabase auth method). null means "still checking whether it's even
+  // enabled" — deliberately distinct from false, so there's no one-frame
+  // flash of unlocked app content before that check resolves. Reset back
+  // to null whenever the user goes back to being signed-out (rather than
+  // staying stuck locked/unlocked from a previous session), so this
+  // re-evaluates cleanly on every fresh sign-in too, not just a cold app
+  // launch.
+  const [biometricLocked, setBiometricLocked] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!user) { setBiometricLocked(null); return; }
+    let cancelled = false;
+    (async () => {
+      const enabled = await isBiometricEnabled();
+      if (cancelled) return;
+      if (!enabled) { setBiometricLocked(false); return; }
+      setBiometricLocked(true);
+      const ok = await authenticateWithBiometrics();
+      if (cancelled) return;
+      if (ok) {
+        setBiometricLocked(false);
+      } else {
+        // Per Grant's direct choice — fall back to normal email/password
+        // login on failure or cancel, not a retry loop and not silently
+        // waving them through on the still-technically-valid session.
+        signOut();
+      }
+    })();
+    return () => { cancelled = true; };
+    // Deliberately only re-runs when the signed-in user identity changes
+    // (a fresh sign-in), not on every render — this is a once-per-launch
+    // (or once-per-sign-in) gate, not something to re-trigger constantly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   useEffect(() => {
     if (loading) return;
@@ -74,6 +112,18 @@ function AuthGate() {
     return (
       <View style={styles.loading} testID="auth-loading">
         <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
+
+  if (biometricLocked) {
+    return (
+      <View style={styles.loading} testID="biometric-lock">
+        <Text style={styles.lockTitle}>ADI Pro is locked</Text>
+        <Text style={styles.lockSub}>Waiting for fingerprint…</Text>
+        <TouchableOpacity onPress={() => signOut()} testID="btn-use-password-instead" style={styles.lockFallbackBtn}>
+          <Text style={styles.lockFallbackText}>Use password instead</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -130,4 +180,8 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.background,
     zIndex: 1000,
   },
+  lockTitle: { fontSize: 19, fontWeight: '700', color: theme.colors.text, marginTop: 14 },
+  lockSub: { fontSize: 14, color: theme.colors.textMuted, marginTop: 6 },
+  lockFallbackBtn: { marginTop: 28, paddingVertical: 10, paddingHorizontal: 18 },
+  lockFallbackText: { fontSize: 14, fontWeight: '600', color: theme.colors.primary },
 });

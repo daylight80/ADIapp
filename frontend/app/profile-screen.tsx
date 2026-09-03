@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown, ShieldCheck, Wallet, Copy, IdCard, Car, Navigation as NavIcon, Users, FileSpreadsheet, Download, Trash2, BookOpen } from 'lucide-react-native';
+import { LogOut, Mail, Phone, MapPin, Award, Calendar, Crown, ShieldCheck, Wallet, Copy, IdCard, Car, Navigation as NavIcon, Users, FileSpreadsheet, Download, Trash2, BookOpen, Fingerprint } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { mockDb, instructorProfile } from '../src/mockDb';
@@ -18,11 +18,37 @@ import { CalendarFeedCard } from '../src/CalendarFeedCard';
 import { ContactsImportSheet } from '../src/ContactsImportSheet';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { Alert, TextInput, ActivityIndicator } from 'react-native';
+import { isBiometricAvailable, isBiometricEnabled, setBiometricEnabled } from '../src/biometrics';
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
   const router = useRouter();
   const role = user?.role || 'student';
+
+  // Biometric app-unlock toggle (3 Sept 2026), per Grant directly —
+  // shown for both roles, since both instructors and students have their
+  // own account. Hidden entirely on a device with no biometric hardware
+  // or nothing enrolled, rather than shown disabled with no way to use
+  // it — a toggle for a feature the device genuinely can't do isn't
+  // useful, just confusing.
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricOn, setBiometricOn] = useState(false);
+  useEffect(() => {
+    (async () => {
+      const available = await isBiometricAvailable();
+      setBiometricAvailable(available);
+      if (available) setBiometricOn(await isBiometricEnabled());
+    })();
+  }, []);
+  const handleToggleBiometric = async (next: boolean) => {
+    setBiometricOn(next); // optimistic — this is a fast, local-only write
+    try {
+      await setBiometricEnabled(next);
+    } catch (e: any) {
+      setBiometricOn(!next); // revert on a genuine write failure
+      Alert.alert('Could not save', e?.message || 'Please try again.');
+    }
+  };
   const student = user?.email ? mockDb.getStudentByEmail(user.email) : undefined;
   const pro = isPaidTier(user?.tier);
 
@@ -389,6 +415,17 @@ export default function ProfileScreen() {
             </Text>
           </TouchableOpacity>
         </Card>
+
+        {biometricAvailable && (
+          <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <Fingerprint size={20} color={theme.colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.linkRowText}>Use fingerprint to unlock</Text>
+              <Text style={styles.hint}>Skip re-entering your password each time you open the app.</Text>
+            </View>
+            <Switch value={biometricOn} onValueChange={handleToggleBiometric} testID="switch-biometric" />
+          </Card>
+        )}
 
         <TouchableOpacity style={styles.logoutBtn} onPress={signOut} testID="btn-signout">
           <LogOut size={18} color="#fff" />

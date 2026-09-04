@@ -25,8 +25,26 @@ import * as SecureStore from 'expo-secure-store';
 const FALLBACK_SUPABASE_URL = 'https://otqokumouwrwyylpruqt.supabase.co';
 const FALLBACK_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im90cW9rdW1vdXdyd3l5bHBydXF0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMTEyMTQsImV4cCI6MjA5NDc4NzIxNH0.pjv54vvguXiNTTm5fAVnB88PYcAxhBDyhH89eT8Ybhk';
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || FALLBACK_SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || FALLBACK_SUPABASE_ANON_KEY;
+// Genuinely validates the value looks like a real http(s) URL, rather than
+// just checking truthiness (3 Sept 2026, 2nd pass at this fix) — the
+// first pass used a plain `||`, which still crashed identically on a
+// real device. Root-caused why: process.env.EXPO_PUBLIC_SUPABASE_URL was
+// resolving to the literal string "undefined" (text, not the real JS
+// undefined value) — a known Metro/bundler substitution gotcha when an
+// EXPO_PUBLIC_* var isn't actually present at bundle time. That string is
+// truthy, so `|| FALLBACK` never triggered, and createClient() still got
+// handed that literal "undefined" text as the URL. Checking for a genuine
+// http(s) prefix catches this case too, not just empty/missing.
+function isValidHttpUrl(value: string | undefined): value is string {
+  return typeof value === 'string' && /^https?:\/\//.test(value);
+}
+
+const SUPABASE_URL = isValidHttpUrl(process.env.EXPO_PUBLIC_SUPABASE_URL)
+  ? process.env.EXPO_PUBLIC_SUPABASE_URL
+  : FALLBACK_SUPABASE_URL;
+const SUPABASE_ANON_KEY = (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY && process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY !== 'undefined')
+  ? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
+  : FALLBACK_SUPABASE_ANON_KEY;
 
 // Polyfill WebSocket on Node < 22 (Metro SSR pass).
 // Without this, supabase-js Realtime fails on the SSR render. In the browser
@@ -50,9 +68,9 @@ const SecureStoreAdapter = {
 // Web: localStorage is auto-used when no storage is supplied (handled by SDK).
 const storage = Platform.OS === 'web' ? undefined : (SecureStoreAdapter as any);
 
-if (!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) {
+if (!isValidHttpUrl(process.env.EXPO_PUBLIC_SUPABASE_URL) || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY === 'undefined') {
   // eslint-disable-next-line no-console
-  console.warn('[supabase] EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY is not set — using hardcoded fallback values.');
+  console.warn('[supabase] EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY is missing or invalid — using hardcoded fallback values. Raw URL value seen: ' + JSON.stringify(process.env.EXPO_PUBLIC_SUPABASE_URL));
 }
 
 export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {

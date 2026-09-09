@@ -14,6 +14,7 @@ import { computeTestKpis } from '../src/supabaseDb';
 import { colorForLessonType } from '../src/diary/lessonTypes';
 import { isPaidTier, tierById, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
+import { MessageButton } from '../src/MessageButton';
 import { ContactsImportBanner } from '../src/ContactsImportBanner';
 import { PaywallModal } from '../src/PaywallModal';
 import { Crown, ChevronRight, Users, CalendarDays, Receipt, Lock, Eye, EyeOff } from 'lucide-react-native';
@@ -122,6 +123,8 @@ export default function InstructorHomeV2Screen() {
   const sel = sorted.find((l) => l.id === selId) || nextLesson || sorted[0];
 
   const studentName = (id: string) => students.find((s) => s.id === id)?.name || 'Student';
+  const studentFor = (id: string) => students.find((s) => s.id === id);
+  const selStudent = sel ? studentFor(sel.student_id) : undefined;
   const remaining = sorted.filter((l) => toMin(l.end_time) >= nowMin && l.status !== 'Cancelled');
   const remainingMins = remaining.reduce((sum, l) => sum + (toMin(l.end_time) - toMin(l.start_time)), 0);
 
@@ -294,6 +297,34 @@ export default function InstructorHomeV2Screen() {
 
                 <Text style={s.heroStudent}>{studentName(sel.student_id)}</Text>
 
+                {/* Quick actions — Nav + Message (9 Sept 2026), per Grant's
+                    annotated screenshot directly, referencing the original
+                    design handoff. Deliberately always visible (not gated
+                    on the lesson having its own pickup_address set, unlike
+                    the address-display row below it) — falls back to the
+                    student's own home address/postcode for navigation,
+                    same fallback pattern already used in LessonToolsSheet.
+                    Message opens the device's native SMS composer via the
+                    same openSmsComposer helper already used elsewhere in
+                    the app (student-crm-screen's invite flow), left blank
+                    here since this is a general-purpose quick contact, not
+                    a specific pre-filled message like the "I've arrived"
+                    action inside Lesson tools. */}
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                  <OpenInMapsButton
+                    address={sel.pickup_address || [selStudent?.address, selStudent?.postcode].filter(Boolean).join(', ')}
+                    variant="pill"
+                    label="Nav"
+                    testID={`v2-home-nav-quick-${sel.id}`}
+                  />
+                  <MessageButton
+                    phone={selStudent?.phone || ''}
+                    variant="pill"
+                    label="Message"
+                    testID={`v2-home-message-${sel.id}`}
+                  />
+                </View>
+
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 9, flexWrap: 'wrap' }}>
                   <Text style={[s.heroTypeChip, { backgroundColor: colorForLessonType(sel.lesson_type) }]}>
                     {sel.lesson_type}
@@ -307,12 +338,6 @@ export default function InstructorHomeV2Screen() {
                       <Text style={s.heroPickupLabel}>Pick up</Text>
                       <Text style={s.heroPickupValue} numberOfLines={1}>{sel.pickup_address}</Text>
                     </View>
-                    <OpenInMapsButton
-                      address={sel.pickup_address}
-                      variant="pill"
-                      label="Nav"
-                      testID={`v2-home-nav-${sel.id}`}
-                    />
                   </View>
                 )}
 

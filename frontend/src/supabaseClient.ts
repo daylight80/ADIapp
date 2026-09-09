@@ -35,15 +35,39 @@ const FALLBACK_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3M
 // truthy, so `|| FALLBACK` never triggered, and createClient() still got
 // handed that literal "undefined" text as the URL. Checking for a genuine
 // http(s) prefix catches this case too, not just empty/missing.
+//
+// 3rd pass (9 Sept 2026) — a fresh adb logcat capture showed the *real*
+// culprit this time: EXPO_PUBLIC_SUPABASE_URL was genuinely present and
+// otherwise correct, but with a single stray, invisible control
+// character (U+0016) glued onto the very front of it — "\u0016https://
+// ...supabase.co", confirmed directly from the app's own diagnostic
+// warning below. The URL happened to survive via the fallback (the
+// http(s) prefix check correctly rejected it), but the anon key's check
+// below was only a truthiness check, not a real format check — so if the
+// exact same stray character was prepended to the key too, it would have
+// sailed straight through unsanitized, been sent to Supabase as a
+// corrupted key, and the resulting rejection is consistent with the
+// "unexpected end of input" JSON parse error Grant hit. Rather than
+// reject-and-fallback (which risks silently running on a stale hardcoded
+// key if Grant ever rotates it), strip any stray leading/trailing control
+// characters from both values first, so the genuinely correct
+// EAS-configured values can still be recovered and used.
+function sanitizeEnvValue(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return value;
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/^[\x00-\x1F\x7F]+|[\x00-\x1F\x7F]+$/g, '');
+}
+
 function isValidHttpUrl(value: string | undefined): value is string {
   return typeof value === 'string' && /^https?:\/\//.test(value);
 }
 
-const SUPABASE_URL = isValidHttpUrl(process.env.EXPO_PUBLIC_SUPABASE_URL)
-  ? process.env.EXPO_PUBLIC_SUPABASE_URL
-  : FALLBACK_SUPABASE_URL;
-const SUPABASE_ANON_KEY = (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY && process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY !== 'undefined')
-  ? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
+const rawUrl = sanitizeEnvValue(process.env.EXPO_PUBLIC_SUPABASE_URL);
+const rawAnonKey = sanitizeEnvValue(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY);
+
+const SUPABASE_URL = isValidHttpUrl(rawUrl) ? rawUrl : FALLBACK_SUPABASE_URL;
+const SUPABASE_ANON_KEY = (rawAnonKey && rawAnonKey !== 'undefined' && rawAnonKey.length > 20)
+  ? rawAnonKey
   : FALLBACK_SUPABASE_ANON_KEY;
 
 // Polyfill WebSocket on Node < 22 (Metro SSR pass).
@@ -68,9 +92,13 @@ const SecureStoreAdapter = {
 // Web: localStorage is auto-used when no storage is supplied (handled by SDK).
 const storage = Platform.OS === 'web' ? undefined : (SecureStoreAdapter as any);
 
-if (!isValidHttpUrl(process.env.EXPO_PUBLIC_SUPABASE_URL) || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY === 'undefined') {
+if (process.env.EXPO_PUBLIC_SUPABASE_URL !== rawUrl || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY !== rawAnonKey) {
   // eslint-disable-next-line no-console
-  console.warn('[supabase] EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY is missing or invalid — using hardcoded fallback values. Raw URL value seen: ' + JSON.stringify(process.env.EXPO_PUBLIC_SUPABASE_URL));
+  console.warn('[supabase] Raw env value had stray characters, sanitized. Raw URL seen: ' + JSON.stringify(process.env.EXPO_PUBLIC_SUPABASE_URL));
+}
+if (SUPABASE_URL === FALLBACK_SUPABASE_URL || SUPABASE_ANON_KEY === FALLBACK_SUPABASE_ANON_KEY) {
+  // eslint-disable-next-line no-console
+  console.warn('[supabase] EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY is missing or invalid even after sanitizing — using hardcoded fallback values. Raw URL value seen: ' + JSON.stringify(process.env.EXPO_PUBLIC_SUPABASE_URL));
 }
 
 export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {

@@ -16,7 +16,6 @@ import {
   Trophy,
   PoundSterling,
   MapPin,
-  BookOpen,
   Lock,
   Phone,
 } from 'lucide-react-native';
@@ -558,20 +557,6 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
               <Text style={[styles.recordRouteText, !paid && styles.recordRouteTextLocked]}>Record route for this lesson</Text>
             </TouchableOpacity>
 
-            {/* Show Me, Tell Me quick reference — for glancing at during the
-                lesson, e.g. before running a practice question with the student. */}
-            <TouchableOpacity
-              style={styles.smtmLinkBtn}
-              onPress={() => {
-                onClose();
-                router.push('/show-me-tell-me-screen');
-              }}
-              testID="btn-show-me-tell-me"
-            >
-              <BookOpen size={16} color={theme.colors.textMuted} />
-              <Text style={styles.smtmLinkText}>Show Me, Tell Me question reference</Text>
-            </TouchableOpacity>
-
             {/* Post-lesson notes — the instructor's own custom question set */}
             <TouchableOpacity
               style={styles.recordRouteBtn}
@@ -1098,8 +1083,6 @@ const styles = StyleSheet.create({
   recordRouteBtnLocked: { borderColor: theme.colors.border, backgroundColor: theme.colors.background },
   recordRouteText: { color: theme.colors.primary, fontWeight: '700', fontSize: 14 },
   recordRouteTextLocked: { color: theme.colors.textMuted },
-  smtmLinkBtn: { marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8 },
-  smtmLinkText: { color: theme.colors.textMuted, fontWeight: '600', fontSize: 13, textDecorationLine: 'underline' },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
   checkIcon: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.background },
   checkIconActive: { backgroundColor: theme.colors.success },

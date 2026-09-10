@@ -67,6 +67,7 @@ export type Lesson = {
   dangerous_faults: number;
   grade?: number;
   amount_paid?: number;
+  vehicle_id?: string;
   status: 'Scheduled' | 'Completed' | 'Cancelled';
   student_reflection?: string;
   pre_check_completed_at?: string;

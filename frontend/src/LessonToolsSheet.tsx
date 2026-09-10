@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, ScrollView, TextInput, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, ScrollView, TextInput, ActivityIndicator, Platform, Linking, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   X,
@@ -18,11 +18,12 @@ import {
   MapPin,
   BookOpen,
   Lock,
+  Phone,
 } from 'lucide-react-native';
 import { theme } from './theme';
 import { Lesson, Student, mockDb } from './mockDb';
 import { patchLesson } from './useSupabaseData';
-import { useStudent } from './useSupabaseData';
+import { useStudent, useVehicles } from './useSupabaseData';
 import { countUpcomingInSeries, cancelSeriesFromDate } from './useSupabaseData';
 import { useAuth } from './AuthContext';
 import { isPaidTier } from './tiers';
@@ -213,6 +214,9 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   // Try Supabase first when student_id looks like a UUID; otherwise mockDb.
   const sbStudentId = lesson && /^[0-9a-f-]{36}$/i.test(lesson.student_id) ? lesson.student_id : undefined;
   const { student: sbStudent } = useStudent(sbStudentId);
+  // Vehicle + payment status display (10 Sept 2026), per Grant directly,
+  // referencing a competitor app (MyDrive Time)'s quick-view screen.
+  const { vehicles } = useVehicles();
 
   if (!lesson) return null;
 
@@ -417,6 +421,31 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
                 {lesson.start_time}-{lesson.end_time} · {lesson.topic}
               </Text>
             </View>
+            {/* Quick contact — SMS + Call (10 Sept 2026), per Grant directly,
+                referencing a competitor app (MyDrive Time)'s quick-view
+                screen. Deliberately a plain SMS composer (blank body), not
+                the specific pre-filled "I've arrived" message further down
+                this sheet — that stays as its own, separate action. */}
+            {!!student.phone && (
+              <TouchableOpacity
+                onPress={() => openSmsComposer(student.phone, '')}
+                style={styles.headerIconBtn}
+                testID="btn-header-message"
+                accessibilityLabel={`Message ${student.name}`}
+              >
+                <MessageSquare size={18} color={theme.colors.primary} />
+              </TouchableOpacity>
+            )}
+            {!!student.phone && (
+              <TouchableOpacity
+                onPress={() => Linking.openURL(`tel:${student.phone}`)}
+                style={styles.headerIconBtn}
+                testID="btn-header-call"
+                accessibilityLabel={`Call ${student.name}`}
+              >
+                <Phone size={18} color={theme.colors.primary} />
+              </TouchableOpacity>
+            )}
             <TouchableOpacity onPress={onClose} testID="lesson-tools-close">
               <X size={22} color={theme.colors.text} />
             </TouchableOpacity>
@@ -428,6 +457,26 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
               <Badge label={`${lesson.duration_hours}h`} />
               {lesson.travel_minutes && <Badge label={`${lesson.travel_minutes}m travel`} bg={theme.colors.lockedBg} color={theme.colors.accent} />}
               {lesson.pre_check_completed_at && <Badge label="Pre-check ✓" bg={theme.colors.successLight} color={theme.colors.success} />}
+              {/* Payment status — red/green circle (10 Sept 2026), per
+                  Grant directly, referencing MyDrive Time's traffic-light
+                  style indicator. Uses the lesson's own amount_paid, the
+                  same field the wallet/earnings screens already read. */}
+              <View
+                style={[styles.paymentDot, { backgroundColor: (lesson.amount_paid || 0) > 0 ? theme.colors.success : theme.colors.danger }]}
+                testID="v2-payment-status"
+                accessibilityLabel={(lesson.amount_paid || 0) > 0 ? 'This lesson has been paid for' : 'This lesson has not been paid for'}
+              >
+                <PoundSterling size={13} color="#fff" />
+              </View>
+              {/* Vehicle — car icon + registration (10 Sept 2026), per
+                  Grant directly. Looked up from the lesson's own
+                  vehicle_id against the instructor's vehicle list, rather
+                  than assuming a single default vehicle — matters once a
+                  Franchise account has more than one. */}
+              {(() => {
+                const vehicle = vehicles.find((v) => v.id === lesson.vehicle_id);
+                return vehicle ? <Badge label={vehicle.registration_plate} bg={theme.colors.lockedBg} color={theme.colors.text} /> : null;
+              })()}
             </View>
 
             {/* Cancellation summary — only shown when the lesson was cancelled.
@@ -1029,7 +1078,9 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingBottom: 24, paddingTop: 12 },
   handle: { alignSelf: 'center', width: 44, height: 5, borderRadius: 4, backgroundColor: theme.colors.border, marginBottom: 8 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, marginBottom: 8 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, marginBottom: 8, gap: 14 },
+  headerIconBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
+  paymentDot: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
   sub: { fontSize: 13, color: theme.colors.textMuted, marginTop: 2 },
   badgeRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 12 },

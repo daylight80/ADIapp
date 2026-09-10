@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, Modal } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
 import { theme } from './theme';
 import { Home, CalendarDays, Users, BookOpen, FileCheck, User, LogOut } from 'lucide-react-native';
@@ -26,20 +26,21 @@ export function BottomNav({ role }: { role: 'instructor' | 'student' }) {
   const pathname = usePathname();
   const { signOut } = useAuth();
   const tabs = role === 'instructor' ? INSTRUCTOR_TABS : STUDENT_TABS;
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // Logout (10 Sept 2026), per Grant directly — a 4th, special-cased tab
   // rather than a real route: it has no persistent screen of its own, so
   // the usual pathname === t.route active-state check doesn't apply to
-  // it, and tapping it signs out instead of navigating. Confirms first,
-  // since this sits right next to three ordinary navigation taps and a
-  // single mis-tap shouldn't sign someone out with no way back.
-  const handleLogout = () => {
-    Alert.alert('Log out?', 'You\u2019ll need to sign in again to get back in.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Log out', style: 'destructive', onPress: () => signOut() },
-    ]);
-  };
-
+  // it, and tapping it signs out instead of navigating.
+  //
+  // Confirms first via a plain in-app Modal, not Alert.alert() — Grant
+  // reported the button doing nothing at all on a real device the first
+  // time this shipped with Alert.alert(). Rather than guess at why a
+  // system-level dialog API might be silently swallowed on a specific
+  // device, switched to the exact same custom-Modal pattern this app
+  // already uses elsewhere for confirmations (lesson-diary-screen's drag
+  // confirmation), which sidesteps the OS's own alert dialog entirely and
+  // is already proven reliable in this codebase.
   return (
     <View style={styles.container} testID={`bottom-nav-${role}`}>
       {tabs.map((t) => {
@@ -50,7 +51,7 @@ export function BottomNav({ role }: { role: 'instructor' | 'student' }) {
           <TouchableOpacity
             key={t.key}
             style={styles.tab}
-            onPress={() => (t.key === 'logout' ? handleLogout() : router.replace(t.route as any))}
+            onPress={() => (t.key === 'logout' ? setConfirmOpen(true) : router.replace(t.route as any))}
             testID={`nav-${t.key}`}
             activeOpacity={0.7}
           >
@@ -82,11 +83,49 @@ export function BottomNav({ role }: { role: 'instructor' | 'student' }) {
           </TouchableOpacity>
         );
       })}
+
+      <Modal
+        visible={confirmOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmOpen(false)}
+      >
+        <View style={styles.confirmBackdrop}>
+          <View style={styles.confirmCard} testID="logout-confirm-modal">
+            <Text style={styles.confirmTitle}>Log out?</Text>
+            <Text style={styles.confirmLine}>You'll need to sign in again to get back in.</Text>
+            <View style={{ flexDirection: 'row', gap: 9, marginTop: 16 }}>
+              <TouchableOpacity
+                style={styles.confirmCancelBtn}
+                onPress={() => setConfirmOpen(false)}
+                testID="logout-confirm-cancel"
+              >
+                <Text style={styles.confirmCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmOkBtn}
+                onPress={() => { setConfirmOpen(false); signOut(); }}
+                testID="logout-confirm-ok"
+              >
+                <Text style={styles.confirmOkBtnText}>Log out</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  confirmBackdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  confirmCard: { width: '100%', maxWidth: 340, backgroundColor: '#fff', borderRadius: 16, padding: 20 },
+  confirmTitle: { fontSize: 17, fontWeight: '700', color: theme.colors.text, marginBottom: 6 },
+  confirmLine: { fontSize: 14, color: theme.colors.textMuted, lineHeight: 20 },
+  confirmCancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, alignItems: 'center' },
+  confirmCancelBtnText: { color: theme.colors.text, fontWeight: '600', fontSize: 14 },
+  confirmOkBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: theme.colors.danger, alignItems: 'center' },
+  confirmOkBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   container: {
     flexDirection: 'row',
     backgroundColor: theme.colors.surface,

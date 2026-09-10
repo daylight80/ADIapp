@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, ReactNode, useCa
 import { Platform } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabaseClient';
+import { registerExpoPushToken, setUpReminderReadListener } from './notifications';
 
 export type Role = 'instructor' | 'student' | 'owner';
 
@@ -231,6 +232,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sub?.subscription.unsubscribe();
     };
   }, []);
+
+  // Registers this device's Expo push token against the signed-in user,
+  // and sets up the listener that reports back when a lesson-reminder
+  // notification is tapped (9 Sept 2026) — both were genuinely missing
+  // before this: registerExpoPushToken() was fully built (upserts to
+  // push_tokens) but never actually called anywhere in the app, and the
+  // same mistake was caught and fixed here for
+  // setUpReminderReadListener() too, found while double-checking this
+  // change rather than assuming it was wired up correctly. Without
+  // either, no device would ever register to receive a push at all, and
+  // even a delivered reminder could never be reported back as read — the
+  // read-receipt tracking would have nothing to ever show but red. A
+  // single effect here (rather than duplicating both calls across the
+  // three separate places above that already call setUser) covers
+  // session restore, sign-in, and any future auth-state change
+  // uniformly. Web is a no-op inside both functions, so this is safe to
+  // call unconditionally across platforms.
+  useEffect(() => {
+    if (user?.id) {
+      registerExpoPushToken().catch(() => {});
+      setUpReminderReadListener();
+    }
+  }, [user?.id]);
 
   const signIn: AuthContextType['signIn'] = useCallback(async (email, password) => {
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });

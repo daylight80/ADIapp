@@ -1771,6 +1771,57 @@ async def generate_lesson_debrief(lesson_id: str, sb_user: dict = Depends(get_cu
 
 
 # =============================================================================
+# Reminder read-receipt (9 Sept 2026) — per Grant directly, referencing a
+# competitor app's traffic-light system (MyDrive Time). Scoped to lesson
+# reminders only, per Grant's direct answer. Called by the STUDENT app the
+# moment it detects the user tapped/opened a reminder notification —
+# see the existing "sent"/"delivered" progression this completes, and
+# frontend/src/notifications.ts for the tap-listener that calls this.
+# =============================================================================
+
+class ReminderReadRequest(BaseModel):
+    kind: Literal["h48", "h25", "h1"]
+
+
+@api_router.post("/v2/lessons/{lesson_id}/reminder-read")
+async def v2_mark_reminder_read(lesson_id: str, req: ReminderReadRequest, sb_user: dict = Depends(get_current_supabase_user)):
+    """Student-called only. get_current_supabase_user resolves `school` for
+    instructor/owner accounts (None here, which is fine and expected — a
+    student has no school of their own) — ownership is verified directly
+    below instead, by checking the lesson's own student matches the
+    calling auth user, rather than relying on any instructor-oriented
+    helper that doesn't apply to a student caller."""
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        lr = await client_http.get(
+            f"{_sb_rest_base}/lessons",
+            params={"id": f"eq.{lesson_id}", "select": "id,students(auth_user_id)"},
+            headers=_sb_headers(),
+        )
+    if lr.status_code >= 400:
+        raise HTTPException(status_code=502, detail=f"Failed to load lesson: {lr.text[:200]}")
+    rows = lr.json() or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Lesson not found.")
+    student = rows[0].get("students") or {}
+    if student.get("auth_user_id") != sb_user["auth_user_id"]:
+        raise HTTPException(status_code=403, detail="This lesson does not belong to you.")
+
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        pr = await client_http.patch(
+            f"{_sb_rest_base}/lesson_reminder_log",
+            params={"lesson_id": f"eq.{lesson_id}", "kind": f"eq.{req.kind}"},
+            headers=_sb_headers(),
+            # Never downgrade — read is the final state in the
+            # sent -> delivered -> read progression, so a tap always sets
+            # it regardless of whatever the current status happens to be.
+            json={"status": "read", "read_at": datetime.now(timezone.utc).isoformat()},
+        )
+    if pr.status_code >= 400:
+        raise HTTPException(status_code=502, detail=f"Failed to update reminder status: {pr.text[:200]}")
+    return {"ok": True}
+
+
+# =============================================================================
 # Full school backup — Google Drive (2 Sept 2026), per Grant's three direct
 # choices: full business scope (all students, lessons, payments — the whole
 # school, not just one instructor's own data like the existing GDPR export

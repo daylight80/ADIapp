@@ -17,6 +17,7 @@ import {
   getPendingDeletionRequestForStudent, type GdprDeletionRequest, getMySchoolProfile,
   listLessonNotesForStudent, listMyLessonNoteQuestions, type InstructorLessonNote, type LessonNoteQuestion,
   listMySyllabuses, applySyllabusToStudent, type InstructorSyllabus,
+  getLatestReminderStatus, type LessonReminderStatus,
 } from '../src/supabaseDb';
 import { isPaidTier } from '../src/tiers';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
@@ -152,6 +153,32 @@ export default function StudentProfileV2Screen() {
     () => (sbStudent ? (sbLessons || []) : (student ? mockDb.listLessonsForStudent(student.id) : [])),
     [sbStudent, sbLessons, student?.id],
   );
+
+  // Traffic-light reminder read-receipt (9 Sept 2026), per Grant directly,
+  // referencing a competitor app's student-profile screen (MyDrive Time)
+  // as the design reference. Scoped to lesson reminders only, per Grant's
+  // direct answer — shown for the student's next upcoming lesson, since
+  // that's the one whose reminder is actually current/relevant right now.
+  const nextLesson = useMemo(() => {
+    const now = new Date();
+    const upcoming = lessons.filter((l) => {
+      if (l.status === 'Cancelled') return false;
+      const [h, m] = (l.start_time || '00:00').split(':').map(Number);
+      const dt = new Date(l.date);
+      dt.setHours(h, m, 0, 0);
+      return dt.getTime() >= now.getTime();
+    });
+    upcoming.sort((a, b) => `${a.date}${a.start_time}`.localeCompare(`${b.date}${b.start_time}`));
+    return upcoming[0];
+  }, [lessons]);
+
+  const [reminderStatus, setReminderStatus] = useState<LessonReminderStatus | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!nextLesson) { setReminderStatus(null); return; }
+    getLatestReminderStatus(nextLesson.id).then((r) => { if (!cancelled) setReminderStatus(r); });
+    return () => { cancelled = true; };
+  }, [nextLesson?.id]);
 
   const { competencies: sbCompetencies } = useCompetencies(sbStudent ? student?.id : undefined);
   const competencies = useMemo(
@@ -493,6 +520,26 @@ export default function StudentProfileV2Screen() {
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 14, paddingBottom: 60 }}>
           {tab === 'overview' && (
             <>
+              {nextLesson && reminderStatus && (
+                <View style={s.reminderCard} testID="v2-reminder-status">
+                  <View
+                    style={[
+                      s.reminderDot,
+                      { backgroundColor: reminderStatus.status === 'read' ? '#10B981' : reminderStatus.status === 'delivered' ? '#F59E0B' : '#EF4444' },
+                    ]}
+                  />
+                  <Text style={s.reminderText}>
+                    {reminderStatus.status === 'read' && 'Reminder read'}
+                    {reminderStatus.status === 'delivered' && 'Reminder delivered — not yet read'}
+                    {reminderStatus.status === 'sent' && 'Reminder sent — not yet delivered'}
+                    {reminderStatus.status === 'failed' && 'Reminder failed to send'}
+                    {' for '}
+                    {new Date(`${nextLesson.date}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}
+                    {' at '}{nextLesson.start_time}
+                  </Text>
+                </View>
+              )}
+
               <View style={s.readyCard}>
                 <View style={s.readyInner}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -977,6 +1024,13 @@ const s = StyleSheet.create({
   tabText: { fontFamily: 'Barlow_700Bold', fontSize: 12.5, color: C.textMuted },
   tabTextActive: { color: '#fff' },
 
+  reminderCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 9,
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+    borderRadius: 13, paddingVertical: 11, paddingHorizontal: 14, marginBottom: 10,
+  },
+  reminderDot: { width: 10, height: 10, borderRadius: 5 },
+  reminderText: { flex: 1, fontFamily: 'Barlow_600SemiBold', fontSize: 13, color: C.text },
   readyCard: { borderRadius: 22, backgroundColor: C.primary, padding: 6, shadowColor: '#003A6F', shadowOffset: { width: 0, height: 14 }, shadowOpacity: 0.35, shadowRadius: 28, elevation: 6 },
   readyInner: { borderWidth: 2, borderColor: 'rgba(255,255,255,.5)', borderRadius: 17, padding: 16 },
   readyLabel: { fontFamily: 'Archivo_800ExtraBold', fontSize: 12, letterSpacing: 2, textTransform: 'uppercase', color: '#FF9A4D' },

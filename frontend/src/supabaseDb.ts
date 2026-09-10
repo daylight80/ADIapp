@@ -2852,4 +2852,31 @@ export async function removeStandardsCheck(id: string): Promise<void> {
   if (error) throw error;
 }
 
+// Lesson reminder read-receipt status (9 Sept 2026) — per Grant directly,
+// referencing a competitor app's traffic-light system (MyDrive Time).
+// Scoped to lesson reminders, per Grant's direct answer.
+export type LessonReminderStatus = {
+  status: 'sent' | 'delivered' | 'read' | 'failed';
+  kind: 'h48' | 'h25' | 'h1';
+  sent_at: string;
+  delivered_at: string | null;
+  read_at: string | null;
+};
+
+/** Most recently sent reminder for a lesson (a lesson can have up to
+ * three — 48h/25h/1h — the newest one is the most relevant to show, since
+ * it reflects whatever the student's most recently seen or not seen). */
+export async function getLatestReminderStatus(lessonId: string): Promise<LessonReminderStatus | null> {
+  const { data, error } = await supabase
+    .from('lesson_reminder_log')
+    .select('status,kind,sent_at,delivered_at,read_at')
+    .eq('lesson_id', lessonId)
+    .order('sent_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return null; // table/columns may not exist yet on an older schema — fail soft, not fatal
+  return (data as LessonReminderStatus) || null;
+}
+
+
 

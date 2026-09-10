@@ -47,6 +47,19 @@ log = logging.getLogger("lesson_reminders")
 REMINDER_TICK_MIN = 5          # how often we poll for due reminders
 REMINDER_WINDOW_MIN = 5        # ± window around the target offset in minutes
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts"
+
+# How long to wait after sending before checking whether it was delivered.
+# Expo's own guidance is to wait at least 15 minutes before checking
+# receipts, since delivery to APNs/FCM isn't instant and checking too
+# early just wastes the call. We wait a little past that for headroom.
+RECEIPT_CHECK_TICK_MIN = 20
+RECEIPT_MIN_AGE_MIN = 15
+# Stop checking receipts for anything older than this — Expo discards
+# ticket receipts after roughly a day, and by then the "amber" state has
+# lost most of its usefulness anyway (the lesson itself is long past for
+# the 1h/25h kinds, and close to it for 48h).
+RECEIPT_MAX_AGE_HOURS = 24
 
 # Three target offsets (in minutes before lesson start) and their "kind" tags
 # stored in lesson_reminder_log to prevent duplicates. The title is the
@@ -151,15 +164,20 @@ async def _already_sent(lesson_id: str, kind: str) -> bool:
     return bool(r.json())
 
 
-async def _log_sent(lesson_id: str, kind: str, push_count: int) -> None:
+async def _log_sent(lesson_id: str, kind: str, push_count: int, receipt_ids: Optional[List[str]] = None) -> None:
     sb_url = _sb_url()
     if not sb_url:
         return
+    payload: Dict[str, Any] = {"lesson_id": lesson_id, "kind": kind, "push_count": push_count}
+    # receipt_ids/status are additive (migration: add_reminder_read_receipt_tracking) —
+    # only sent when present so this keeps working against an older schema too.
+    if receipt_ids:
+        payload["receipt_ids"] = receipt_ids
     async with httpx.AsyncClient(timeout=10.0) as client:
         await client.post(
             f"{sb_url}/rest/v1/lesson_reminder_log",
             headers={**_sb_headers(), "Prefer": "resolution=ignore-duplicates"},
-            json={"lesson_id": lesson_id, "kind": kind, "push_count": push_count},
+            json=payload,
         )
 
 
@@ -218,10 +236,18 @@ def _build_message(lesson: Dict[str, Any], kind: str, label: str) -> Dict[str, s
     return {"title": label, "body": body}
 
 
-async def _send_push(messages: List[Dict[str, Any]]) -> int:
-    """Fan out messages to the Expo Push API. Returns count actually accepted."""
+async def _send_push(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Fan out messages to the Expo Push API.
+
+    Returns {"accepted": int, "receipt_ids": [...]} — the ticket IDs are
+    what let a later, separate job check delivery receipts (see
+    check_reminder_receipts below). Expo returns one ticket per message,
+    in the same order the messages were sent, each either
+    {"status": "ok", "id": "<ticket-id>"} or {"status": "error", ...}
+    with no id — only "ok" tickets are worth polling later.
+    """
     if not messages:
-        return 0
+        return {"accepted": 0, "receipt_ids": []}
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.post(
@@ -229,15 +255,123 @@ async def _send_push(messages: List[Dict[str, Any]]) -> int:
                 json=messages,
                 headers={"Accept": "application/json", "Content-Type": "application/json"},
             )
-        # The Expo Push API returns a per-message status list, but for
-        # logging purposes here we just count what we sent.
         if r.status_code >= 400:
             log.warning("[reminders] expo push HTTP %s: %s", r.status_code, r.text[:200])
-            return 0
-        return len(messages)
+            return {"accepted": 0, "receipt_ids": []}
+        tickets = (r.json() or {}).get("data", [])
+        receipt_ids = [t["id"] for t in tickets if t.get("status") == "ok" and t.get("id")]
+        # "accepted" stays the message count for existing callers/metrics —
+        # a ticket with status != "ok" still means Expo accepted the HTTP
+        # request, just rejected that specific message (e.g. bad token).
+        return {"accepted": len(messages), "receipt_ids": receipt_ids}
     except Exception as e:  # pragma: no cover
         log.warning("[reminders] expo push error: %s", e)
-        return 0
+        return {"accepted": 0, "receipt_ids": []}
+
+
+async def check_reminder_receipts() -> Dict[str, Any]:
+    """Separate, delayed tick — polls Expo's receipt endpoint for reminders
+    sent recently enough that a receipt might exist, but not so recently
+    that Expo hasn't had time to try delivering it yet (see
+    RECEIPT_MIN_AGE_MIN). Advances status 'sent' -> 'delivered' or
+    'failed'; anything still pending on Expo's side is left as 'sent' and
+    re-checked on a later tick, up until RECEIPT_MAX_AGE_HOURS.
+
+    Amber ("delivered") reflects Expo's own receipt semantics, not a true
+    device-confirmed delivery — a receipt of "ok" only means APNs/FCM
+    accepted the notification, not that the device was on and received
+    it. That's an inherent platform limitation, not something this
+    function can improve on.
+    """
+    sb_url = _sb_url()
+    if not sb_url or not _sb_key():
+        return {"ok": False, "reason": "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing"}
+
+    now = datetime.now(timezone.utc)
+    oldest = (now - timedelta(hours=RECEIPT_MAX_AGE_HOURS)).isoformat()
+    newest = (now - timedelta(minutes=RECEIPT_MIN_AGE_MIN)).isoformat()
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(
+            f"{sb_url}/rest/v1/lesson_reminder_log",
+            headers=_sb_headers(),
+            params={
+                "status": "eq.sent",
+                "sent_at": [f"gte.{oldest}", f"lte.{newest}"],
+                "receipt_ids": "not.is.null",
+                "select": "id,receipt_ids",
+                "limit": "500",
+            },
+        )
+    if r.status_code >= 400:
+        # Table/columns may not exist yet (pre-migration). Nothing to do.
+        return {"ok": False, "reason": f"lesson_reminder_log read failed: {r.text[:200]}"}
+    rows = r.json()
+    if not rows:
+        return {"ok": True, "checked": 0, "delivered": 0, "failed": 0}
+
+    # Map every ticket id back to the log row(s) it belongs to, then ask
+    # Expo about all of them in one batched call.
+    id_to_rows: Dict[str, List[str]] = {}
+    for row in rows:
+        for rid in (row.get("receipt_ids") or []):
+            id_to_rows.setdefault(rid, []).append(row["id"])
+    all_ids = list(id_to_rows.keys())
+    if not all_ids:
+        return {"ok": True, "checked": 0, "delivered": 0, "failed": 0}
+
+    receipts: Dict[str, Any] = {}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                EXPO_RECEIPTS_URL,
+                json={"ids": all_ids},
+                headers={"Accept": "application/json", "Content-Type": "application/json"},
+            )
+        if resp.status_code < 400:
+            receipts = (resp.json() or {}).get("data", {})
+        else:
+            log.warning("[reminders] expo receipts HTTP %s: %s", resp.status_code, resp.text[:200])
+    except Exception as e:  # pragma: no cover
+        log.warning("[reminders] expo receipts error: %s", e)
+        return {"ok": False, "reason": str(e)}
+
+    # A log row can have multiple tickets (one per device token); "any ok"
+    # is enough to call it delivered, "all errored, none pending" is a
+    # failure, otherwise leave it for the next tick.
+    delivered_ids: List[str] = []
+    failed_ids: List[str] = []
+    for row in rows:
+        row_receipt_ids = row.get("receipt_ids") or []
+        statuses = [receipts[rid]["status"] for rid in row_receipt_ids if rid in receipts]
+        if not statuses:
+            continue  # none of this row's tickets have a receipt yet
+        if "ok" in statuses:
+            delivered_ids.append(row["id"])
+        elif all(s == "error" for s in statuses):
+            failed_ids.append(row["id"])
+        # else: mixed pending/error with no "ok" yet — wait for next tick
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        if delivered_ids:
+            await client.patch(
+                f"{sb_url}/rest/v1/lesson_reminder_log",
+                headers=_sb_headers(),
+                params={"id": f"in.({','.join(delivered_ids)})"},
+                json={"status": "delivered", "delivered_at": now.isoformat()},
+            )
+        if failed_ids:
+            await client.patch(
+                f"{sb_url}/rest/v1/lesson_reminder_log",
+                headers=_sb_headers(),
+                params={"id": f"in.({','.join(failed_ids)})"},
+                json={"status": "failed"},
+            )
+
+    result = {"ok": True, "checked": len(rows), "delivered": len(delivered_ids), "failed": len(failed_ids)}
+    if delivered_ids or failed_ids:
+        log.info("[reminders] receipt check: %s", result)
+    return result
 
 
 async def _process_kind(kind: str, minutes: int, label: str) -> Dict[str, int]:
@@ -277,9 +411,10 @@ async def _process_kind(kind: str, minutes: int, label: str) -> Dict[str, int]:
              "data": {"lessonId": lesson["id"], "kind": kind}}
             for t in tokens
         ]
-        accepted = await _send_push(messages)
+        result = await _send_push(messages)
+        accepted, receipt_ids = result["accepted"], result["receipt_ids"]
         if accepted > 0:
-            await _log_sent(lesson["id"], kind, accepted)
+            await _log_sent(lesson["id"], kind, accepted, receipt_ids)
             sent += 1
     return {
         "kind": kind,
@@ -334,10 +469,21 @@ def start_lesson_reminder_scheduler() -> None:
         coalesce=True,
         misfire_grace_time=300,
     )
+    _scheduler.add_job(
+        check_reminder_receipts,
+        "interval",
+        minutes=RECEIPT_CHECK_TICK_MIN,
+        next_run_time=datetime.now(timezone.utc) + timedelta(minutes=RECEIPT_MIN_AGE_MIN),
+        id="lesson_reminder_receipts_tick",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=300,
+    )
     _scheduler.start()
     log.info(
-        "[reminders] scheduler started — ticks every %s min (offsets: 48h, 25h, 1h, window ±%s min)",
-        REMINDER_TICK_MIN, REMINDER_WINDOW_MIN,
+        "[reminders] scheduler started — ticks every %s min (offsets: 48h, 25h, 1h, window ±%s min); "
+        "receipt checks every %s min (min age %s min)",
+        REMINDER_TICK_MIN, REMINDER_WINDOW_MIN, RECEIPT_CHECK_TICK_MIN, RECEIPT_MIN_AGE_MIN,
     )
 
 

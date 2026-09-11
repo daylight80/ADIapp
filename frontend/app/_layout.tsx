@@ -4,7 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider, useAuth } from '../src/AuthContext';
-import { isBiometricEnabled, authenticateWithBiometrics } from '../src/biometrics';
+import { isBiometricEnabled, authenticateWithBiometrics, isBiometricAvailable, setBiometricEnabled } from '../src/biometrics';
 import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { theme } from '../src/theme';
 import { useFonts, Archivo_800ExtraBold, Archivo_700Bold } from '@expo-google-fonts/archivo';
@@ -22,7 +22,7 @@ const PUBLIC_ROUTES = new Set<string>([
 ]);
 
 function AuthGate() {
-  const { user, loading, signOut } = useAuth();
+  const { user, loading, signOut, justRegistered, clearJustRegistered } = useAuth();
   const router = useRouter();
   const segments = useSegments();
   const params = useLocalSearchParams();
@@ -64,6 +64,38 @@ function AuthGate() {
     // (or once-per-sign-in) gate, not something to re-trigger constantly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
+
+  // Biometric SETUP prompt (10 Sept 2026), per Grant directly — a
+  // proactive nudge right after a brand-new sign-up/invite-acceptance,
+  // rather than leaving fingerprint unlock as a toggle a new user would
+  // have to go find themselves on the Profile screen later. Distinct from
+  // the biometricLocked gate above (that's the recurring unlock check for
+  // an already-opted-in user on every launch; this is a one-time offer
+  // shown exactly once, right after the account itself is created).
+  const [showBiometricSetupPrompt, setShowBiometricSetupPrompt] = useState(false);
+  const [enablingBiometric, setEnablingBiometric] = useState(false);
+
+  useEffect(() => {
+    if (!user || !justRegistered) return;
+    let cancelled = false;
+    (async () => {
+      const available = await isBiometricAvailable();
+      if (cancelled) return;
+      // Consume the flag immediately either way — hidden on an
+      // unsupported device, or shown exactly once on a supported one.
+      // Never re-check or re-show for this account again after this.
+      clearJustRegistered();
+      if (available) setShowBiometricSetupPrompt(true);
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, justRegistered]);
+
+  const handleEnableBiometric = async () => {
+    setEnablingBiometric(true);
+    await setBiometricEnabled(true);
+    setEnablingBiometric(false);
+    setShowBiometricSetupPrompt(false);
+  };
 
   useEffect(() => {
     if (loading) return;
@@ -127,6 +159,27 @@ function AuthGate() {
       </View>
     );
   }
+
+  if (showBiometricSetupPrompt) {
+    return (
+      <View style={styles.loading} testID="biometric-setup-prompt">
+        <Text style={styles.lockTitle}>Use fingerprint to sign in?</Text>
+        <Text style={styles.lockSub}>Skip re-entering your password each time you open the app.</Text>
+        {enablingBiometric ? (
+          <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginTop: 24 }} />
+        ) : (
+          <>
+            <TouchableOpacity onPress={handleEnableBiometric} testID="btn-enable-biometric-prompt" style={styles.promptEnableBtn}>
+              <Text style={styles.promptEnableBtnText}>Enable</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowBiometricSetupPrompt(false)} testID="btn-skip-biometric-prompt" style={styles.lockFallbackBtn}>
+              <Text style={styles.lockFallbackText}>Not now</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
+    );
+  }
   return null;
 }
 
@@ -184,4 +237,6 @@ const styles = StyleSheet.create({
   lockSub: { fontSize: 14, color: theme.colors.textMuted, marginTop: 6 },
   lockFallbackBtn: { marginTop: 28, paddingVertical: 10, paddingHorizontal: 18 },
   lockFallbackText: { fontSize: 14, fontWeight: '600', color: theme.colors.primary },
+  promptEnableBtn: { marginTop: 24, paddingVertical: 12, paddingHorizontal: 32, borderRadius: 12, backgroundColor: theme.colors.primary },
+  promptEnableBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
 });

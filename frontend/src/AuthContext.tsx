@@ -34,6 +34,14 @@ type AuthContextType = {
   forgotPassword: (email: string) => Promise<SignUpResult>;
   updatePassword: (newPassword: string) => Promise<SignUpResult>;
   refreshUser: () => Promise<void>;
+  // Biometric-setup prompt (10 Sept 2026), per Grant directly — true only
+  // for the one app session right after a brand-new signUp()/acceptInvite()
+  // succeeds with a session, never for an ordinary signIn() of an existing
+  // account or a session restored on launch. _layout.tsx reads this once
+  // to decide whether to show the "set up fingerprint unlock?" prompt, then
+  // clears it immediately so it can never fire again for that account.
+  justRegistered: boolean;
+  clearJustRegistered: () => void;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -193,6 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [justRegistered, setJustRegistered] = useState(false);
 
   // Restore session on mount + subscribe to auth state changes
   useEffect(() => {
@@ -292,6 +301,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (e: any) {
       return { ok: false, error: e?.message || 'Profile setup failed' };
     }
+    setJustRegistered(true);
     return { ok: true };
   }, []);
 
@@ -321,6 +331,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       if (error) return { ok: false, error: error.message };
       if (!data.session) return { ok: true, needs_confirmation: true, error: 'Please confirm your email to finish signing up.' };
+      setJustRegistered(true);
       return { ok: true };
     } catch (e: any) {
       return { ok: false, error: e?.message || 'Invite acceptance failed' };
@@ -331,6 +342,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
+    setJustRegistered(false);
   }, []);
 
   // Sends Supabase Auth's "Reset Password" email. The redirectTo URL is where
@@ -376,7 +388,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut, refreshUser, acceptInvite, forgotPassword, updatePassword }}>
+    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut, refreshUser, acceptInvite, forgotPassword, updatePassword, justRegistered, clearJustRegistered: () => setJustRegistered(false) }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,7 +1,6 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import time
 import logging
@@ -9,9 +8,6 @@ from pathlib import Path
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, Literal, List
 from datetime import datetime, timedelta, timezone
-from passlib.context import CryptContext
-from jose import JWTError, jwt
-import uuid
 import stripe
 from lesson_reminders import start_lesson_reminder_scheduler, stop_lesson_reminder_scheduler
 
@@ -32,10 +28,6 @@ CORS_ORIGINS = [o.strip() for o in _cors_env.split(",") if o.strip()]
 if not CORS_ORIGINS:
     CORS_ORIGINS = ["http://localhost:3000", "http://localhost:8081"] if IS_DEV else []
 
-MONGO_URL = os.environ["MONGO_URL"]
-DB_NAME = os.environ["DB_NAME"]
-JWT_SECRET = os.environ["JWT_SECRET"]
-JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
 STRIPE_API_KEY = os.environ.get("STRIPE_API_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 APP_DOMAIN = os.environ.get("APP_DOMAIN", "http://localhost:3000")
@@ -89,11 +81,6 @@ def tier_to_line_items(tier: str, seat_count: int = 1):
 
 stripe.api_key = STRIPE_API_KEY
 
-client = AsyncIOMotorClient(MONGO_URL)
-db = client[DB_NAME]
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 app = FastAPI(title="UK Driving Instructor & Student Portal API")
 api_router = APIRouter(prefix="/api")
 
@@ -113,32 +100,16 @@ class CheckoutSessionResponse(BaseModel):
 
 
 # ============= UTILS =============
-# Accepts EITHER a legacy Mongo-issued JWT OR a Supabase Auth bearer token.
-# The legacy branch is a fast, harmless no-op today (nothing issues those
-# tokens anymore — /auth/login and /auth/register were removed along with
-# the rest of the legacy auth system), falling straight through to the
-# real Supabase verification. Left exactly as-is rather than simplified,
-# since it's genuinely load-bearing (powers /maps/travel-time) and there's
-# no value in touching working code during this cleanup.
+# Verifies a Supabase Auth bearer token. Used to be "accepts EITHER a
+# legacy Mongo-issued JWT OR a Supabase Auth bearer token" — the legacy
+# branch was removed entirely (10 Sept 2026), per Grant directly, once
+# confirmed genuinely dead: nothing has issued those tokens since
+# /auth/login and /auth/register were removed along with the rest of the
+# legacy auth system, so it was always falling straight through to this
+# same Supabase verification anyway. Removing it also let the MongoDB
+# connection itself be removed (see below) — it was the only thing still
+# using it in production.
 async def get_current_user_any(authorization: Optional[str] = Header(None)) -> dict:
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Missing authorization header")
-    # Try legacy Mongo JWT first (fast — pure JWT decode, no network).
-    try:
-        scheme, token = authorization.split()
-        if scheme.lower() == "bearer":
-            try:
-                payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-                user_id = payload.get("sub")
-                if user_id:
-                    user = await db.users.find_one({"id": user_id}, {"_id": 0, "password": 0})
-                    if user:
-                        return {"source": "legacy", **user}
-            except JWTError:
-                pass
-    except ValueError:
-        pass
-    # Fall back to Supabase Auth token verification (network round-trip).
     try:
         sb_user = await get_current_supabase_user(authorization)
         return {"source": "supabase", **sb_user}
@@ -257,70 +228,18 @@ async def travel_time(req: TravelTimeRequest, current_user: dict = Depends(get_c
 
 
 # ============= STARTUP =============
-async def seed_demo_users():
-    instructor = await db.users.find_one({"email": "instructor@demo.uk"})
-    if not instructor:
-        await db.users.insert_one({
-            "id": str(uuid.uuid4()),
-            "email": "instructor@demo.uk",
-            "name": "Alex Thompson",
-            "role": "instructor",
-            "adi_number": "123456",
-            "invited_by_adi": None,
-            "password": hash_password("password123"),
-            "subscription_status": "free",
-            "stripe_customer_id": None,
-            "stripe_subscription_id": None,
-            "created_at": datetime.now(timezone.utc),
-        })
-        logger.info("Seeded demo instructor with ADI 123456")
-    else:
-        # Backfill ADI if missing
-        if not instructor.get("adi_number"):
-            await db.users.update_one({"id": instructor["id"]}, {"$set": {"adi_number": "123456"}})
-
-    student = await db.users.find_one({"email": "student@demo.uk"})
-    if not student:
-        await db.users.insert_one({
-            "id": str(uuid.uuid4()),
-            "email": "student@demo.uk",
-            "name": "Jamie Williams",
-            "role": "student",
-            "adi_number": None,
-            "invited_by_adi": "123456",
-            "password": hash_password("password123"),
-            "subscription_status": "free",
-            "stripe_customer_id": None,
-            "stripe_subscription_id": None,
-            "created_at": datetime.now(timezone.utc),
-        })
-        logger.info("Seeded demo student linked to ADI 123456")
-    else:
-        if not student.get("invited_by_adi"):
-            await db.users.update_one({"id": student["id"]}, {"$set": {"invited_by_adi": "123456"}})
-
-
+# seed_demo_users() and its MongoDB index setup were removed entirely
+# (10 Sept 2026), per Grant directly, after confirming they were genuinely
+# dead in production: seed_demo_users() only ever ran when IS_DEV was true
+# (never the case in production, where ENVIRONMENT defaults closed), and
+# it called a hash_password() that was never actually defined anywhere in
+# this file — meaning it would have crashed with a NameError the one time
+# it might have run. Confirmed via a full search of the whole backend that
+# nothing else touched the MongoDB users collection this maintained, so
+# removing it (and the MongoDB connection that only existed to serve it —
+# see below) doesn't change any real, reachable behaviour.
 @app.on_event("startup")
 async def startup_event():
-    await db.users.create_index("email", unique=True)
-    # Partial unique index: only index documents where adi_number is a string.
-    # Plain sparse=True doesn't help here because docs with adi_number:null are
-    # still indexed and collide on subsequent inserts.
-    existing_indexes = await db.users.index_information()
-    if "adi_number_1" in existing_indexes:
-        opts = existing_indexes["adi_number_1"]
-        if not opts.get("partialFilterExpression"):
-            await db.users.drop_index("adi_number_1")
-    await db.users.create_index(
-        "adi_number",
-        unique=True,
-        partialFilterExpression={"adi_number": {"$type": "string"}},
-        name="adi_number_1",
-    )
-    if IS_DEV:
-        await seed_demo_users()
-    else:
-        logger.info("ENVIRONMENT=%s — skipping demo account seeding", ENVIRONMENT)
     # Kick off the lesson-reminder scheduler — fires push notifications to
     # students 48 h, 25 h, and 1 h before each lesson.
     start_lesson_reminder_scheduler()
@@ -328,7 +247,6 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    client.close()
     stop_lesson_reminder_scheduler()
 
 

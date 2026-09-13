@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Alert, KeyboardAvoidingView, Platform, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, IdCard, Phone, Mail, MapPin, Car } from 'lucide-react-native';
+import { ArrowLeft, IdCard, Phone, Mail, MapPin, Car, Fingerprint } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
 import { getInstructorProfile, updateMyInstructorProfile } from '../src/supabaseDb';
+import { isBiometricAvailable, isBiometricEnabled, setBiometricEnabled } from '../src/biometrics';
 
 /**
  * "My Details" — a self-editable instructor profile (11 Sept 2026), per
@@ -39,6 +40,31 @@ export default function MyDetailsScreen() {
   const [carModel, setCarModel] = useState('');
   const [numberPlate, setNumberPlate] = useState('');
   const [carColour, setCarColour] = useState('');
+
+  // Biometric login toggle (11 Sept 2026), per Grant directly — added to
+  // this screen too, alongside the existing one on profile-screen.tsx.
+  // Deliberately the exact same isBiometricAvailable/isBiometricEnabled/
+  // setBiometricEnabled logic, not a second, parallel implementation —
+  // both toggles read and write the same underlying setting, so either
+  // one always reflects the other's changes correctly.
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricOn, setBiometricOn] = useState(false);
+  useEffect(() => {
+    (async () => {
+      const available = await isBiometricAvailable();
+      setBiometricAvailable(available);
+      if (available) setBiometricOn(await isBiometricEnabled());
+    })();
+  }, []);
+  const handleToggleBiometric = async (next: boolean) => {
+    setBiometricOn(next); // optimistic — this is a fast, local-only write
+    try {
+      await setBiometricEnabled(next);
+    } catch (e: any) {
+      setBiometricOn(!next); // revert on a genuine write failure
+      Alert.alert('Could not save', e?.message || 'Please try again.');
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -132,6 +158,17 @@ export default function MyDetailsScreen() {
                 <Field icon={<Car size={16} color={theme.colors.textMuted} />} label="Registration number" value={numberPlate} onChangeText={setNumberPlate} autoCapitalize="characters" testID="input-number-plate" />
                 <Field icon={<Car size={16} color={theme.colors.textMuted} />} label="Colour" value={carColour} onChangeText={setCarColour} testID="input-car-colour" />
               </Card>
+
+              {biometricAvailable && (
+                <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <Fingerprint size={20} color={theme.colors.primary} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cardTitle}>Use fingerprint to unlock</Text>
+                    <Text style={styles.fieldLabel}>Skip re-entering your password each time you open the app.</Text>
+                  </View>
+                  <Switch value={biometricOn} onValueChange={handleToggleBiometric} testID="switch-biometric-my-details" />
+                </Card>
+              )}
 
               <TouchableOpacity
                 style={[styles.saveBtn, saving && { opacity: 0.6 }]}

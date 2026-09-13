@@ -5,7 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider, useAuth } from '../src/AuthContext';
 import { isBiometricEnabled, authenticateWithBiometrics, isBiometricAvailable, setBiometricEnabled } from '../src/biometrics';
-import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, AppState } from 'react-native';
 import { theme } from '../src/theme';
 import { useFonts, Archivo_800ExtraBold, Archivo_700Bold } from '@expo-google-fonts/archivo';
 import { Barlow_400Regular, Barlow_500Medium, Barlow_600SemiBold, Barlow_700Bold } from '@expo-google-fonts/barlow';
@@ -39,30 +39,62 @@ function AuthGate() {
   // launch.
   const [biometricLocked, setBiometricLocked] = useState<boolean | null>(null);
 
+  // Extracted (11 Sept 2026) so the exact same check runs both on a fresh
+  // sign-in/cold launch (below) and whenever the app returns to the
+  // foreground (further below) — one shared implementation, not two
+  // copies that could quietly drift apart. Takes isStale() rather than a
+  // plain boolean so each await point re-checks live, matching this
+  // file's existing cancelled-flag convention for async effects — if the
+  // user changes or the component unmounts mid-check, this stops short of
+  // calling setBiometricLocked/signOut() on a state that's no longer
+  // current, exactly as the original single-effect version already did.
+  const runBiometricCheck = async (isStale: () => boolean) => {
+    const enabled = await isBiometricEnabled();
+    if (isStale()) return;
+    if (!enabled) { setBiometricLocked(false); return; }
+    setBiometricLocked(true);
+    const ok = await authenticateWithBiometrics();
+    if (isStale()) return;
+    if (ok) {
+      setBiometricLocked(false);
+    } else {
+      // Per Grant's direct choice — fall back to normal email/password
+      // login on failure or cancel, not a retry loop and not silently
+      // waving them through on the still-technically-valid session.
+      signOut();
+    }
+  };
+
   useEffect(() => {
     if (!user) { setBiometricLocked(null); return; }
     let cancelled = false;
-    (async () => {
-      const enabled = await isBiometricEnabled();
-      if (cancelled) return;
-      if (!enabled) { setBiometricLocked(false); return; }
-      setBiometricLocked(true);
-      const ok = await authenticateWithBiometrics();
-      if (cancelled) return;
-      if (ok) {
-        setBiometricLocked(false);
-      } else {
-        // Per Grant's direct choice — fall back to normal email/password
-        // login on failure or cancel, not a retry loop and not silently
-        // waving them through on the still-technically-valid session.
-        signOut();
-      }
-    })();
+    runBiometricCheck(() => cancelled);
     return () => { cancelled = true; };
     // Deliberately only re-runs when the signed-in user identity changes
     // (a fresh sign-in), not on every render — this is a once-per-launch
     // (or once-per-sign-in) gate, not something to re-trigger constantly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  // Re-lock whenever the app comes back from the background (11 Sept
+  // 2026), per Grant directly — "closing the app" in practice almost
+  // always means backgrounding it on mobile, not fully terminating the
+  // process, so gating only on user?.id above (which only fires on a
+  // genuinely fresh cold launch or sign-in) would miss the overwhelmingly
+  // common case: switch away, switch back a minute later, still fully
+  // unlocked. runBiometricCheck() itself re-checks isBiometricEnabled()
+  // fresh on every call — never forced for someone who hasn't enabled
+  // biometrics at all, since there'd be nothing for them to unlock with,
+  // which would just be an unconditional, disruptive forced-sign-out on
+  // every app switch rather than the "lock, don't sign out" Grant asked
+  // for.
+  useEffect(() => {
+    let cancelled = false;
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active' || !user || cancelled) return;
+      runBiometricCheck(() => cancelled);
+    });
+    return () => { cancelled = true; sub.remove(); };
   }, [user?.id]);
 
   // Biometric SETUP prompt (10 Sept 2026), per Grant directly — a

@@ -20,7 +20,8 @@ import {
   Phone,
 } from 'lucide-react-native';
 import { theme } from './theme';
-import { Lesson, Student, mockDb } from './mockDb';
+import { mockDb } from './mockDb';
+import { Lesson, Student } from './supabaseDb';
 import { patchLesson } from './useSupabaseData';
 import { useStudent, useVehicles } from './useSupabaseData';
 import { countUpcomingInSeries, cancelSeriesFromDate } from './useSupabaseData';
@@ -116,8 +117,15 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
     // non-null, so simply never fetching it on a non-paid tier is enough;
     // no separate UI-level check needed.
     if (!paid) return;
+    // Cast through unknown below (11 Sept 2026) — this whole block is the
+    // mock/demo-data fallback path (see the "Try Supabase first... mockDb"
+    // comment further down this file), so mockDb.getStudent/listLessons
+    // genuinely return the older mockDb shape. lessonAddress() itself only
+    // ever reads pickup_address/address/postcode, all present on both
+    // shapes — the missing fields (school_id, instructor_id, etc.) simply
+    // don't exist in the mock/demo world at all, not a real gap here.
     const student = mockDb.getStudent(lesson.student_id);
-    const dest = lessonAddress(lesson, student);
+    const dest = lessonAddress(lesson, student as unknown as Student | undefined);
     if (!dest) return;
     // Find previous lesson today as the origin; otherwise use student address as both (returns ~0; skip)
     const prior = mockDb
@@ -125,7 +133,9 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
       .filter((x) => x.date === lesson.date && x.end_time <= lesson.start_time && x.id !== lesson.id && x.status !== 'Cancelled')
       .sort((a, b) => a.end_time.localeCompare(b.end_time))
       .pop();
-    const origin = prior ? lessonAddress(prior, mockDb.getStudent(prior.student_id)) : null;
+    const origin = prior
+      ? lessonAddress(prior as unknown as Lesson, mockDb.getStudent(prior.student_id) as unknown as Student | undefined)
+      : null;
     if (!origin) return;
     let cancelled = false;
     getTravelTime(origin, dest, new Date(`${lesson.date}T${lesson.start_time}:00`)).then((t) => {

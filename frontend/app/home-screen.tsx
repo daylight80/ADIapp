@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '../src/AuthContext';
 import { BottomNav } from '../src/BottomNav';
 import { LessonToolsSheet } from '../src/LessonToolsSheet';
-import { Lesson } from '../src/mockDb';
+import { Lesson } from '../src/supabaseDb';
 import {
   useStudents, useTodayLessons, useInstructorEarnings,
   useInstructorTestOutcomes, useCompetencyPatterns,

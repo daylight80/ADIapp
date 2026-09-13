@@ -4,7 +4,7 @@ import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabaseClient';
 import { registerExpoPushToken, setUpReminderReadListener } from './notifications';
 
-export type Role = 'instructor' | 'student' | 'owner';
+export type Role = 'instructor' | 'student';
 
 export type User = {
   id: string;                         // Supabase auth.users.id

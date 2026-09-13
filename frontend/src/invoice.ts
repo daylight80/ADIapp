@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { Student, Lesson } from './mockDb';
+import { Student, Lesson } from './supabaseDb';
 
 function escape(s: string): string {
   return s
@@ -74,7 +74,7 @@ export function buildInvoiceHtml(opts: {
     <div class="muted">Driving Instructor Invoice</div>
     ${schoolAddress ? `<div class="muted">${escape(schoolAddress)}</div>` : ''}
     ${schoolContactEmail || schoolContactPhone
-      ? `<div class="muted">${[schoolContactEmail, schoolContactPhone].filter(Boolean).map(escape).join(' · ')}</div>`
+      ? `<div class="muted">${[schoolContactEmail, schoolContactPhone].filter((s): s is string => Boolean(s)).map(escape).join(' · ')}</div>`
       : ''}
   </div>
   <div style="text-align:right">

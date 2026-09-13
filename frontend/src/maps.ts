@@ -1,5 +1,5 @@
 import { api } from './api';
-import { Student, Lesson } from './mockDb';
+import { Student, Lesson } from './supabaseDb';
 
 export type TravelTime = {
   duration_minutes: number;

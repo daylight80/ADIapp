@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
-import { Lesson, Student } from './mockDb';
+import { Lesson, Student } from './supabaseDb';
 
 // On web preview, expo-notifications local scheduling falls back to a simple alert flow.
 // In production native builds these become real device notifications.

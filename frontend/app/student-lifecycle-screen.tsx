@@ -5,7 +5,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Lock, FileText, Download, X } from 'lucide-react-native';
 import { PaywallModal } from '../src/PaywallModal';
 import { useAuth } from '../src/AuthContext';
-import { mockDb } from '../src/mockDb';
 import { BottomSheet } from '../src/BottomSheet';
 import { TestOutcomeModal } from '../src/TestOutcomeModal';
 import { buildInvoiceHtml, generateAndShareInvoicePdf } from '../src/invoice';
@@ -146,13 +145,10 @@ export default function StudentProfileV2Screen() {
   const snackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { student: sbStudent, loading: studentLoading } = useStudent(id);
-  const student = sbStudent || mockDb.getStudent(id);
+  const student = sbStudent;
 
   const { lessons: sbLessons } = useLessonsForStudent(student?.id);
-  const lessons = useMemo(
-    () => (sbStudent ? (sbLessons || []) : (student ? mockDb.listLessonsForStudent(student.id) : [])),
-    [sbStudent, sbLessons, student?.id],
-  );
+  const lessons = useMemo(() => sbLessons || [], [sbLessons]);
 
   // Traffic-light reminder read-receipt (9 Sept 2026), per Grant directly,
   // referencing a competitor app's student-profile screen (MyDrive Time)
@@ -180,11 +176,8 @@ export default function StudentProfileV2Screen() {
     return () => { cancelled = true; };
   }, [nextLesson?.id]);
 
-  const { competencies: sbCompetencies } = useCompetencies(sbStudent ? student?.id : undefined);
-  const competencies = useMemo(
-    () => (sbStudent ? (sbCompetencies || []) : (student ? mockDb.getCompetencies(student.id) : [])),
-    [sbStudent, sbCompetencies, student?.id],
-  );
+  const { competencies: sbCompetencies } = useCompetencies(student?.id);
+  const competencies = useMemo(() => sbCompetencies || [], [sbCompetencies]);
 
   const { rows: testOutcomes } = useTestOutcomesForStudent(student?.id);
   const { attempts: mockAttempts } = useMockTestAttempts(student?.id);
@@ -568,8 +561,8 @@ export default function StudentProfileV2Screen() {
               </View>
 
               <View style={{ flexDirection: 'row', gap: 7, marginTop: 12 }}>
-                {!!student.pickup_address && (
-                  <OpenInMapsButton address={student.pickup_address} variant="pill" label="Directions" testID="v2-directions" />
+                {!!student.address && (
+                  <OpenInMapsButton address={student.address} variant="pill" label="Directions" testID="v2-directions" />
                 )}
                 <TouchableOpacity
                   style={s.qaBtn}
@@ -598,7 +591,7 @@ export default function StudentProfileV2Screen() {
                 {[
                   { k: 'Email', v: student.email || '—' },
                   { k: 'Phone', v: student.phone || '—' },
-                  { k: 'Pickup', v: student.pickup_address || '—' },
+                  { k: 'Pickup', v: student.address || '—' },
                   { k: 'Rate', v: student.hourly_rate ? `£${student.hourly_rate}/hr` : '—' },
                 ].map((d) => (
                   <View key={d.k} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>

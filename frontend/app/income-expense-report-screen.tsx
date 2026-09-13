@@ -325,7 +325,7 @@ export default function IncomeExpenseReportScreen() {
         )}
       </ScrollView>
 
-      <BottomNav />
+      <BottomNav role="instructor" />
     </SafeAreaView>
   );
 }

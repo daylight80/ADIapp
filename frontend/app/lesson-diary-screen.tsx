@@ -6,7 +6,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-reac
 import { useLessonsForWeek, useLessonsForMonth, useStudents, patchLesson } from '../src/useSupabaseData';
 import { BottomNav } from '../src/BottomNav';
 import { LessonToolsSheet } from '../src/LessonToolsSheet';
-import { Lesson } from '../src/mockDb';
+import { Lesson } from '../src/supabaseDb';
 import { startOfWeek, addDays, localDateKey, startOfMonthGrid, endOfMonthGrid, addMonths, isSameMonth, assignOverlapColumns, findClashingLessons, snapMinutes, minutesToTime } from '../src/diary/dateUtils';
 import { colorForLessonType, LESSON_TYPES } from '../src/diary/lessonTypes';
 import { AddLessonSheet } from '../src/diary/AddLessonSheet';

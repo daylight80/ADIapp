@@ -63,7 +63,12 @@ async function loadQueue(): Promise<PendingWrite[]> {
   } catch {
     cachedQueue = [];
   }
-  return cachedQueue;
+  // cachedQueue is set to a real array on every path above, but it's a
+  // module-level mutable variable, so TypeScript can't narrow its type
+  // through the assignment at this return statement the way it could for
+  // a local const — the `|| []` is a safe, never-actually-needed fallback
+  // for the type checker, not a sign the assignment above can fail.
+  return cachedQueue || [];
 }
 
 async function saveQueue(queue: PendingWrite[]) {

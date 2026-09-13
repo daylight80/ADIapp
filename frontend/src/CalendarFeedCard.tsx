@@ -144,7 +144,7 @@ export function CalendarFeedCard() {
               {url}
             </Text>
             <TouchableOpacity
-              style={[styles.iconBtn, copiedAt && styles.iconBtnSuccess]}
+              style={[styles.iconBtn, !!copiedAt && styles.iconBtnSuccess]}
               onPress={onCopy}
               testID="btn-copy-feed"
               accessibilityLabel="Copy feed URL"

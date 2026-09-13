@@ -195,6 +195,14 @@ export type InstructorProfile = {
   mobile_number: string | null;
   address: string | null;
   email: string | null;
+  // Added 11 Sept 2026 for the self-editable "My Details" screen —
+  // car_make/car_model/number_plate already existed (captured once at
+  // invite time via inviteInstructor()), just never surfaced through
+  // this function before; car_colour is the one genuinely new column.
+  car_make: string | null;
+  car_model: string | null;
+  number_plate: string | null;
+  car_colour: string | null;
 };
 
 // Returns the currently signed-in instructor's profile row. Gracefully
@@ -209,9 +217,19 @@ export async function getInstructorProfile(): Promise<InstructorProfile | null> 
   // migrations haven't been applied yet.
   let { data, error } = await supabase
     .from('instructors')
-    .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app, tc_signed_at, tc_signature_name, mobile_number, address, email')
+    .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app, tc_signed_at, tc_signature_name, mobile_number, address, email, car_make, car_model, number_plate, car_colour')
     .eq('auth_user_id', uid)
     .maybeSingle();
+  if (error && /car_colour/i.test(error.message || '')) {
+    const fallback = await supabase
+      .from('instructors')
+      .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app, tc_signed_at, tc_signature_name, mobile_number, address, email, car_make, car_model, number_plate')
+      .eq('auth_user_id', uid)
+      .maybeSingle();
+    if (fallback.error) throw fallback.error;
+    data = { ...fallback.data, car_colour: null } as any;
+    error = null;
+  }
   if (error && /mobile_number|address|email/i.test(error.message || '')) {
     const fallback = await supabase
       .from('instructors')
@@ -254,7 +272,7 @@ export async function getInstructorProfile(): Promise<InstructorProfile | null> 
   if (!data && user?.email) {
     const { data: byEmail, error: emailErr } = await supabase
       .from('instructors')
-      .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app, tc_signed_at, tc_signature_name, mobile_number, address, email')
+      .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app, tc_signed_at, tc_signature_name, mobile_number, address, email, car_make, car_model, number_plate, car_colour')
       .eq('email', user.email.toLowerCase())
       .is('auth_user_id', null)
       .maybeSingle();
@@ -277,7 +295,48 @@ export async function getInstructorProfile(): Promise<InstructorProfile | null> 
     mobile_number: (data as any).mobile_number ?? null,
     address: (data as any).address ?? null,
     email: (data as any).email ?? null,
+    car_make: (data as any).car_make ?? null,
+    car_model: (data as any).car_model ?? null,
+    number_plate: (data as any).number_plate ?? null,
+    car_colour: (data as any).car_colour ?? null,
   };
+}
+
+// Self-service update for the signed-in instructor's own profile fields
+// (11 Sept 2026), per Grant directly — scoped to solo tiers
+// (Starter/Growth/Pro), where the instructor is always their own school
+// owner, so the existing ins_owner_all RLS policy already covers this
+// with no policy change needed. A non-owner Franchise instructor calling
+// this would simply have the update rejected by that same RLS — this
+// function doesn't check tier/ownership itself, since the database is
+// the actual security boundary here, same convention as isOwner checks
+// elsewhere in this app being UX-only gates, not the real enforcement.
+export type MyInstructorProfileUpdate = {
+  full_name?: string;
+  adi_number?: string;
+  mobile_number?: string | null;
+  address?: string | null;
+  car_make?: string | null;
+  car_model?: string | null;
+  number_plate?: string | null;
+  car_colour?: string | null;
+};
+
+export async function updateMyInstructorProfile(input: MyInstructorProfileUpdate): Promise<void> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const uid = sessionData.session?.user?.id;
+  if (!uid) throw new Error('Not signed in');
+  const payload: Record<string, any> = {};
+  if (input.full_name !== undefined) payload.full_name = input.full_name.trim();
+  if (input.adi_number !== undefined) payload.adi_number = input.adi_number.trim();
+  if (input.mobile_number !== undefined) payload.mobile_number = input.mobile_number?.trim() || null;
+  if (input.address !== undefined) payload.address = input.address?.trim() || null;
+  if (input.car_make !== undefined) payload.car_make = input.car_make?.trim() || null;
+  if (input.car_model !== undefined) payload.car_model = input.car_model?.trim() || null;
+  if (input.number_plate !== undefined) payload.number_plate = input.number_plate?.trim().toUpperCase() || null;
+  if (input.car_colour !== undefined) payload.car_colour = input.car_colour?.trim() || null;
+  const { error } = await supabase.from('instructors').update(payload).eq('auth_user_id', uid);
+  if (error) throw error;
 }
 
 // ---------------------------------------------------------------------------

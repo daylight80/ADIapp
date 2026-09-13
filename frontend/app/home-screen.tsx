@@ -12,7 +12,7 @@ import {
 } from '../src/useSupabaseData';
 import { computeTestKpis } from '../src/supabaseDb';
 import { colorForLessonType } from '../src/diary/lessonTypes';
-import { isPaidTier, tierById, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
+import { isPaidTier, isFranchiseTier, tierById, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { MessageButton } from '../src/MessageButton';
 import { ContactsImportBanner } from '../src/ContactsImportBanner';
@@ -142,12 +142,26 @@ export default function InstructorHomeV2Screen() {
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 110 }}>
           {/* Header */}
           <View style={s.header}>
-            <View style={{ flex: 1 }}>
+            <TouchableOpacity
+              style={{ flex: 1 }}
+              activeOpacity={isFranchiseTier(user?.tier) ? 1 : 0.7}
+              onPress={() => { if (!isFranchiseTier(user?.tier)) router.push('/my-details-screen'); }}
+              testID="v2-home-my-details-link"
+            >
               <Text style={s.eyebrow}>
                 {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
               </Text>
-              <Text style={s.greeting} numberOfLines={1}>{user?.name || 'Instructor'}</Text>
-            </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={s.greeting} numberOfLines={1}>{user?.name || 'Instructor'}</Text>
+                {/* "My Details" affordance (11 Sept 2026), per Grant directly
+                    — solo tiers only (Starter/Growth/Pro). A solo instructor
+                    is always their own school owner, so this is genuinely
+                    self-service. Per Grant's explicit instruction, Franchise
+                    stays exactly as it is — no chevron, no tap action, same
+                    header as before this change. */}
+                {!isFranchiseTier(user?.tier) && <ChevronRight size={16} color={C.textMuted} />}
+              </View>
+            </TouchableOpacity>
             <View style={s.tierPill}>
               <View style={{ width: 7, height: 7, borderRadius: 999, backgroundColor: C.accent }} />
               <Text style={s.tierPillText}>{tier?.name || 'Starter'}</Text>

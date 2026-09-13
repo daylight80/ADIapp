@@ -44,6 +44,14 @@ export const TIERS: TierSpec[] = [
       'KPI dashboard & PDF invoices',
       'Pro features: lesson reminders, push notifications',
       'Traffic-aware travel time auto-suggest',
+      // Added 11 Sept 2026, per Grant directly — these two were already
+      // genuinely gated at Growth+ throughout the app (receipts-screen.tsx,
+      // route-recorder-screen.tsx, LessonToolsSheet.tsx), found during a
+      // fresh cross-check of every isPaidTier()/isProTier()/
+      // isFranchiseTier() call site in the codebase against this file's
+      // own copy — just never reflected in this list itself until now.
+      'Receipts & expense logging with photo OCR',
+      'Route recording for lessons',
     ],
   },
   {

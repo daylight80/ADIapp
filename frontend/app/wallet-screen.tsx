@@ -91,6 +91,15 @@ export default function WalletScreen() {
   }, []);
 
   const buy = async (hours: number, amount: number) => {
+    if (!studentId) {
+      // Genuinely reachable if a real student link is somehow still
+      // missing (see noRealLinkFound above) — not just a type-checker
+      // technicality. Caught during a full project-wide tsc sweep after
+      // removing this screen's old mockFallbackId, which had silently
+      // been absorbing this same missing-value case before.
+      Alert.alert('No student found', 'This wallet isn\u2019t linked to a real student yet.');
+      return;
+    }
     if (!paymentMethod) {
       Alert.alert('Choose a payment method', 'Pick Bank Transfer, Card, or Cash to record this purchase.');
       return;

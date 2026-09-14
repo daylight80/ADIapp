@@ -6,6 +6,7 @@ import { ArrowLeft, IdCard, Phone, Mail, MapPin, Car, Fingerprint } from 'lucide
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
 import { getInstructorProfile, updateMyInstructorProfile } from '../src/supabaseDb';
+import { bump } from '../src/useSupabaseData';
 import { isBiometricAvailable, isBiometricEnabled, setBiometricEnabled } from '../src/biometrics';
 
 /**
@@ -100,6 +101,13 @@ export default function MyDetailsScreen() {
         number_plate: numberPlate,
         car_colour: carColour,
       });
+      // updateMyInstructorProfile() here is the raw supabaseDb write, not
+      // a useSupabaseData wrapper, so it never calls bump() itself — every
+      // screen reading this profile via useInstructorProfile() (e.g. the
+      // lesson detail sheet's vehicle badge) would otherwise keep showing
+      // stale data until an unrelated mutation elsewhere happened to bump
+      // the shared version, or the app restarted.
+      bump();
       Alert.alert('Saved', 'Your details have been updated.');
       router.back();
     } catch (e: any) {

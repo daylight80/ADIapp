@@ -23,7 +23,7 @@ import { theme } from './theme';
 import { mockDb } from './mockDb';
 import { Lesson, Student } from './supabaseDb';
 import { patchLesson } from './useSupabaseData';
-import { useStudent, useVehicles } from './useSupabaseData';
+import { useStudent, useVehicles, useInstructorProfile } from './useSupabaseData';
 import { countUpcomingInSeries, cancelSeriesFromDate } from './useSupabaseData';
 import { useAuth } from './AuthContext';
 import { isPaidTier } from './tiers';
@@ -226,6 +226,15 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   // Vehicle + payment status display (10 Sept 2026), per Grant directly,
   // referencing a competitor app (MyDrive Time)'s quick-view screen.
   const { vehicles } = useVehicles();
+  // Solo tiers never use the school-wide vehicles fleet feature, so
+  // lesson.vehicle_id there only ever points at ensureDefaultVehicle()'s
+  // auto-fabricated placeholder row (random plate, "Vauxhall Corsa") —
+  // never the instructor's real car. Pull from the instructor's own
+  // profile instead (14 Sept 2026, per Grant directly), same car_make/
+  // model/number_plate columns My Details reads and edits. Franchise
+  // keeps the existing fleet vehicle_id lookup unchanged, per Grant's
+  // standing instruction that Franchise vehicle handling stays as-is.
+  const { profile: myProfile } = useInstructorProfile();
 
   if (!lesson) return null;
 
@@ -484,18 +493,22 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
                 <PoundSterling size={13} color="#fff" />
               </View>
               {/* Vehicle — car icon + registration (10 Sept 2026), per
-                  Grant directly. Looked up from the lesson's own
-                  vehicle_id against the instructor's vehicle list, rather
-                  than assuming a single default vehicle — matters once a
-                  Franchise account has more than one. Falls back to a
-                  muted "No vehicle assigned" badge (14 Sept 2026, per
-                  Grant directly) rather than rendering nothing, so a
+                  Grant directly. Solo tiers show the instructor's own
+                  profile vehicle (14 Sept 2026, per Grant directly) — see
+                  the note by useInstructorProfile above for why. Franchise
+                  still looks the lesson's own vehicle_id up against the
+                  instructor's fleet vehicle list, rather than assuming a
+                  single default vehicle — matters once a Franchise account
+                  has more than one. Falls back to a muted "No vehicle
+                  assigned" badge rather than rendering nothing, so a
                   lesson with no vehicle linked doesn't look like the
                   lookup itself failed. */}
               {(() => {
-                const vehicle = vehicles.find((v) => v.id === lesson.vehicle_id);
-                return vehicle
-                  ? <Badge label={vehicle.registration_plate} bg={theme.colors.lockedBg} color={theme.colors.text} />
+                const plate = user?.tier === 'franchise'
+                  ? vehicles.find((v) => v.id === lesson.vehicle_id)?.registration_plate
+                  : myProfile?.number_plate;
+                return plate
+                  ? <Badge label={plate} bg={theme.colors.lockedBg} color={theme.colors.text} />
                   : <Badge label="No vehicle assigned" bg={theme.colors.lockedBg} color={theme.colors.textMuted} />;
               })()}
             </View>

@@ -237,7 +237,13 @@ export default function LessonDiaryV2Screen() {
     if (!confirmed) return false;
 
     try {
-      await patchLesson(l.id, { start_time: newStartTime, end_time: newEndTime });
+      // date must be included alongside start_time/end_time — updateLesson
+      // only builds the combined start_time/end_time timestamps when a
+      // date is present in the patch (it needs it to construct the ISO
+      // value via combineToISO), so omitting it here silently wrote an
+      // empty patch and the drag appeared to move the lesson on screen
+      // while the saved time never actually changed.
+      await patchLesson(l.id, { date: l.date, start_time: newStartTime, end_time: newEndTime });
       return true;
     } catch (e: any) {
       Alert.alert('Could not reschedule', e?.message || 'Please try again.');

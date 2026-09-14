@@ -119,6 +119,20 @@ export default function LessonDiaryV2Screen() {
 
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
   const { lessons } = useLessonsForWeek(weekStart);
+
+  // Keep the open detail sheet's lesson in sync with the underlying data.
+  // detailLesson is a snapshot captured at tap-time (setDetailLesson(l));
+  // without this, saving a change inside the sheet (e.g. "Complete
+  // lesson", which patches status to 'Completed' and the diary's own
+  // `lessons` list refreshes correctly) left the still-open sheet
+  // rendering the stale pre-save object — still showing "Scheduled" and
+  // the Complete/Cancel actions, even though the save itself succeeded.
+  useEffect(() => {
+    if (!detailLesson) return;
+    const fresh = lessons.find((l) => l.id === detailLesson.id);
+    if (fresh && fresh !== detailLesson) setDetailLesson(fresh);
+  }, [lessons, detailLesson]);
+
   const monthGridStart = useMemo(() => startOfMonthGrid(selectedDate), [selectedDate]);
   const monthGridEnd = useMemo(() => endOfMonthGrid(selectedDate), [selectedDate]);
   const { lessons: monthLessons } = useLessonsForMonth(monthGridStart, monthGridEnd);

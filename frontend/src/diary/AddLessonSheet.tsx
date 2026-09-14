@@ -43,6 +43,14 @@ type Props = {
   pro: boolean;
   /** Called after at least one lesson is created. */
   onCreated: (info: AddLessonCreatedInfo) => void;
+  /**
+   * YYYY-MM-DD of the diary day the sheet was opened from (e.g. via the
+   * day's "+ Book" gap slot or a specific day's FAB). Pre-fills the Date
+   * field so instructors don't have to re-enter a date they already
+   * navigated to — previously always left blank regardless of which day
+   * was showing, so the picker defaulted to the device's actual today.
+   */
+  initialDate?: string;
 };
 
 /**
@@ -59,7 +67,7 @@ type Props = {
  * save, so it can scroll the diary to the new lesson's start time and jump
  * the visible date if the user picked a different day.
  */
-export function AddLessonSheet({ visible, onClose, students, lessons, availBlocks, pro, onCreated }: Props) {
+export function AddLessonSheet({ visible, onClose, students, lessons, availBlocks, pro, onCreated, initialDate }: Props) {
   const [studentId, setStudentId] = useState('');
   const [date, setDate] = useState('');
   const [startTime, setStartTime] = useState('09:00');
@@ -144,6 +152,15 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     if (hours <= 0) return;
     setRate((s.hourly_rate * hours).toFixed(2));
   }, [visible, studentId, startTime, endTime]);
+
+  // Pre-fill the Date field with whichever day the sheet was opened from.
+  // Runs on the visible:false->true transition (not on every initialDate
+  // change) so an instructor who deliberately edits the date mid-session
+  // never has it silently overwritten under them.
+  useEffect(() => {
+    if (visible && initialDate) setDate(initialDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   // Reset form on close so re-opens start fresh.
   useEffect(() => {

@@ -594,6 +594,7 @@ export default function LessonDiaryV2Screen() {
         lessons={lessons}
         availBlocks={[]}
         pro={paid}
+        initialDate={localDateKey(selectedDate)}
         onCreated={() => { setAddOpen(false); setSelectedDate(new Date(selectedDate)); }}
       />
 

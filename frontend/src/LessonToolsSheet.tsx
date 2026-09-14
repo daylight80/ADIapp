@@ -487,10 +487,16 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
                   Grant directly. Looked up from the lesson's own
                   vehicle_id against the instructor's vehicle list, rather
                   than assuming a single default vehicle — matters once a
-                  Franchise account has more than one. */}
+                  Franchise account has more than one. Falls back to a
+                  muted "No vehicle assigned" badge (14 Sept 2026, per
+                  Grant directly) rather than rendering nothing, so a
+                  lesson with no vehicle linked doesn't look like the
+                  lookup itself failed. */}
               {(() => {
                 const vehicle = vehicles.find((v) => v.id === lesson.vehicle_id);
-                return vehicle ? <Badge label={vehicle.registration_plate} bg={theme.colors.lockedBg} color={theme.colors.text} /> : null;
+                return vehicle
+                  ? <Badge label={vehicle.registration_plate} bg={theme.colors.lockedBg} color={theme.colors.text} />
+                  : <Badge label="No vehicle assigned" bg={theme.colors.lockedBg} color={theme.colors.textMuted} />;
               })()}
             </View>
 

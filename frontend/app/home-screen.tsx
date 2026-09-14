@@ -162,10 +162,15 @@ export default function InstructorHomeV2Screen() {
                 {!isFranchiseTier(user?.tier) && <ChevronRight size={16} color={C.textMuted} />}
               </View>
             </TouchableOpacity>
-            <View style={s.tierPill}>
+            <TouchableOpacity
+              style={s.tierPill}
+              onPress={() => router.push('/pricing-screen' as any)}
+              activeOpacity={0.7}
+              testID="v2-home-tier-pill"
+            >
               <View style={{ width: 7, height: 7, borderRadius: 999, backgroundColor: C.accent }} />
               <Text style={s.tierPillText}>{tier?.name || 'Starter'}</Text>
-            </View>
+            </TouchableOpacity>
           </View>
 
           {/* Contacts import nudge — auto-hides server-side once dismissed

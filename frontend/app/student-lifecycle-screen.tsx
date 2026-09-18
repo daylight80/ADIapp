@@ -431,8 +431,17 @@ export default function StudentProfileV2Screen() {
   };
 
   const totalEarnings = lessons.reduce((sum, l) => sum + (l.amount_paid || 0), 0);
-  const totalHours = lessons.reduce((sum, l) => sum + l.duration_hours, 0);
-  const completedCount = lessons.filter((l) => l.status === 'Completed').length;
+  // "Hours" is always shown right next to completedCount ("Lessons" /
+  // "Lessons taught") across the Overview, Lessons and Earnings tabs, so
+  // it means hours actually taught, not hours of everything ever
+  // scheduled — summing every lesson regardless of status meant a
+  // student with several lessons booked weeks out (not yet happened,
+  // let alone completed) showed a "total hours" figure that had nothing
+  // to do with the "lessons taught" count sitting right beside it, and
+  // overstated the £/hr math on the Earnings tab the same way.
+  const completedLessons = lessons.filter((l) => l.status === 'Completed');
+  const totalHours = completedLessons.reduce((sum, l) => sum + l.duration_hours, 0);
+  const completedCount = completedLessons.length;
 
   if (studentLoading && !student) {
     return (

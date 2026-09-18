@@ -15,6 +15,7 @@ jest.mock('../useSupabaseData', () => ({
 import NetInfo from '@react-native-community/netinfo';
 import { patchLesson } from '../useSupabaseData';
 import { queueLessonWrite, getPendingQueue, getPendingCountForLesson, flushQueue, __resetCacheForTests } from '../offlineSync';
+import { decryptBlob } from '../secureBlob';
 
 const mockedNetInfoFetch = NetInfo.fetch as jest.Mock;
 const mockedPatchLesson = patchLesson as jest.Mock;
@@ -58,9 +59,10 @@ describe('offlineSync — queueLessonWrite / getPendingQueue', () => {
     await queueLessonWrite('lesson-1', { grade: 4 }, 'Persisted entry');
     // Simulate a fresh module load reading directly from AsyncStorage,
     // bypassing this module's in-memory cache, the way a real app restart
-    // would.
+    // would. The queue is encrypted at rest (14 Sept 2026) — decryptBlob()
+    // first is what a real restart's own loadQueue() does internally too.
     const raw = await AsyncStorage.getItem('offline_sync_queue_v1');
-    const parsed = JSON.parse(raw!);
+    const parsed = JSON.parse(await decryptBlob(raw!));
     expect(parsed).toHaveLength(1);
     expect(parsed[0].label).toBe('Persisted entry');
   });

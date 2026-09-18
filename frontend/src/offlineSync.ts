@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { patchLesson } from './useSupabaseData';
 import type { UpdateLessonInput } from './supabaseDb';
+import { encryptBlob, decryptBlob, isEncryptedBlob } from './secureBlob';
 
 /**
  * Offline-first sync — first slice (25 Aug 2026), scoped deliberately to
@@ -18,8 +19,11 @@ import type { UpdateLessonInput } from './supabaseDb';
  *   1. A write that can't reach Supabase (checked proactively via NetInfo,
  *      not by parsing error messages, which is unreliable) gets queued
  *      here instead of failing or silently falling back to mockDb.
- *   2. The queue persists to AsyncStorage, so pending writes survive the
- *      app being closed entirely, not just a screen navigation.
+ *   2. The queue persists to AsyncStorage (encrypted — 14 Sept 2026, per
+ *      Grant directly; queued payloads can include lesson notes and
+ *      amounts paid — see secureBlob.ts for why this can't just move
+ *      into SecureStore directly), so pending writes survive the app
+ *      being closed entirely, not just a screen navigation.
  *   3. A NetInfo listener auto-flushes the queue the moment connectivity
  *      returns — the instructor doesn't have to remember to do anything.
  *   4. sync-status-screen.tsx surfaces this queue directly, with a manual
@@ -59,7 +63,15 @@ async function loadQueue(): Promise<PendingWrite[]> {
   if (cachedQueue) return cachedQueue;
   try {
     const raw = await AsyncStorage.getItem(QUEUE_KEY);
-    cachedQueue = raw ? JSON.parse(raw) : [];
+    if (!raw) {
+      cachedQueue = [];
+    } else {
+      // Legacy fallback: plaintext JSON written before encryption existed
+      // here. Reading it plain rather than throwing means no pending
+      // write is lost — the next saveQueue() call re-saves it encrypted.
+      const json = isEncryptedBlob(raw) ? await decryptBlob(raw) : raw;
+      cachedQueue = JSON.parse(json);
+    }
   } catch {
     cachedQueue = [];
   }
@@ -73,7 +85,8 @@ async function loadQueue(): Promise<PendingWrite[]> {
 
 async function saveQueue(queue: PendingWrite[]) {
   cachedQueue = queue;
-  await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+  const encrypted = await encryptBlob(JSON.stringify(queue));
+  await AsyncStorage.setItem(QUEUE_KEY, encrypted);
   listeners.forEach((l) => l(queue));
 }
 

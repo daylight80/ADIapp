@@ -1,7 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { encryptBlob, decryptBlob, isEncryptedBlob } from './secureBlob';
 
 /**
- * On-device route recorder — stores GPS breadcrumb trails in AsyncStorage.
+ * On-device route recorder — stores GPS breadcrumb trails in AsyncStorage,
+ * encrypted (14 Sept 2026, per Grant directly) — see secureBlob.ts for why
+ * this can't just move into SecureStore outright: a real lesson's route
+ * routinely exceeds SecureStore's ~2KB per-value cap by a wide margin.
  *
  * No backend, no cloud, no API keys. Routes are exportable as GPX (a
  * universal format readable by Google My Maps, Strava, Garmin, etc.) and
@@ -92,7 +96,12 @@ export async function listRoutes(): Promise<SavedRoute[]> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    const arr = JSON.parse(raw) as SavedRoute[];
+    // Legacy fallback: plaintext JSON written by a version of the app
+    // from before encryption existed here. Reading it plain (rather than
+    // throwing) means nothing already recorded is lost — the very next
+    // write-through call re-saves it encrypted, migrating it silently.
+    const json = isEncryptedBlob(raw) ? await decryptBlob(raw) : raw;
+    const arr = JSON.parse(json) as SavedRoute[];
     return arr.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
   } catch (e) {
     // eslint-disable-next-line no-console
@@ -101,16 +110,24 @@ export async function listRoutes(): Promise<SavedRoute[]> {
   }
 }
 
+// Every write goes through this so encryption can never be accidentally
+// skipped by a call site that forgets it — same reasoning as the travel
+// cache's _cache_travel() write-through helper on the backend.
+async function writeAll(all: SavedRoute[]): Promise<void> {
+  const encrypted = await encryptBlob(JSON.stringify(all));
+  await AsyncStorage.setItem(STORAGE_KEY, encrypted);
+}
+
 export async function saveRoute(r: SavedRoute): Promise<void> {
   const all = await listRoutes();
   const idx = all.findIndex((x) => x.id === r.id);
   if (idx >= 0) all[idx] = r; else all.unshift(r);
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+  await writeAll(all);
 }
 
 export async function deleteRoute(id: string): Promise<void> {
   const all = await listRoutes();
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(all.filter((r) => r.id !== id)));
+  await writeAll(all.filter((r) => r.id !== id));
 }
 
 export async function renameRoute(id: string, name: string): Promise<void> {
@@ -118,7 +135,7 @@ export async function renameRoute(id: string, name: string): Promise<void> {
   const idx = all.findIndex((r) => r.id === id);
   if (idx >= 0) {
     all[idx].name = name.trim() || all[idx].name;
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+    await writeAll(all);
   }
 }
 

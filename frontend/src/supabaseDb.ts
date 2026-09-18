@@ -315,6 +315,7 @@ export type MyInstructorProfileUpdate = {
   full_name?: string;
   adi_number?: string;
   mobile_number?: string | null;
+  email?: string | null;
   address?: string | null;
   car_make?: string | null;
   car_model?: string | null;
@@ -330,6 +331,7 @@ export async function updateMyInstructorProfile(input: MyInstructorProfileUpdate
   if (input.full_name !== undefined) payload.full_name = input.full_name.trim();
   if (input.adi_number !== undefined) payload.adi_number = input.adi_number.trim();
   if (input.mobile_number !== undefined) payload.mobile_number = input.mobile_number?.trim() || null;
+  if (input.email !== undefined) payload.email = input.email?.trim() || null;
   if (input.address !== undefined) payload.address = input.address?.trim() || null;
   if (input.car_make !== undefined) payload.car_make = input.car_make?.trim() || null;
   if (input.car_model !== undefined) payload.car_model = input.car_model?.trim() || null;

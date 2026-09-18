@@ -95,6 +95,7 @@ export default function MyDetailsScreen() {
         full_name: fullName,
         adi_number: adiNumber,
         mobile_number: mobile,
+        email,
         address,
         car_make: carMake,
         car_model: carModel,

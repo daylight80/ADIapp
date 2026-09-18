@@ -291,7 +291,16 @@ export default function LessonDiaryV2Screen() {
       <View style={s.phoneSurface}>
         <View style={s.header}>
           <View style={{ flex: 1 }}>
-            <Text style={s.eyebrow}>Week {getISOWeek(weekStart)} · {weekStart.toLocaleDateString('en-GB', { month: 'long' })}</Text>
+            {/* Month name here must track selectedDate, not weekStart —
+                weekStart is always a Monday, and a week straddling a
+                month boundary (e.g. Mon 31 Aug – Sun 6 Sept) previously
+                showed the week's starting month even after navigating to
+                a selected day past the boundary, e.g. "Week 36 · August"
+                while the headline right below it read "Thu 3 Sept". The
+                week NUMBER doesn't have this problem — every day within
+                one ISO week shares the same week number by definition,
+                unlike month names. */}
+            <Text style={s.eyebrow}>Week {getISOWeek(weekStart)} · {selectedDate.toLocaleDateString('en-GB', { month: 'long' })}</Text>
             <Text style={s.headline} numberOfLines={1}>
               {viewMode === 'day'
                 ? `${DOW[selectedDayIdx]} ${selectedDate.getDate()} ${selectedDate.toLocaleDateString('en-GB', { month: 'short' })}`

@@ -131,9 +131,32 @@ async def health():
 # ============= MAPS / TRAVEL TIME =============
 import httpx
 import hashlib
+from collections import OrderedDict
 
-_travel_cache: dict[str, tuple[float, dict]] = {}
+# OrderedDict (not plain dict) so we can do LRU eviction below.
+_travel_cache: "OrderedDict[str, tuple[float, dict]]" = OrderedDict()
 TRAVEL_CACHE_TTL = 300  # 5 minutes
+# Hard cap on distinct entries (11 Sept 2026) — this cache previously only
+# checked TTL lazily on a *repeat* read of the same key, so an address pair
+# queried once and never again (a one-off lesson, a student who's since
+# left) stayed in memory for the rest of the process's uptime. Over weeks
+# without a restart that grew unbounded and was the direct cause of Render
+# repeatedly hitting its memory limit. Capping at 500 entries with simple
+# LRU eviction bounds total memory regardless of how many distinct
+# origin/destination pairs get queried over the app's lifetime — each
+# entry is tiny (a few floats + a short status string), so 500 of them is
+# a trivial, fixed amount of memory.
+TRAVEL_CACHE_MAX_SIZE = 500
+
+
+def _cache_travel(key: str, ts: float, data: dict) -> None:
+    """Write-through helper — every _travel_cache write goes through this
+    so the size cap above can never be bypassed by a write site that
+    forgets to enforce it."""
+    _travel_cache[key] = (ts, data)
+    _travel_cache.move_to_end(key)
+    while len(_travel_cache) > TRAVEL_CACHE_MAX_SIZE:
+        _travel_cache.popitem(last=False)  # evict least-recently-used
 
 
 class TravelTimeRequest(BaseModel):
@@ -173,12 +196,13 @@ async def travel_time(req: TravelTimeRequest, current_user: dict = Depends(get_c
     if cache_key in _travel_cache:
         ts, data = _travel_cache[cache_key]
         if now_ts - ts < TRAVEL_CACHE_TTL:
+            _travel_cache.move_to_end(cache_key)  # keep it "fresh" for LRU eviction
             return TravelTimeResponse(**{**data, "cached": True})
 
     # No key → mock fallback (still cached so the diary doesn't flicker)
     if not GOOGLE_MAPS_API_KEY:
         data = _mock_travel(req.origin, req.destination)
-        _travel_cache[cache_key] = (now_ts, data)
+        _cache_travel(cache_key, now_ts, data)
         return TravelTimeResponse(**data, cached=False)
 
     # Live Google Distance Matrix API
@@ -201,14 +225,14 @@ async def travel_time(req: TravelTimeRequest, current_user: dict = Depends(get_c
     except Exception as e:
         logger.warning(f"Google Maps API failed, using fallback: {e}")
         data = _mock_travel(req.origin, req.destination)
-        _travel_cache[cache_key] = (now_ts, data)
+        _cache_travel(cache_key, now_ts, data)
         return TravelTimeResponse(**data)
 
     try:
         top = body["rows"][0]["elements"][0]
         if top["status"] != "OK":
             data = {**_mock_travel(req.origin, req.destination), "status": "no_route"}
-            _travel_cache[cache_key] = (now_ts, data)
+            _cache_travel(cache_key, now_ts, data)
             return TravelTimeResponse(**data)
         normal_sec = top["duration"]["value"]
         traffic_sec = top.get("duration_in_traffic", top["duration"])["value"]
@@ -219,7 +243,7 @@ async def travel_time(req: TravelTimeRequest, current_user: dict = Depends(get_c
             "distance_km": round(dist_m / 1000, 1),
             "status": "ok",
         }
-        _travel_cache[cache_key] = (now_ts, data)
+        _cache_travel(cache_key, now_ts, data)
         return TravelTimeResponse(**data)
     except Exception as e:
         logger.error(f"Failed to parse Distance Matrix response: {e}")

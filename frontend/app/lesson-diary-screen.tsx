@@ -309,16 +309,36 @@ export default function LessonDiaryV2Screen() {
                   : `${weekStart.getDate()} ${weekStart.toLocaleDateString('en-GB', { month: 'short' })} – ${addDays(weekStart, 6).getDate()} ${addDays(weekStart, 6).toLocaleDateString('en-GB', { month: 'short' })}`}
             </Text>
           </View>
-          {viewMode === 'month' && (
-            <View style={{ flexDirection: 'row', gap: 6, marginRight: 8 }}>
-              <TouchableOpacity style={s.navBtn} onPress={() => setSelectedDate(addMonths(selectedDate, -1))} testID="v2-month-prev">
-                <ChevronLeft size={17} color={C.text} />
-              </TouchableOpacity>
-              <TouchableOpacity style={s.navBtn} onPress={() => setSelectedDate(addMonths(selectedDate, 1))} testID="v2-month-next">
-                <ChevronRight size={17} color={C.text} />
-              </TouchableOpacity>
-            </View>
-          )}
+          {/* Prev/next navigation (20 Sept 2026) — previously only
+              rendered for Month view at all; Day and Week had no way to
+              move to a different day/week except re-tapping a day tab
+              within the currently-loaded week's own strip. Same pair of
+              buttons now drives all three views, with the step size
+              (a day, a week, or a month) chosen by the active view. */}
+          <View style={{ flexDirection: 'row', gap: 6, marginRight: 8 }}>
+            <TouchableOpacity
+              style={s.navBtn}
+              onPress={() => setSelectedDate(
+                viewMode === 'month' ? addMonths(selectedDate, -1)
+                  : viewMode === 'week' ? addDays(selectedDate, -7)
+                    : addDays(selectedDate, -1)
+              )}
+              testID="v2-diary-prev"
+            >
+              <ChevronLeft size={17} color={C.text} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={s.navBtn}
+              onPress={() => setSelectedDate(
+                viewMode === 'month' ? addMonths(selectedDate, 1)
+                  : viewMode === 'week' ? addDays(selectedDate, 7)
+                    : addDays(selectedDate, 1)
+              )}
+              testID="v2-diary-next"
+            >
+              <ChevronRight size={17} color={C.text} />
+            </TouchableOpacity>
+          </View>
           <TouchableOpacity style={s.navBtn} onPress={() => router.back()} testID="btn-back-v2">
             <ArrowLeft size={17} color={C.text} />
           </TouchableOpacity>

@@ -224,15 +224,26 @@ export function useLessonsForWeek(weekStart: Date) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Staleness guard (20 Sept 2026) — found while diagnosing the diary's
+    // month view flickering to a wrong lesson count and reverting: rapid
+    // navigation (a fast double-tap, or simply firing this effect again
+    // before the previous fetch has resolved) could let an EARLIER
+    // request's response arrive and overwrite a LATER one's, since
+    // nothing here checked whether its own fetch was still the most
+    // recent one in flight before calling setLessons. Same pattern
+    // applied to useLessonsForMonth below, which is where this was
+    // actually caught on screen.
+    let cancelled = false;
     const from = new Date(weekStart);
     from.setHours(0, 0, 0, 0);
     const to = new Date(from);
     to.setDate(to.getDate() + 7);
     setLoading(true);
     db.listLessonsBetween(from.toISOString(), to.toISOString())
-      .then(setLessons)
-      .catch(() => setLessons([]))
-      .finally(() => setLoading(false));
+      .then((rows) => { if (!cancelled) setLessons(rows); })
+      .catch(() => { if (!cancelled) setLessons([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [key, version]);
 
   return { lessons, loading };
@@ -248,11 +259,21 @@ export function useLessonsForMonth(gridStart: Date, gridEnd: Date) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Staleness guard (20 Sept 2026) — this is the one actually caught on
+    // screen: tapping the month view's next/prev arrow fired this effect
+    // for the new month, but a slightly slower-resolving response from
+    // the PREVIOUS month's own fetch (still in flight from the render
+    // just before) arrived after it and overwrote it — briefly showing
+    // the new month's lesson count, then snapping back to the old
+    // month's, all while the header had already moved on. See the
+    // matching note on useLessonsForWeek above.
+    let cancelled = false;
     setLoading(true);
     db.listLessonsBetween(gridStart.toISOString(), gridEnd.toISOString())
-      .then(setLessons)
-      .catch(() => setLessons([]))
-      .finally(() => setLoading(false));
+      .then((rows) => { if (!cancelled) setLessons(rows); })
+      .catch(() => { if (!cancelled) setLessons([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [key, version]);
 
   return { lessons, loading };

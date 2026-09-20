@@ -470,22 +470,37 @@ export default function InstructorHomeV2Screen() {
                 <Text style={s.sectionLabel}>Earnings</Text>
                 <Text style={s.chartSub}>Last 6 months</Text>
               </View>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 9, height: 96 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 9 }}>
                 {byMonth.map((b, i) => {
                   const isLast = i === byMonth.length - 1;
                   return (
-                    <View key={b.label} style={{ flex: 1, alignItems: 'center', gap: 7, height: '100%', justifyContent: 'flex-end' }}>
-                      <Text style={[s.barValue, isLast && { color: C.warmText }]}>
-                        {maskEarnings(b.value >= 1000 ? `£${(b.value / 1000).toFixed(1)}k` : `£${b.value.toFixed(0)}`, isEarningsHidden)}
-                      </Text>
-                      <View style={{
-                        width: '100%',
-                        height: `${Math.max(2, (b.value / maxBar) * 100)}%`,
-                        borderRadius: 6,
-                        backgroundColor: isLast ? C.accent : C.primary,
-                        opacity: isLast ? 1 : 0.28,
-                      }} />
-                      <Text style={s.barLabel}>{b.label}</Text>
+                    <View key={b.label} style={{ flex: 1, alignItems: 'center' }}>
+                      {/* Fixed-height slot for the value label, separate
+                          from the bar's own track below — previously
+                          both shared one 96px column with the bar's
+                          height computed as a percentage of that same
+                          96px, so a near-max bar (its own height +
+                          label + gap) genuinely exceeded 96px and,
+                          being bottom-anchored, overflowed upward into
+                          the "Last 6 months" header above the chart.
+                          A fixed slot here means the bar track below can
+                          never grow past its own fixed height no matter
+                          how tall the bar itself is. */}
+                      <View style={{ height: 16, justifyContent: 'flex-end' }}>
+                        <Text style={[s.barValue, isLast && { color: C.warmText }]} numberOfLines={1}>
+                          {maskEarnings(b.value >= 1000 ? `£${(b.value / 1000).toFixed(1)}k` : `£${b.value.toFixed(0)}`, isEarningsHidden)}
+                        </Text>
+                      </View>
+                      <View style={{ height: 96, width: '100%', justifyContent: 'flex-end', marginTop: 7 }}>
+                        <View style={{
+                          width: '100%',
+                          height: `${Math.max(2, (b.value / maxBar) * 100)}%`,
+                          borderRadius: 6,
+                          backgroundColor: isLast ? C.accent : C.primary,
+                          opacity: isLast ? 1 : 0.28,
+                        }} />
+                      </View>
+                      <Text style={[s.barLabel, { marginTop: 7 }]}>{b.label}</Text>
                     </View>
                   );
                 })}

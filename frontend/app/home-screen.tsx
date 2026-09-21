@@ -302,7 +302,19 @@ export default function InstructorHomeV2Screen() {
               <View style={s.heroInner}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                   <Text style={[s.heroBadge, nextLesson?.id === sel.id && { color: C.accent }]}>
-                    {toMin(sel.end_time) < nowMin ? 'Completed' : nextLesson?.id === sel.id ? 'Next up' : 'Later today'}
+                    {/* This label previously read purely off end_time vs
+                        now — so a lesson that was simply overdue but
+                        never actually marked complete (still status:
+                        'Scheduled' in the DB, pre-check/payment never
+                        logged) said "Completed" exactly the same as a
+                        genuinely completed one, with nothing to tell the
+                        instructor it still needs attention. Now reads the
+                        real status first, only falling back to a time
+                        comparison for lessons that haven't happened yet. */}
+                    {sel.status === 'Completed' ? 'Completed'
+                      : sel.status === 'Cancelled' ? 'Cancelled'
+                        : toMin(sel.end_time) < nowMin ? 'Overdue'
+                          : nextLesson?.id === sel.id ? 'Next up' : 'Later today'}
                   </Text>
                   <Text style={s.heroDuration}>
                     {((toMin(sel.end_time) - toMin(sel.start_time)) / 60).toFixed(1).replace('.0', '')} hr
@@ -389,24 +401,36 @@ export default function InstructorHomeV2Screen() {
               <View style={{ gap: 7 }}>
                 {sorted.map((l) => {
                   const isSel = sel?.id === l.id;
-                  const isPast = toMin(l.end_time) < nowMin;
+                  // Same fix as the hero card above: "Done" (struck
+                  // through, greyed, de-emphasized) now means genuinely
+                  // status: 'Completed' — not just "its scheduled time
+                  // has passed." An overdue-but-unconfirmed lesson stays
+                  // visually normal and reads "Overdue" instead, so it
+                  // doesn't look already handled when it still needs the
+                  // instructor to actually complete it (faults, grade,
+                  // payment). Cancelled lessons get their own label too,
+                  // rather than being lumped in with completed ones.
+                  const isCompleted = l.status === 'Completed';
+                  const isCancelled = l.status === 'Cancelled';
+                  const isOverdue = !isCompleted && !isCancelled && toMin(l.end_time) < nowMin;
+                  const isDone = isCompleted || isCancelled;
                   return (
                     <TouchableOpacity
                       key={l.id}
-                      style={[s.row, isSel && s.rowActive, isPast && { opacity: 0.55 }]}
+                      style={[s.row, isSel && s.rowActive, isDone && { opacity: 0.55 }]}
                       onPress={() => setSelId(l.id)}
                       testID={`v2-home-row-${l.id}`}
                     >
-                      <View style={{ width: 9, height: 9, borderRadius: 999, backgroundColor: isPast ? '#CFC8B9' : colorForLessonType(l.lesson_type) }} />
+                      <View style={{ width: 9, height: 9, borderRadius: 999, backgroundColor: isDone ? '#CFC8B9' : isOverdue ? C.warmText : colorForLessonType(l.lesson_type) }} />
                       <Text style={s.rowTime}>{fmt(toMin(l.start_time))}</Text>
                       <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={[s.rowName, isPast && { textDecorationLine: 'line-through' }]} numberOfLines={1}>
+                        <Text style={[s.rowName, isDone && { textDecorationLine: 'line-through' }]} numberOfLines={1}>
                           {studentName(l.student_id)}
                         </Text>
                         {!!l.topic && <Text style={s.rowTopic} numberOfLines={1}>{l.topic}</Text>}
                       </View>
-                      <Text style={[s.rowTag, { color: isPast ? C.textMuted : colorForLessonType(l.lesson_type) }]}>
-                        {isPast ? 'Done' : l.lesson_type}
+                      <Text style={[s.rowTag, { color: isDone ? C.textMuted : isOverdue ? C.warmText : colorForLessonType(l.lesson_type) }]}>
+                        {isCancelled ? 'Cancelled' : isCompleted ? 'Done' : isOverdue ? 'Overdue' : l.lesson_type}
                       </Text>
                     </TouchableOpacity>
                   );

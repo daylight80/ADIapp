@@ -530,134 +530,158 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
               </View>
             )}
 
-            {/* Navigation */}
-            <Text style={styles.section}>Navigate to pickup</Text>
-            <Text style={styles.address}>
-              {pickupAddress}
-            </Text>
-            {eta && (
-              <View style={styles.etaCard} testID="live-eta">
-                <Car size={16} color={theme.colors.primary} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.etaPrimary}>
-                    {eta.traffic} min via traffic{eta.fallback ? ' (estimate)' : ''}
-                  </Text>
-                  <Text style={styles.etaSecondary}>
-                    {eta.normal} min normally · {eta.distance} km from previous lesson
-                  </Text>
+            {/* Active-lesson panel — navigation, arrival text, route
+                recording, notes, pre-lesson checks, and the
+                complete/cancel actions. Hidden for a cancelled lesson
+                (14 Sept 2026 recording, found on retest) — none of these
+                make sense once a lesson isn't happening: "Navigate to
+                pickup" and "I've arrived" for a lesson nobody's driving
+                to, pre-lesson safety checks for a lesson that won't be
+                driven, "Complete lesson" for one that already has an
+                outcome of Cancelled, and "Cancel lesson" a second time
+                for one already cancelled. broadcastOnly() below already
+                existed, wired to the same GapBroadcastModal the main
+                cancel flow uses — it just had no button calling it
+                anywhere in the render, so a cancelled lesson had no way
+                to re-fan-out its now-free slot to the waiting list
+                without first re-running the whole cancel flow again. */}
+            {lesson.status !== 'Cancelled' ? (
+              <>
+                {/* Navigation */}
+                <Text style={styles.section}>Navigate to pickup</Text>
+                <Text style={styles.address}>
+                  {pickupAddress}
+                </Text>
+                {eta && (
+                  <View style={styles.etaCard} testID="live-eta">
+                    <Car size={16} color={theme.colors.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.etaPrimary}>
+                        {eta.traffic} min via traffic{eta.fallback ? ' (estimate)' : ''}
+                      </Text>
+                      <Text style={styles.etaSecondary}>
+                        {eta.normal} min normally · {eta.distance} km from previous lesson
+                      </Text>
+                    </View>
+                  </View>
+                )}
+                <View style={styles.navRow}>
+                  <NavBtn
+                    label="Google"
+                    onPress={() => openNavigation('google', pickupAddress)}
+                    testID="nav-google"
+                  />
+                  <NavBtn
+                    label="Waze"
+                    onPress={() => openNavigation('waze', pickupAddress)}
+                    testID="nav-waze"
+                  />
+                  <NavBtn
+                    label="Apple"
+                    onPress={() => openNavigation('apple', pickupAddress)}
+                    testID="nav-apple"
+                  />
                 </View>
-              </View>
+
+                {/* I'm Here */}
+                <TouchableOpacity style={styles.imHereBtn} onPress={onArrived} testID="btn-im-here">
+                  <MessageSquare size={18} color="#fff" />
+                  <Text style={styles.imHereText}>I've arrived — Text {student.name.split(' ')[0]}</Text>
+                </TouchableOpacity>
+
+                {/* Record route — tags the recording with this lesson + student
+                    so it shows up linked instead of as a generic unnamed trip.
+                    Greyed out on non-paid tiers rather than hidden, matching
+                    the Receipts button's convention on the home screen. */}
+                <TouchableOpacity
+                  style={[styles.recordRouteBtn, !paid && styles.recordRouteBtnLocked]}
+                  onPress={() => {
+                    if (!paid) { setRoutePaywallOpen(true); return; }
+                    onClose();
+                    router.push({
+                      pathname: '/route-recorder-screen',
+                      params: { lessonId: lesson.id, studentId: student.id, studentName: student.name },
+                    } as any);
+                  }}
+                  testID="btn-record-route"
+                >
+                  {paid ? <MapPin size={18} color={theme.colors.primary} /> : <Lock size={16} color={theme.colors.textMuted} />}
+                  <Text style={[styles.recordRouteText, !paid && styles.recordRouteTextLocked]}>Record route for this lesson</Text>
+                </TouchableOpacity>
+
+                {/* Post-lesson notes — the instructor's own custom question set */}
+                <TouchableOpacity
+                  style={styles.recordRouteBtn}
+                  onPress={() => {
+                    onClose();
+                    router.push({
+                      pathname: '/lesson-notes-screen',
+                      params: { lessonId: lesson.id, studentId: student.id, studentName: student.name },
+                    } as any);
+                  }}
+                  testID="btn-lesson-notes"
+                >
+                  <FileCheck size={16} color={theme.colors.primary} />
+                  <Text style={styles.recordRouteText}>Lesson notes</Text>
+                </TouchableOpacity>
+
+                {/* Pre-lesson check */}
+                <Text style={styles.section}>Pre-lesson check</Text>
+                <CheckRow
+                  icon={<Eye size={18} color={precheck.eye ? '#fff' : theme.colors.text} />}
+                  label="Eyesight: number plate readable at 20m"
+                  checked={precheck.eye}
+                  onToggle={() => setPrecheck((p) => ({ ...p, eye: !p.eye }))}
+                  testID="precheck-eye"
+                />
+                <CheckRow
+                  icon={<Activity size={18} color={precheck.fit ? '#fff' : theme.colors.text} />}
+                  label="Fit to drive (no alcohol, medication, fatigue)"
+                  checked={precheck.fit}
+                  onToggle={() => setPrecheck((p) => ({ ...p, fit: !p.fit }))}
+                  testID="precheck-fit"
+                />
+                <CheckRow
+                  icon={<FileCheck size={18} color={precheck.lic ? '#fff' : theme.colors.text} />}
+                  label="Valid provisional/full driving licence in hand"
+                  checked={precheck.lic}
+                  onToggle={() => setPrecheck((p) => ({ ...p, lic: !p.lic }))}
+                  testID="precheck-lic"
+                />
+                <TouchableOpacity
+                  style={[styles.confirmBtn, !allChecks && styles.btnDisabled]}
+                  onPress={completePrecheck}
+                  disabled={!allChecks}
+                  testID="btn-confirm-precheck"
+                >
+                  <Check size={18} color="#fff" />
+                  <Text style={styles.confirmText}>Confirm pre-check</Text>
+                </TouchableOpacity>
+
+                {/* Complete lesson — Slice 7 write-back to Supabase */}
+                <TouchableOpacity
+                  style={styles.completeBtn}
+                  onPress={() => setCompleteOpen(true)}
+                  testID="btn-open-complete"
+                >
+                  <Trophy size={18} color="#fff" />
+                  <Text style={styles.confirmText}>
+                    {lesson.status === 'Completed' ? 'Edit lesson outcome' : 'Complete lesson'}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Cancel + broadcast */}
+                <TouchableOpacity style={styles.cancelBtn} onPress={cancelLesson} testID="btn-cancel-lesson">
+                  <Megaphone size={18} color={theme.colors.danger} />
+                  <Text style={styles.cancelText}>Cancel lesson & broadcast gap</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <TouchableOpacity style={styles.cancelBtn} onPress={broadcastOnly} testID="btn-rebroadcast">
+                <Megaphone size={18} color={theme.colors.danger} />
+                <Text style={styles.cancelText}>Re-broadcast this slot to waiting list</Text>
+              </TouchableOpacity>
             )}
-            <View style={styles.navRow}>
-              <NavBtn
-                label="Google"
-                onPress={() => openNavigation('google', pickupAddress)}
-                testID="nav-google"
-              />
-              <NavBtn
-                label="Waze"
-                onPress={() => openNavigation('waze', pickupAddress)}
-                testID="nav-waze"
-              />
-              <NavBtn
-                label="Apple"
-                onPress={() => openNavigation('apple', pickupAddress)}
-                testID="nav-apple"
-              />
-            </View>
-
-            {/* I'm Here */}
-            <TouchableOpacity style={styles.imHereBtn} onPress={onArrived} testID="btn-im-here">
-              <MessageSquare size={18} color="#fff" />
-              <Text style={styles.imHereText}>I've arrived — Text {student.name.split(' ')[0]}</Text>
-            </TouchableOpacity>
-
-            {/* Record route — tags the recording with this lesson + student
-                so it shows up linked instead of as a generic unnamed trip.
-                Greyed out on non-paid tiers rather than hidden, matching
-                the Receipts button's convention on the home screen. */}
-            <TouchableOpacity
-              style={[styles.recordRouteBtn, !paid && styles.recordRouteBtnLocked]}
-              onPress={() => {
-                if (!paid) { setRoutePaywallOpen(true); return; }
-                onClose();
-                router.push({
-                  pathname: '/route-recorder-screen',
-                  params: { lessonId: lesson.id, studentId: student.id, studentName: student.name },
-                } as any);
-              }}
-              testID="btn-record-route"
-            >
-              {paid ? <MapPin size={18} color={theme.colors.primary} /> : <Lock size={16} color={theme.colors.textMuted} />}
-              <Text style={[styles.recordRouteText, !paid && styles.recordRouteTextLocked]}>Record route for this lesson</Text>
-            </TouchableOpacity>
-
-            {/* Post-lesson notes — the instructor's own custom question set */}
-            <TouchableOpacity
-              style={styles.recordRouteBtn}
-              onPress={() => {
-                onClose();
-                router.push({
-                  pathname: '/lesson-notes-screen',
-                  params: { lessonId: lesson.id, studentId: student.id, studentName: student.name },
-                } as any);
-              }}
-              testID="btn-lesson-notes"
-            >
-              <FileCheck size={16} color={theme.colors.primary} />
-              <Text style={styles.recordRouteText}>Lesson notes</Text>
-            </TouchableOpacity>
-
-            {/* Pre-lesson check */}
-            <Text style={styles.section}>Pre-lesson check</Text>
-            <CheckRow
-              icon={<Eye size={18} color={precheck.eye ? '#fff' : theme.colors.text} />}
-              label="Eyesight: number plate readable at 20m"
-              checked={precheck.eye}
-              onToggle={() => setPrecheck((p) => ({ ...p, eye: !p.eye }))}
-              testID="precheck-eye"
-            />
-            <CheckRow
-              icon={<Activity size={18} color={precheck.fit ? '#fff' : theme.colors.text} />}
-              label="Fit to drive (no alcohol, medication, fatigue)"
-              checked={precheck.fit}
-              onToggle={() => setPrecheck((p) => ({ ...p, fit: !p.fit }))}
-              testID="precheck-fit"
-            />
-            <CheckRow
-              icon={<FileCheck size={18} color={precheck.lic ? '#fff' : theme.colors.text} />}
-              label="Valid provisional/full driving licence in hand"
-              checked={precheck.lic}
-              onToggle={() => setPrecheck((p) => ({ ...p, lic: !p.lic }))}
-              testID="precheck-lic"
-            />
-            <TouchableOpacity
-              style={[styles.confirmBtn, !allChecks && styles.btnDisabled]}
-              onPress={completePrecheck}
-              disabled={!allChecks}
-              testID="btn-confirm-precheck"
-            >
-              <Check size={18} color="#fff" />
-              <Text style={styles.confirmText}>Confirm pre-check</Text>
-            </TouchableOpacity>
-
-            {/* Complete lesson — Slice 7 write-back to Supabase */}
-            <TouchableOpacity
-              style={styles.completeBtn}
-              onPress={() => setCompleteOpen(true)}
-              testID="btn-open-complete"
-            >
-              <Trophy size={18} color="#fff" />
-              <Text style={styles.confirmText}>
-                {lesson.status === 'Completed' ? 'Edit lesson outcome' : 'Complete lesson'}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Cancel + broadcast */}
-            <TouchableOpacity style={styles.cancelBtn} onPress={cancelLesson} testID="btn-cancel-lesson">
-              <Megaphone size={18} color={theme.colors.danger} />
-              <Text style={styles.cancelText}>Cancel lesson & broadcast gap</Text>
-            </TouchableOpacity>
 
             {/* Bulk-cancel — only visible when this lesson belongs to a
                 recurring series AND there's MORE THAN one remaining

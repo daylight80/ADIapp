@@ -469,19 +469,19 @@ export default function LessonDiaryV2Screen() {
               </View>
 
               <View style={s.statsCard}>
-                <View style={{ alignItems: 'center', flex: 1 }}>
-                  <Text style={s.statValue}>{durLabel(weekMinutes)}</Text>
-                  <Text style={s.statLabel}>Taught this week</Text>
+                <View style={s.statBlock}>
+                  <Text style={s.statValue} numberOfLines={1}>{durLabel(weekMinutes)}</Text>
+                  <Text style={s.statLabel} numberOfLines={1}>Taught this week</Text>
                 </View>
                 <View style={s.statDivider} />
-                <View style={{ alignItems: 'center', flex: 1 }}>
-                  <Text style={[s.statValue, { color: C.primary }]}>£{Math.round(weekMinutes / 60 * hourlyRate)}</Text>
-                  <Text style={s.statLabel}>Billable</Text>
+                <View style={s.statBlock}>
+                  <Text style={[s.statValue, { color: C.primary }]} numberOfLines={1}>£{Math.round(weekMinutes / 60 * hourlyRate)}</Text>
+                  <Text style={s.statLabel} numberOfLines={1}>Billable</Text>
                 </View>
                 <View style={s.statDivider} />
-                <View style={{ alignItems: 'center', flex: 1 }}>
-                  <Text style={[s.statValue, { color: C.accent }]}>{weekGapCount}</Text>
-                  <Text style={s.statLabel}>Fillable gaps</Text>
+                <View style={s.statBlock}>
+                  <Text style={[s.statValue, { color: C.accent }]} numberOfLines={1}>{weekGapCount}</Text>
+                  <Text style={s.statLabel} numberOfLines={1}>Fillable gaps</Text>
                 </View>
               </View>
 
@@ -711,6 +711,23 @@ const s = StyleSheet.create({
   weekColTrack: { position: 'relative', width: '100%', height: 260, marginTop: 4, borderRadius: 6, backgroundColor: C.track },
   weekColFoot: { fontFamily: 'Barlow_600SemiBold', fontSize: 10.5, color: '#B8AF9E', marginTop: 2 },
   statsCard: { marginTop: 14, padding: 13, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 16, flexDirection: 'row', alignItems: 'center' },
+  // Root cause of the week view's "blank card, text cut off at the
+  // screen edge" bug (21 Sept 2026) — flex items have an implicit
+  // min-width of "auto" by default in both CSS and Yoga (React Native's
+  // layout engine), meaning a flex:1 child refuses to shrink below its
+  // OWN content's natural, unwrapped width, even though flex:1 sets
+  // flexBasis:0 and should otherwise allow it to compress freely. None
+  // of the three stat labels are especially short ("Taught this week"
+  // is the longest), so all three could refuse to shrink to fit their
+  // 1/3 share of the card, and their combined natural width overflowed
+  // the card entirely — pushing the row's content far to the right,
+  // past the card's own border and the screen's edge. minWidth: 0
+  // overrides that implicit default so flexBasis:0 can actually take
+  // effect; numberOfLines={1} on the Text elements themselves (see call
+  // sites) is a second line of defense, forcing single-line truncation
+  // with an ellipsis rather than any possibility of the text pushing
+  // its container's bounds even if a future label is longer still.
+  statBlock: { alignItems: 'center', flex: 1, minWidth: 0 },
   statValue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 24, color: C.text },
   statLabel: { fontFamily: 'Barlow_600SemiBold', fontSize: 11.5, color: C.textMuted, marginTop: 1 },
   statDivider: { width: 1, height: 38, backgroundColor: C.border },

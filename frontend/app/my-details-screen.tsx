@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Alert, KeyboardAvoidingView, Platform, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, IdCard, Phone, Mail, MapPin, Car, Fingerprint } from 'lucide-react-native';
+import { ArrowLeft, IdCard, Phone, Mail, MapPin, Car, Fingerprint, Star } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
 import { getInstructorProfile, updateMyInstructorProfile } from '../src/supabaseDb';
@@ -41,6 +41,7 @@ export default function MyDetailsScreen() {
   const [carModel, setCarModel] = useState('');
   const [numberPlate, setNumberPlate] = useState('');
   const [carColour, setCarColour] = useState('');
+  const [googleReviewUrl, setGoogleReviewUrl] = useState('');
 
   // Biometric login toggle (11 Sept 2026), per Grant directly — added to
   // this screen too, alongside the existing one on profile-screen.tsx.
@@ -80,6 +81,7 @@ export default function MyDetailsScreen() {
       setCarModel(profile.car_model || '');
       setNumberPlate(profile.number_plate || '');
       setCarColour(profile.car_colour || '');
+      setGoogleReviewUrl(profile.google_review_url || '');
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
@@ -89,6 +91,14 @@ export default function MyDetailsScreen() {
   const handleSave = async () => {
     if (!fullName.trim()) { Alert.alert('Name required', 'Please enter your name.'); return; }
     if (!adiNumber.trim()) { Alert.alert('ADI/PDI number required', 'Please enter your ADI or PDI number.'); return; }
+    // Same validation as school-profile-screen.tsx's own Google review
+    // link field, kept identical since it's the same conceptual setting
+    // and both feed the same "Request a Google review" SMS.
+    const reviewUrl = googleReviewUrl.trim();
+    if (reviewUrl && !/^https?:\/\//i.test(reviewUrl)) {
+      Alert.alert('Invalid review link', 'The Google review link should start with https://');
+      return;
+    }
     setSaving(true);
     try {
       await updateMyInstructorProfile({
@@ -101,6 +111,7 @@ export default function MyDetailsScreen() {
         car_model: carModel,
         number_plate: numberPlate,
         car_colour: carColour,
+        google_review_url: reviewUrl,
       });
       // updateMyInstructorProfile() here is the raw supabaseDb write, not
       // a useSupabaseData wrapper, so it never calls bump() itself — every
@@ -168,6 +179,19 @@ export default function MyDetailsScreen() {
                 <Field icon={<Car size={16} color={theme.colors.textMuted} />} label="Colour" value={carColour} onChangeText={setCarColour} testID="input-car-colour" />
               </Card>
 
+              {/* Google review link (21 Sept 2026), per Grant directly —
+                  same setting as school-profile-screen.tsx's own field of
+                  the same name (both feed the same "Request a Google
+                  review" SMS on a student's Passed lesson), stored here
+                  too since solo tiers have no menu path to that screen. */}
+              <Card style={{ gap: 14 }}>
+                <Text style={styles.cardTitle}>Google reviews</Text>
+                <Field icon={<Star size={16} color={theme.colors.textMuted} />} label="Google review link" value={googleReviewUrl} onChangeText={setGoogleReviewUrl} keyboardType="url" autoCapitalize="none" testID="input-google-review-url" />
+                <Text style={styles.fieldLabel}>
+                  Your Google Business Profile&apos;s &quot;write a review&quot; link — shown to students who pass, in the review-request text.
+                </Text>
+              </Card>
+
               {biometricAvailable && (
                 <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                   <Fingerprint size={20} color={theme.colors.primary} />
@@ -199,7 +223,7 @@ function Field({
   icon, label, value, onChangeText, testID, keyboardType, autoCapitalize,
 }: {
   icon: React.ReactNode; label: string; value: string; onChangeText: (v: string) => void; testID: string;
-  keyboardType?: 'default' | 'phone-pad' | 'email-address'; autoCapitalize?: 'none' | 'sentences' | 'characters';
+  keyboardType?: 'default' | 'phone-pad' | 'email-address' | 'url'; autoCapitalize?: 'none' | 'sentences' | 'characters';
 }) {
   return (
     <View style={styles.fieldRow}>

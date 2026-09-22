@@ -203,6 +203,12 @@ export type InstructorProfile = {
   car_model: string | null;
   number_plate: string | null;
   car_colour: string | null;
+  // Added 21 Sept 2026, per Grant directly — driving_schools already has
+  // its own google_review_url (Migration 028), used by Franchise via
+  // School Profile, but solo tiers have no menu path to that screen at
+  // all. This is the same setting, stored directly on the instructor's
+  // own row instead, so it lives in My Details.
+  google_review_url: string | null;
 };
 
 // Returns the currently signed-in instructor's profile row. Gracefully
@@ -217,9 +223,19 @@ export async function getInstructorProfile(): Promise<InstructorProfile | null> 
   // migrations haven't been applied yet.
   let { data, error } = await supabase
     .from('instructors')
-    .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app, tc_signed_at, tc_signature_name, mobile_number, address, email, car_make, car_model, number_plate, car_colour')
+    .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app, tc_signed_at, tc_signature_name, mobile_number, address, email, car_make, car_model, number_plate, car_colour, google_review_url')
     .eq('auth_user_id', uid)
     .maybeSingle();
+  if (error && /google_review_url/i.test(error.message || '')) {
+    const fallback = await supabase
+      .from('instructors')
+      .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app, tc_signed_at, tc_signature_name, mobile_number, address, email, car_make, car_model, number_plate, car_colour')
+      .eq('auth_user_id', uid)
+      .maybeSingle();
+    if (fallback.error) throw fallback.error;
+    data = { ...fallback.data, google_review_url: null } as any;
+    error = null;
+  }
   if (error && /car_colour/i.test(error.message || '')) {
     const fallback = await supabase
       .from('instructors')
@@ -272,7 +288,7 @@ export async function getInstructorProfile(): Promise<InstructorProfile | null> 
   if (!data && user?.email) {
     const { data: byEmail, error: emailErr } = await supabase
       .from('instructors')
-      .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app, tc_signed_at, tc_signature_name, mobile_number, address, email, car_make, car_model, number_plate, car_colour')
+      .select('id, school_id, auth_user_id, full_name, adi_number, preferred_nav_app, tc_signed_at, tc_signature_name, mobile_number, address, email, car_make, car_model, number_plate, car_colour, google_review_url')
       .eq('email', user.email.toLowerCase())
       .is('auth_user_id', null)
       .maybeSingle();
@@ -299,6 +315,7 @@ export async function getInstructorProfile(): Promise<InstructorProfile | null> 
     car_model: (data as any).car_model ?? null,
     number_plate: (data as any).number_plate ?? null,
     car_colour: (data as any).car_colour ?? null,
+    google_review_url: (data as any).google_review_url ?? null,
   };
 }
 
@@ -321,6 +338,7 @@ export type MyInstructorProfileUpdate = {
   car_model?: string | null;
   number_plate?: string | null;
   car_colour?: string | null;
+  google_review_url?: string | null;
 };
 
 export async function updateMyInstructorProfile(input: MyInstructorProfileUpdate): Promise<void> {
@@ -337,6 +355,7 @@ export async function updateMyInstructorProfile(input: MyInstructorProfileUpdate
   if (input.car_model !== undefined) payload.car_model = input.car_model?.trim() || null;
   if (input.number_plate !== undefined) payload.number_plate = input.number_plate?.trim().toUpperCase() || null;
   if (input.car_colour !== undefined) payload.car_colour = input.car_colour?.trim() || null;
+  if (input.google_review_url !== undefined) payload.google_review_url = input.google_review_url?.trim() || null;
   const { error } = await supabase.from('instructors').update(payload).eq('auth_user_id', uid);
   if (error) throw error;
 }

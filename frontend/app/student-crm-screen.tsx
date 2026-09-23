@@ -424,11 +424,25 @@ export default function StudentsV2Screen() {
                         </Text>
                       )}
                       <Text style={s.name} numberOfLines={1}>{st.name}</Text>
-                      {!st.auth_user_id && (
-                        <Text style={s.noAccountBadge} numberOfLines={1}>
-                          ⚠️ Hasn&apos;t set up their account yet
-                        </Text>
-                      )}
+                      {(() => {
+                        // Phase 2 (23 Sept 2026) extends Phase 1's "no
+                        // account at all" flag with "has an account but
+                        // has gone quiet" — only shown once it's actually
+                        // worth flagging (7+ days, or never opened at
+                        // all), not for every actively-engaged student,
+                        // matching how sparsely MyDriveTime's own warning
+                        // shows in the research this is based on.
+                        if (!st.auth_user_id) {
+                          return <Text style={s.noAccountBadge} numberOfLines={1}>⚠️ Hasn&apos;t set up their account yet</Text>;
+                        }
+                        if (!st.last_active_at) {
+                          return <Text style={s.noAccountBadge} numberOfLines={1}>⚠️ Hasn&apos;t opened the app yet</Text>;
+                        }
+                        const days = Math.floor((Date.now() - new Date(st.last_active_at).getTime()) / 86400000);
+                        if (days < 7) return null;
+                        const label = days < 14 ? `${days} days ago` : `${Math.round(days / 7)} weeks ago`;
+                        return <Text style={s.noAccountBadge} numberOfLines={1}>⚠️ Last seen {label}</Text>;
+                      })()}
                       <Text style={s.meta} numberOfLines={1}>
                         {st.lessons_count} lesson{st.lessons_count === 1 ? '' : 's'}
                         {st.progress != null ? ` · ${st.progress}% ready` : ''}

@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabaseClient';
 import { registerExpoPushToken, setUpReminderReadListener } from './notifications';
+import { stampStudentActivity } from './supabaseDb';
 
 export type Role = 'instructor' | 'student';
 
@@ -264,6 +265,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUpReminderReadListener();
     }
   }, [user?.id]);
+
+  // Phase 2 of the "not using the app" indicator (23 Sept 2026), per
+  // Grant directly, researched from a MyDriveTime recording — instructors
+  // currently have no way to tell "student with an account who's gone
+  // quiet" apart from one who's actively using it. Fire-and-forget, same
+  // shape as the push-token effect just above, kept separate since this
+  // is student-only rather than something every signed-in user needs.
+  useEffect(() => {
+    if (user?.id && user.role === 'student') {
+      stampStudentActivity(user.id).catch(() => {});
+    }
+  }, [user?.id, user?.role]);
 
   const signIn: AuthContextType['signIn'] = useCallback(async (email, password) => {
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });

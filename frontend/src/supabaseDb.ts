@@ -41,6 +41,12 @@ export type Student = {
   // fetched by listStudents()'s own select('*') below — just never
   // carried through into the mapped object until now.
   auth_user_id?: string | null;
+  // Phase 2 (23 Sept 2026, same request) — for a student who DOES have
+  // an account but has gone quiet. Stamped by the student app itself on
+  // every launch; null means either no account yet (see auth_user_id
+  // above) or an account that's never actually been opened since this
+  // column started being written.
+  last_active_at?: string | null;
 };
 
 // Row → app object (renames full_name → name, casts numerics)
@@ -68,6 +74,7 @@ const fromRow = (r: any): Student => ({
   notes_updated_by: r.notes_updated_by ?? null,
   notes_updated_by_name: r.notes_updated_by_name ?? null,
   auth_user_id: r.auth_user_id ?? null,
+  last_active_at: r.last_active_at ?? null,
 });
 
 // ---------------------------------------------------------------------------
@@ -1643,6 +1650,25 @@ export async function getStudentByAuthId(authUserId: string): Promise<Student | 
     throw error;
   }
   return data ? fromRow(data) : undefined;
+}
+
+// Phase 2 of the "not using the app" indicator (23 Sept 2026), per Grant
+// directly — stamps the signed-in student's own row every time the
+// student app launches (called from AuthContext.tsx, mirroring how
+// registerExpoPushToken() is already wired there for the exact same
+// student?.id-keyed effect). Deliberately a no-op on any error — an
+// activity timestamp failing to write should never surface as a visible
+// problem to a student just opening the app, and pre-Migration-035
+// environments would otherwise throw on a column that doesn't exist yet.
+export async function stampStudentActivity(authUserId: string): Promise<void> {
+  try {
+    await supabase
+      .from('students')
+      .update({ last_active_at: new Date().toISOString() })
+      .eq('auth_user_id', authUserId);
+  } catch {
+    // Silently ignored — see comment above.
+  }
 }
 
 

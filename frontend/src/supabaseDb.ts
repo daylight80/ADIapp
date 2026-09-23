@@ -49,6 +49,23 @@ export type Student = {
   last_active_at?: string | null;
 };
 
+// Shared across the Students screen and Phase 3's Select Students picker
+// (23 Sept 2026), per Grant directly — extracted so the "how many days
+// counts as gone quiet" threshold lives in exactly one place rather than
+// two copies that could quietly drift apart. Returns null when there's
+// nothing worth flagging (an account that's been active more recently
+// than the threshold) — callers render nothing in that case, matching
+// how sparse MyDriveTime's own warning is in the research this is based
+// on, not a "last seen today" badge on every row.
+export function studentAppUsageWarning(student: Pick<Student, 'auth_user_id' | 'last_active_at'>): string | null {
+  if (!student.auth_user_id) return "Hasn't set up their account yet";
+  if (!student.last_active_at) return "Hasn't opened the app yet";
+  const days = Math.floor((Date.now() - new Date(student.last_active_at).getTime()) / 86400000);
+  if (days < 7) return null;
+  const label = days < 14 ? `${days} days ago` : `${Math.round(days / 7)} weeks ago`;
+  return `Last seen ${label}`;
+}
+
 // Row → app object (renames full_name → name, casts numerics)
 const fromRow = (r: any): Student => ({
   id: r.id,

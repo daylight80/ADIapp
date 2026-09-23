@@ -704,6 +704,12 @@ class GapBroadcastRequest(BaseModel):
     # preserves the original behaviour exactly, for any older client that
     # doesn't send this field at all.
     target: Literal["everyone", "longest_waiting", "longest_waiting_plus_active"] = "everyone"
+    # Phase 3 of the "not using the app" research (23 Sept 2026), per
+    # Grant directly — a real Select Students picker. When this is a
+    # non-empty list, it takes over entirely and target above is
+    # ignored: notify exactly these specific students.id values, the
+    # instructor's own explicit choice, rather than any computed subset.
+    student_ids: Optional[List[str]] = None
 
 
 class GapBroadcastResponse(BaseModel):
@@ -755,59 +761,88 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
     if not school or school["id"] != lesson_school_id:
         raise HTTPException(status_code=403, detail="Not your lesson")
 
-    # 3. Pull the active waiting_list with each student's auth_user_id,
-    #    oldest-created first — created_at is what "longest waiting" means
-    #    here, since the table has no separate "joined queue at" field.
-    async with httpx.AsyncClient(timeout=10.0) as client_http:
-        wl = await client_http.get(
-            f"{_sb_rest_base}/waiting_list",
-            params={
-                "school_id": f"eq.{lesson_school_id}",
-                "active": "eq.true",
-                "select": "student_id,created_at,students(id,auth_user_id,full_name)",
-                "order": "created_at.asc",
-            },
-            headers=_sb_headers(),
-        )
-    if wl.status_code >= 400:
-        raise HTTPException(status_code=500, detail=f"Waiting list read failed: {wl.text}")
-    waiting_rows = wl.json()
-
+    # 3. Two ways to decide who gets notified: an explicit, instructor-
+    #    chosen list of students.id values (Phase 3's Select Students
+    #    picker), or the computed target modes below. student_ids takes
+    #    over entirely when present — scoped to this lesson's own school
+    #    for the same reason step 2 above checks lesson ownership, so one
+    #    instructor can't be made to broadcast to another school's
+    #    students by a crafted request.
     offered_to: Optional[str] = None
+    waiting_rows: list = []
     rows: list
-    if req.target == "everyone":
-        rows = waiting_rows
+    if req.student_ids:
+        async with httpx.AsyncClient(timeout=10.0) as client_http:
+            picked = await client_http.get(
+                f"{_sb_rest_base}/students",
+                params={
+                    "id": f"in.({','.join(req.student_ids)})",
+                    "school_id": f"eq.{lesson_school_id}",
+                    "select": "id,auth_user_id,full_name",
+                },
+                headers=_sb_headers(),
+            )
+        if picked.status_code >= 400:
+            raise HTTPException(status_code=500, detail=f"Selected students read failed: {picked.text}")
+        rows = [{"student_id": s.get("id"), "students": s} for s in picked.json()]
     else:
-        # Both fairness-ordered modes start from just the longest-waiting
-        # person (first row, since we sorted oldest-first above).
-        longest = waiting_rows[0] if waiting_rows else None
-        rows = [longest] if longest else []
-        if longest and longest.get("students"):
-            offered_to = longest["students"].get("full_name")
-        if req.target == "longest_waiting_plus_active":
-            # Merge in every Active student for this school, deduped by
-            # student_id against whoever's already in rows (the
-            # longest-waiting person may themselves be Active).
-            async with httpx.AsyncClient(timeout=10.0) as client_http:
-                act = await client_http.get(
-                    f"{_sb_rest_base}/students",
-                    params={
-                        "school_id": f"eq.{lesson_school_id}",
-                        "status": "eq.Active",
-                        "select": "id,auth_user_id,full_name",
-                    },
-                    headers=_sb_headers(),
-                )
-            if act.status_code >= 400:
-                raise HTTPException(status_code=500, detail=f"Active students read failed: {act.text}")
-            already = {row["student_id"] for row in rows if row.get("student_id")}
-            for s in act.json():
-                if s.get("id") not in already:
-                    rows.append({"student_id": s.get("id"), "students": s})
-                    already.add(s.get("id"))
+        # Pull the active waiting_list with each student's auth_user_id,
+        # oldest-created first — created_at is what "longest waiting"
+        # means here, since the table has no separate "joined queue at"
+        # field.
+        async with httpx.AsyncClient(timeout=10.0) as client_http:
+            wl = await client_http.get(
+                f"{_sb_rest_base}/waiting_list",
+                params={
+                    "school_id": f"eq.{lesson_school_id}",
+                    "active": "eq.true",
+                    "select": "student_id,created_at,students(id,auth_user_id,full_name)",
+                    "order": "created_at.asc",
+                },
+                headers=_sb_headers(),
+            )
+        if wl.status_code >= 400:
+            raise HTTPException(status_code=500, detail=f"Waiting list read failed: {wl.text}")
+        waiting_rows = wl.json()
+
+        if req.target == "everyone":
+            rows = waiting_rows
+        else:
+            # Both fairness-ordered modes start from just the longest-waiting
+            # person (first row, since we sorted oldest-first above).
+            longest = waiting_rows[0] if waiting_rows else None
+            rows = [longest] if longest else []
+            if longest and longest.get("students"):
+                offered_to = longest["students"].get("full_name")
+            if req.target == "longest_waiting_plus_active":
+                # Merge in every Active student for this school, deduped by
+                # student_id against whoever's already in rows (the
+                # longest-waiting person may themselves be Active).
+                async with httpx.AsyncClient(timeout=10.0) as client_http:
+                    act = await client_http.get(
+                        f"{_sb_rest_base}/students",
+                        params={
+                            "school_id": f"eq.{lesson_school_id}",
+                            "status": "eq.Active",
+                            "select": "id,auth_user_id,full_name",
+                        },
+                        headers=_sb_headers(),
+                    )
+                if act.status_code >= 400:
+                    raise HTTPException(status_code=500, detail=f"Active students read failed: {act.text}")
+                already = {row["student_id"] for row in rows if row.get("student_id")}
+                for s in act.json():
+                    if s.get("id") not in already:
+                        rows.append({"student_id": s.get("id"), "students": s})
+                        already.add(s.get("id"))
     auth_ids = [row["students"]["auth_user_id"] for row in rows if row.get("students") and row["students"].get("auth_user_id")]
     if not auth_ids:
-        detail = "No one is on the waiting list yet." if req.target == "everyone" else "No one to offer this to yet — the waiting list is empty and no students are marked Active."
+        if req.student_ids:
+            detail = "None of the selected students have a linked account yet."
+        elif req.target == "everyone":
+            detail = "No one is on the waiting list yet."
+        else:
+            detail = "No one to offer this to yet — the waiting list is empty and no students are marked Active."
         return GapBroadcastResponse(sent=0, skipped=0, detail=detail, offered_to=offered_to)
 
     # 4. Fetch push tokens for those users.
@@ -830,7 +865,8 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
     skipped = len(auth_ids) - len({row["auth_user_id"] for row in pt.json()})
 
     if not tokens:
-        return GapBroadcastResponse(sent=0, skipped=skipped, detail="Waiting-list members have no push tokens yet.", offered_to=offered_to)
+        no_token_detail = "None of the selected students have a push token yet." if req.student_ids else "Waiting-list members have no push tokens yet."
+        return GapBroadcastResponse(sent=0, skipped=skipped, detail=no_token_detail, offered_to=offered_to)
 
     # start_time / end_time are full ISO timestamptz strings — derive date + HH:MM.
     start_ts = lesson.get("start_time") or ""
@@ -854,7 +890,7 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
         f"You've been waiting the longest, so first refusal is yours: a "
         f"{start_hhmm}–{end_hhmm} slot on {lesson_date} just freed up. Open ADI Pro to grab it."
     )
-    offered_to_auth_id = waiting_rows[0]["students"]["auth_user_id"] if (req.target != "everyone" and waiting_rows and waiting_rows[0].get("students")) else None
+    offered_to_auth_id = waiting_rows[0]["students"]["auth_user_id"] if (not req.student_ids and req.target != "everyone" and waiting_rows and waiting_rows[0].get("students")) else None
 
     # 5. Fan out to Expo Push API in a single batched POST. Each recipient
     #    gets their own title/body — only the actual offered_to_auth_id
@@ -885,7 +921,9 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
         logging.exception("Expo Push fan-out failed")
         raise HTTPException(status_code=502, detail=f"Expo Push fan-out failed: {e}")
 
-    if req.target == "everyone":
+    if req.student_ids:
+        detail = f"Notified {sent} of {len(auth_ids)} selected student(s)."
+    elif req.target == "everyone":
         detail = f"Notified {sent} of {len(auth_ids)} waiting-list learner(s)."
     elif offered_to:
         extra = f" plus {len(auth_ids) - 1} active pupil(s)" if req.target == "longest_waiting_plus_active" and len(auth_ids) > 1 else ""

@@ -21,9 +21,9 @@ import {
 } from 'lucide-react-native';
 import { theme } from './theme';
 import { mockDb } from './mockDb';
-import { Lesson, Student, listWaitingList, type WaitingListEntry } from './supabaseDb';
+import { Lesson, Student, listWaitingList, type WaitingListEntry, studentAppUsageWarning } from './supabaseDb';
 import { patchLesson } from './useSupabaseData';
-import { useStudent, useVehicles, useInstructorProfile } from './useSupabaseData';
+import { useStudent, useStudents, useVehicles, useInstructorProfile } from './useSupabaseData';
 import { countUpcomingInSeries, cancelSeriesFromDate } from './useSupabaseData';
 import { useAuth } from './AuthContext';
 import { isPaidTier } from './tiers';
@@ -915,6 +915,16 @@ function GapBroadcastModal({ visible, onClose, lesson }: { visible: boolean; onC
   const [waitingList, setWaitingList] = useState<WaitingListEntry[]>([]);
   const [waitingLoading, setWaitingLoading] = useState(true);
 
+  // Phase 3 of the "not using the app" research (23 Sept 2026), per
+  // Grant directly — a real Select Students picker, replacing the
+  // single blind broadcast button entirely rather than just adding a
+  // couple of computed target modes on top of it. Toggles between two
+  // views within this same modal (not a second nested Modal — those are
+  // genuinely finicky on iOS) rather than the options view above.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const { students: allStudents } = useStudents();
+
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
@@ -926,11 +936,37 @@ function GapBroadcastModal({ visible, onClose, lesson }: { visible: boolean; onC
     return () => { cancelled = true; };
   }, [visible]);
 
+  // Reset to the options view, not mid-picker, each time the modal is
+  // freshly opened for a new gap.
+  useEffect(() => {
+    if (visible) { setPickerOpen(false); setSent(false); }
+  }, [visible]);
+
   if (!lesson) return null;
 
   const longestWaiting = waitingList[0];
 
-  const broadcast = async (target: Target) => {
+  const toggleStudent = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const openPicker = () => {
+    // Seeds the picker with the waiting list already checked — people
+    // who explicitly opted in to hear about gaps are the sensible
+    // starting point, rather than an opaque "recommended" algorithm we'd
+    // have to invent and couldn't really justify the criteria for. A
+    // one-time seed at the moment the picker opens, not a reactive
+    // effect, so it doesn't clobber the instructor's own edits if the
+    // waiting list happens to refetch while they're still picking.
+    setSelectedIds(new Set(waitingList.map((w) => w.student_id)));
+    setPickerOpen(true);
+  };
+
+  const broadcast = async (target: Target, studentIds?: string[]) => {
     setBusy(target);
     try {
       // Fetch the active session token for backend auth.
@@ -950,7 +986,9 @@ function GapBroadcastModal({ visible, onClose, lesson }: { visible: boolean; onC
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ lesson_id: lesson.id, target }),
+        body: JSON.stringify(
+          studentIds ? { lesson_id: lesson.id, student_ids: studentIds } : { lesson_id: lesson.id, target },
+        ),
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) {
@@ -981,53 +1019,102 @@ function GapBroadcastModal({ visible, onClose, lesson }: { visible: boolean; onC
       <View style={styles.modalBackdrop}>
         <View style={styles.modalCard} testID="gap-broadcast-modal">
           <Megaphone size={32} color={theme.colors.accent} />
-          <Text style={styles.modalTitle}>Broadcast the gap</Text>
+          <Text style={styles.modalTitle}>{pickerOpen ? 'Choose students' : 'Broadcast the gap'}</Text>
           <Text style={styles.modalSub}>
             The freed {new Date(lesson.date).toLocaleDateString('en-GB')} {lesson.start_time}–{lesson.end_time} slot. First to respond gets it.
           </Text>
-          {!sent ? (
-            waitingLoading ? (
-              <ActivityIndicator color={theme.colors.accent} style={{ marginVertical: 12 }} />
-            ) : (
-              <View style={{ width: '100%', gap: 8, marginTop: 8 }}>
-                {longestWaiting && (
-                  <>
-                    <Text style={styles.waitingSince} testID="gap-waiting-since">
-                      {waitingList.length} on the waiting list — {longestWaiting.full_name} has been waiting longest, since {waitingSinceLabel(longestWaiting.created_at)}.
-                    </Text>
-                    <BroadcastOption
-                      label={`Offer to ${longestWaiting.full_name} only`}
-                      onPress={() => broadcast('longest_waiting')}
-                      busy={busy === 'longest_waiting'}
-                      disabled={busy !== null}
-                      testID="btn-broadcast-longest"
-                    />
-                    <BroadcastOption
-                      label={`Offer to ${longestWaiting.full_name} + notify active pupils`}
-                      onPress={() => broadcast('longest_waiting_plus_active')}
-                      busy={busy === 'longest_waiting_plus_active'}
-                      disabled={busy !== null}
-                      testID="btn-broadcast-longest-plus-active"
-                    />
-                  </>
-                )}
-                <BroadcastOption
-                  label={longestWaiting ? 'Broadcast to everyone' : 'Broadcast now'}
-                  primary={!longestWaiting}
-                  onPress={() => broadcast('everyone')}
-                  busy={busy === 'everyone'}
-                  disabled={busy !== null}
-                  testID="btn-broadcast"
-                />
-              </View>
-            )
-          ) : (
+          {sent ? (
             <View style={styles.sentRow}>
               <Check size={18} color={theme.colors.success} />
               <Text style={styles.sentText}>
                 {resultCount !== null ? `Sent to ${resultCount} learner(s). ` : ''}
                 {resultDetail || 'First to respond wins the slot.'}
               </Text>
+            </View>
+          ) : pickerOpen ? (
+            <View style={{ width: '100%', gap: 8 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+                <TouchableOpacity onPress={() => setSelectedIds(new Set(allStudents.map((s) => s.id)))} testID="gap-select-all">
+                  <Text style={styles.modalLinkText}>Select all</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setSelectedIds(new Set())} testID="gap-select-none">
+                  <Text style={styles.modalLinkText}>Clear</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.pickerScroll} nestedScrollEnabled>
+                {allStudents.map((st) => {
+                  const warning = studentAppUsageWarning(st);
+                  const checked = selectedIds.has(st.id);
+                  return (
+                    <TouchableOpacity
+                      key={st.id}
+                      style={styles.pickerRow}
+                      onPress={() => toggleStudent(st.id)}
+                      testID={`gap-pick-${st.id}`}
+                    >
+                      <View style={[styles.pickerCheckbox, checked && styles.pickerCheckboxChecked]}>
+                        {checked && <Check size={13} color="#fff" />}
+                      </View>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.pickerName} numberOfLines={1}>{st.name}</Text>
+                        {!!warning && <Text style={styles.pickerWarning} numberOfLines={1}>⚠️ {warning}</Text>}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+              <BroadcastOption
+                label={`Send to ${selectedIds.size} selected`}
+                primary
+                onPress={() => broadcast('picked', Array.from(selectedIds))}
+                busy={busy === 'picked'}
+                disabled={busy !== null || selectedIds.size === 0}
+                testID="btn-broadcast-picked"
+              />
+              <TouchableOpacity onPress={() => setPickerOpen(false)} testID="gap-picker-back">
+                <Text style={styles.modalClose}>Back</Text>
+              </TouchableOpacity>
+            </View>
+          ) : waitingLoading ? (
+            <ActivityIndicator color={theme.colors.accent} style={{ marginVertical: 12 }} />
+          ) : (
+            <View style={{ width: '100%', gap: 8, marginTop: 8 }}>
+              {longestWaiting && (
+                <>
+                  <Text style={styles.waitingSince} testID="gap-waiting-since">
+                    {waitingList.length} on the waiting list — {longestWaiting.full_name} has been waiting longest, since {waitingSinceLabel(longestWaiting.created_at)}.
+                  </Text>
+                  <BroadcastOption
+                    label={`Offer to ${longestWaiting.full_name} only`}
+                    onPress={() => broadcast('longest_waiting')}
+                    busy={busy === 'longest_waiting'}
+                    disabled={busy !== null}
+                    testID="btn-broadcast-longest"
+                  />
+                  <BroadcastOption
+                    label={`Offer to ${longestWaiting.full_name} + notify active pupils`}
+                    onPress={() => broadcast('longest_waiting_plus_active')}
+                    busy={busy === 'longest_waiting_plus_active'}
+                    disabled={busy !== null}
+                    testID="btn-broadcast-longest-plus-active"
+                  />
+                </>
+              )}
+              <BroadcastOption
+                label={longestWaiting ? 'Broadcast to everyone' : 'Broadcast now'}
+                primary={!longestWaiting}
+                onPress={() => broadcast('everyone')}
+                busy={busy === 'everyone'}
+                disabled={busy !== null}
+                testID="btn-broadcast"
+              />
+              <BroadcastOption
+                label="Choose specific students…"
+                onPress={openPicker}
+                busy={false}
+                disabled={busy !== null}
+                testID="btn-broadcast-choose"
+              />
             </View>
           )}
           <TouchableOpacity onPress={onClose} testID="gap-close">
@@ -1039,7 +1126,7 @@ function GapBroadcastModal({ visible, onClose, lesson }: { visible: boolean; onC
   );
 }
 
-type Target = 'everyone' | 'longest_waiting' | 'longest_waiting_plus_active';
+type Target = 'everyone' | 'longest_waiting' | 'longest_waiting_plus_active' | 'picked';
 
 function waitingSinceLabel(iso: string): string {
   const days = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
@@ -1232,10 +1319,17 @@ const styles = StyleSheet.create({
   // waiting list) doesn't visually compete with them for attention.
   modalCtaSecondary: { backgroundColor: '#fff', borderWidth: 1.5, borderColor: theme.colors.accent, height: 50, borderRadius: 12, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch' },
   modalCtaSecondaryText: { color: theme.colors.accent, fontWeight: '700', fontSize: 14, textAlign: 'center' },
-  waitingSince: { fontSize: 12.5, color: theme.colors.textMuted, textAlign: 'center', marginBottom: 2 },
-  sentRow: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.successLight, padding: 12, borderRadius: 10, alignSelf: 'stretch' },
+  waitingSince: { fontSize: 12.5, color: theme.colors.textMuted, textAlign: 'center', marginBottom: 2 },  sentRow: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.successLight, padding: 12, borderRadius: 10, alignSelf: 'stretch' },
   sentText: { color: theme.colors.success, fontWeight: '600', flex: 1, fontSize: 13 },
   modalClose: { color: theme.colors.textMuted, marginTop: 8, fontWeight: '600' },
+  // Select Students picker (Phase 3, 23 Sept 2026)
+  modalLinkText: { color: theme.colors.accent, fontWeight: '700', fontSize: 13 },
+  pickerScroll: { maxHeight: 320, width: '100%', alignSelf: 'stretch' },
+  pickerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 2 },
+  pickerCheckbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center' },
+  pickerCheckboxChecked: { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent },
+  pickerName: { fontSize: 14.5, fontWeight: '600', color: theme.colors.text, textAlign: 'left' },
+  pickerWarning: { fontSize: 11.5, color: theme.colors.warning, textAlign: 'left' },
   // Complete-lesson modal
   stepperRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
   stepperLabel: { fontSize: 14, color: theme.colors.text, flex: 1, fontWeight: '500' },

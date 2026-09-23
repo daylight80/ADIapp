@@ -3,14 +3,15 @@ import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Modal } fr
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react-native';
-import { useLessonsForWeek, useLessonsForMonth, useStudents, patchLesson } from '../src/useSupabaseData';
+import { useLessonsForWeek, useLessonsForMonth, useStudents, patchLesson, useAvailabilityBlocks } from '../src/useSupabaseData';
 import { BottomNav } from '../src/BottomNav';
 import { LessonToolsSheet } from '../src/LessonToolsSheet';
-import { Lesson } from '../src/supabaseDb';
+import { Lesson, AvailabilityBlock } from '../src/supabaseDb';
 import { startOfWeek, addDays, localDateKey, startOfMonthGrid, endOfMonthGrid, addMonths, isSameMonth, assignOverlapColumns, findClashingLessons, snapMinutes, minutesToTime } from '../src/diary/dateUtils';
 import { colorForLessonType, LESSON_TYPES } from '../src/diary/lessonTypes';
 import { AddLessonSheet } from '../src/diary/AddLessonSheet';
 import { DraggableLessonBlock } from '../src/diary/DraggableLessonBlock';
+import { UnavailabilityModal } from '../src/UnavailabilityModal';
 import { useAuth } from '../src/AuthContext';
 import { isPaidTier } from '../src/tiers';
 
@@ -78,6 +79,15 @@ function toMinutesOfDay(hhmmStr: string): number {
   return h * 60 + m;
 }
 
+// Unavailability blocks (22 Sept 2026), per Grant directly — store
+// starts_at/ends_at as full ISO timestamptz, not a bare local HH:MM like
+// lessons do, so they need their own conversion to the same minutes-since-
+// midnight scale the day grid's pixel math (TOP_MIN/HOUR_H) already uses.
+function isoToMinutesOfDay(iso: string): number {
+  const d = new Date(iso);
+  return d.getHours() * 60 + d.getMinutes();
+}
+
 function getISOWeek(d: Date): number {
   const date = new Date(d.getTime());
   date.setHours(0, 0, 0, 0);
@@ -102,6 +112,16 @@ export default function LessonDiaryV2Screen() {
   });
   const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  // Unavailability integration (22 Sept 2026), per Grant directly — the
+  // Unavailabilities screen/modal/data layer already existed (Holiday/
+  // Personal/Family/Sick/Other, full CRUD), but lesson-diary-screen.tsx
+  // never fetched or rendered any of it, and its own Add Lesson call site
+  // hardcoded availBlocks={[]} despite AddLessonSheet's clash-detection
+  // already fully handling an 'unavailable' overlap once given real data.
+  // unavailOpen/editingBlock reuse the same UnavailabilityModal the
+  // dedicated screen already uses, rather than building a second one.
+  const [unavailOpen, setUnavailOpen] = useState(false);
+  const [editingBlock, setEditingBlock] = useState<AvailabilityBlock | null>(null);
   // Drag-and-drop rescheduling (25 Aug 2026, re-integrated) — the outer
   // vertical ScrollView is disabled for the duration of a drag so
   // gesture-handler has exclusive control of the touch; without this,
@@ -119,6 +139,14 @@ export default function LessonDiaryV2Screen() {
 
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
   const { lessons } = useLessonsForWeek(weekStart);
+  // Same weekStart window as lessons — covers Day and Week views. Month
+  // view doesn't render these yet (a reasonable next step, not this pass).
+  const { blocks: availBlocks } = useAvailabilityBlocks(weekStart, addDays(weekStart, 7));
+  // Just today's blocks, for the Day view's own rendering below.
+  const dayAvailBlocks = useMemo(
+    () => availBlocks.filter((b) => localDateKey(new Date(b.starts_at)) === localDateKey(selectedDate)),
+    [availBlocks, selectedDate],
+  );
 
   // Keep the open detail sheet's lesson in sync with the underlying data.
   // detailLesson is a snapshot captured at tap-time (setDetailLesson(l));
@@ -531,6 +559,29 @@ export default function LessonDiaryV2Screen() {
                     );
                   })}
 
+                  {dayAvailBlocks.map((b) => {
+                    const sMin = b.all_day ? TOP_MIN : Math.max(TOP_MIN, isoToMinutesOfDay(b.starts_at));
+                    const eMin = b.all_day ? BOTTOM_MIN : Math.min(BOTTOM_MIN, isoToMinutesOfDay(b.ends_at));
+                    const top = (sMin - TOP_MIN) / 60 * HOUR_H;
+                    const height = Math.max(20, (eMin - sMin) / 60 * HOUR_H - 2);
+                    return (
+                      <TouchableOpacity
+                        key={b.id}
+                        style={{
+                          position: 'absolute', left: 38, right: 0, top, height,
+                          backgroundColor: 'rgba(100,92,80,0.14)', borderWidth: 1, borderColor: 'rgba(100,92,80,0.3)',
+                          borderStyle: 'dashed', borderRadius: 8, padding: 6, justifyContent: 'center',
+                        }}
+                        onPress={() => { setEditingBlock(b); setUnavailOpen(true); }}
+                        testID={`v2-avail-block-${b.id}`}
+                      >
+                        <Text style={{ fontFamily: 'Barlow_700Bold', fontSize: 11.5, color: '#4A4438', textTransform: 'capitalize' }} numberOfLines={1}>
+                          {b.category}{b.reason ? ` · ${b.reason}` : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+
                   {dayList.length === 0 ? (
                     <TouchableOpacity style={[s.gapSlot, { top: 120, height: 70 }]} onPress={openAddAt} testID="v2-empty-day-slot">
                       <Text style={s.gapMeta}>No lessons booked — rest day</Text>
@@ -617,12 +668,34 @@ export default function LessonDiaryV2Screen() {
           )}
         </ScrollView>
 
+        {/* Secondary to the main FAB, not a hidden menu — MyDriveTime and
+            MyDriveTime's own "Diary Gap / Unavailability / Practical Test /
+            Lesson" picker both show every entry type as an equally-visible
+            option; a single "+ Add lesson" button with time-off buried
+            behind a long-press wasn't going to be discovered. Reuses the
+            same UnavailabilityModal the dedicated screen already has. */}
+        <TouchableOpacity
+          style={s.fabSecondary}
+          onPress={() => { setEditingBlock(null); setUnavailOpen(true); }}
+          testID="v2-fab-block-time"
+        >
+          <Text style={s.fabSecondaryText}>Block time</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={s.fab} onPress={openAddAt} testID="v2-fab-add">
           <Text style={s.fabText}>+ Add lesson</Text>
         </TouchableOpacity>
 
         <BottomNav role="instructor" />
       </View>
+
+      <UnavailabilityModal
+        visible={unavailOpen}
+        block={editingBlock}
+        initialDate={localDateKey(selectedDate)}
+        onClose={() => { setUnavailOpen(false); setEditingBlock(null); }}
+        onSaved={() => { setUnavailOpen(false); setEditingBlock(null); }}
+      />
 
       <LessonToolsSheet
         visible={!!detailLesson}
@@ -635,7 +708,7 @@ export default function LessonDiaryV2Screen() {
         onClose={() => setAddOpen(false)}
         students={students}
         lessons={lessons}
-        availBlocks={[]}
+        availBlocks={availBlocks}
         pro={paid}
         initialDate={localDateKey(selectedDate)}
         onCreated={() => { setAddOpen(false); setSelectedDate(new Date(selectedDate)); }}
@@ -746,6 +819,11 @@ const s = StyleSheet.create({
   lessonBlockTag: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1, color: 'rgba(255,255,255,0.85)' },
   fab: { position: 'absolute', right: 20, bottom: 96, height: 52, paddingHorizontal: 20, borderRadius: 999, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center', shadowColor: C.accent, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.4, shadowRadius: 20, elevation: 8 },
   fabText: { fontFamily: 'Barlow_700Bold', fontSize: 15, color: '#fff' },
+  // Sits directly above the main FAB, same right-alignment, deliberately
+  // lower visual weight (outlined, not filled) — "Add lesson" stays the
+  // one primary action, this is a secondary, still-always-visible option.
+  fabSecondary: { position: 'absolute', right: 20, bottom: 96 + 52 + 12, height: 44, paddingHorizontal: 18, borderRadius: 999, backgroundColor: '#fff', borderWidth: 1.5, borderColor: C.border, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.12, shadowRadius: 12, elevation: 4 },
+  fabSecondaryText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: C.text },
 
   monthHeaderText: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: C.textMuted },
   monthCell: { flex: 1, borderWidth: 0.5, borderColor: C.border, padding: 4, alignItems: 'stretch' },

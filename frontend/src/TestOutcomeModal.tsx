@@ -13,7 +13,11 @@ export type TestOutcomeModalProps = {
   visible: boolean;
   studentId: string;
   onClose: () => void;
-  onSaved?: () => void;
+  // Extended 23 Sept 2026, per Grant directly, to carry the outcome
+  // itself — the caller needs to know whether this was specifically a
+  // passed practical test to trigger the "ask for a review" prompt,
+  // and a bare callback with no arguments couldn't tell it that.
+  onSaved?: (outcome: { testType: TestType; result: TestResult }) => void;
 };
 
 const todayYmd = () => new Date().toISOString().slice(0, 10);
@@ -78,7 +82,7 @@ export function TestOutcomeModal({ visible, studentId, onClose, onSaved }: TestO
         theory_mc_score: testType === 'theory' ? toIntOrNull(mcScore) : null,
         theory_hp_score: testType === 'theory' ? toIntOrNull(hpScore) : null,
       });
-      onSaved?.();
+      onSaved?.({ testType, result });
       onClose();
     } catch (e: any) {
       setErr(e?.message || 'Could not save test outcome.');

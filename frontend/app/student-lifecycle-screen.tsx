@@ -961,12 +961,39 @@ export default function StudentProfileV2Screen() {
       </BottomSheet>
 
       {/* Log a test outcome — reuses the existing, already-working
-          TestOutcomeModal component rather than rebuilding it. */}
+          TestOutcomeModal component rather than rebuilding it.
+          onSaved (23 Sept 2026, per Grant directly) closes the gap
+          between passing a test and the Request a Google review button:
+          previously that button only appeared once student.status was
+          separately, manually set to 'Passed' via Amend — completing a
+          test outcome here never touched it at all, so passing a
+          practical test and the review button becoming visible were two
+          fully disconnected actions an instructor had to remember to do
+          separately. A pass on a practical test (theory tests don't
+          count — no in-car outcome to review) now calls the same
+          passStudent() the Amend screen's own Passed toggle already
+          uses, then prompts right there rather than leaving the
+          instructor to notice the button later. */}
       {student && (
         <TestOutcomeModal
           visible={testOutcomeOpen}
           studentId={student.id}
           onClose={() => setTestOutcomeOpen(false)}
+          onSaved={async ({ testType, result }) => {
+            if (testType === 'practical' && result === 'pass') {
+              if (student.status !== 'Passed') {
+                try { await passStudent(student.id); } catch { /* status update failing shouldn't block the review prompt below */ }
+              }
+              Alert.alert(
+                `${student.name.split(' ')[0]} passed! 🎉`,
+                'Send them a Google review request now?',
+                [
+                  { text: 'Not now', style: 'cancel' },
+                  { text: 'Send request', onPress: handleRequestReview },
+                ],
+              );
+            }
+          }}
         />
       )}
 

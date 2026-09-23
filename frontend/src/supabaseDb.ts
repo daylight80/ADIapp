@@ -34,6 +34,13 @@ export type Student = {
   notes_updated_at?: string | null;
   notes_updated_by?: string | null;
   notes_updated_by_name?: string | null;
+  // Added 23 Sept 2026, per Grant directly — Phase 1 of the "not using
+  // the app" research (MyDriveTime's Select Students broadcast screen):
+  // a student row with no linked auth account at all can't receive any
+  // push notification or use the student portal, full stop. Already
+  // fetched by listStudents()'s own select('*') below — just never
+  // carried through into the mapped object until now.
+  auth_user_id?: string | null;
 };
 
 // Row → app object (renames full_name → name, casts numerics)
@@ -60,6 +67,7 @@ const fromRow = (r: any): Student => ({
   notes_updated_at: r.notes_updated_at ?? null,
   notes_updated_by: r.notes_updated_by ?? null,
   notes_updated_by_name: r.notes_updated_by_name ?? null,
+  auth_user_id: r.auth_user_id ?? null,
 });
 
 // ---------------------------------------------------------------------------

@@ -424,6 +424,11 @@ export default function StudentsV2Screen() {
                         </Text>
                       )}
                       <Text style={s.name} numberOfLines={1}>{st.name}</Text>
+                      {!st.auth_user_id && (
+                        <Text style={s.noAccountBadge} numberOfLines={1}>
+                          ⚠️ Hasn&apos;t set up their account yet
+                        </Text>
+                      )}
                       <Text style={s.meta} numberOfLines={1}>
                         {st.lessons_count} lesson{st.lessons_count === 1 ? '' : 's'}
                         {st.progress != null ? ` · ${st.progress}% ready` : ''}
@@ -634,6 +639,7 @@ const s = StyleSheet.create({
   tile: { width: 44, height: 44, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   tileText: { fontFamily: 'Archivo_800ExtraBold', fontSize: 15, color: '#fff' },
   testBadge: { alignSelf: 'flex-start', fontFamily: 'Archivo_800ExtraBold', fontSize: 9.5, letterSpacing: 1.5, textTransform: 'uppercase', color: '#fff', backgroundColor: C.text, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 4, overflow: 'hidden' },
+  noAccountBadge: { fontFamily: 'Barlow_600SemiBold', fontSize: 11.5, color: C.warning },
   name: { fontFamily: 'Archivo_700Bold', fontSize: 16.5, letterSpacing: -0.15, color: C.text },
   meta: { fontFamily: 'Barlow_500Medium', fontSize: 12.5, color: C.textMuted2 },
   statusBadge: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 0.9, textTransform: 'uppercase', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, overflow: 'hidden' },

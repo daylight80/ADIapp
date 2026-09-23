@@ -520,6 +520,35 @@ export async function setWaitingListStatus(
   }
 }
 
+export type WaitingListEntry = {
+  student_id: string;
+  full_name: string;
+  created_at: string;
+};
+
+// Added 22 Sept 2026, per Grant directly — the fairness-ordered gap
+// broadcast needs to show the instructor who's actually longest-waiting
+// (and how long) before they choose who to offer a freed slot to, not
+// just fire a blind broadcast. RLS already scopes waiting_list to the
+// caller's own school, same as getWaitingListStatus/setWaitingListStatus
+// above, so no explicit school_id filter is needed here either.
+export async function listWaitingList(): Promise<WaitingListEntry[]> {
+  const { data, error } = await supabase
+    .from('waiting_list')
+    .select('student_id, created_at, students(full_name)')
+    .eq('active', true)
+    .order('created_at', { ascending: true });
+  if (error) {
+    if (/relation .*waiting_list.* does not exist/i.test(error.message || '')) {
+      return [];
+    }
+    throw error;
+  }
+  return (data || [])
+    .filter((row: any) => row.students?.full_name)
+    .map((row: any) => ({ student_id: row.student_id, full_name: row.students.full_name, created_at: row.created_at }));
+}
+
 
 
 export type AddStudentInput = {

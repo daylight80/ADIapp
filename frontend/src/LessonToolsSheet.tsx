@@ -21,7 +21,7 @@ import {
 } from 'lucide-react-native';
 import { theme } from './theme';
 import { mockDb } from './mockDb';
-import { Lesson, Student } from './supabaseDb';
+import { Lesson, Student, listWaitingList, type WaitingListEntry } from './supabaseDb';
 import { patchLesson } from './useSupabaseData';
 import { useStudent, useVehicles, useInstructorProfile } from './useSupabaseData';
 import { countUpcomingInSeries, cancelSeriesFromDate } from './useSupabaseData';
@@ -905,14 +905,33 @@ function CheckRow({ icon, label, checked, onToggle, testID }: any) {
 
 function GapBroadcastModal({ visible, onClose, lesson }: { visible: boolean; onClose: () => void; lesson: Lesson | null }) {
   const [sent, setSent] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<Target | null>(null);
   const [resultCount, setResultCount] = useState<number | null>(null);
   const [resultDetail, setResultDetail] = useState<string>('');
+  // Fairness-ordered targeting (22 Sept 2026), per Grant directly,
+  // researched from Drive My Way's own gap-offer flow — fetched fresh
+  // each time the modal opens (not just once on mount), since the
+  // waiting list can genuinely change between one gap and the next.
+  const [waitingList, setWaitingList] = useState<WaitingListEntry[]>([]);
+  const [waitingLoading, setWaitingLoading] = useState(true);
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    setWaitingLoading(true);
+    listWaitingList()
+      .then((rows) => { if (!cancelled) setWaitingList(rows); })
+      .catch(() => { if (!cancelled) setWaitingList([]); })
+      .finally(() => { if (!cancelled) setWaitingLoading(false); });
+    return () => { cancelled = true; };
+  }, [visible]);
 
   if (!lesson) return null;
 
-  const broadcast = async () => {
-    setBusy(true);
+  const longestWaiting = waitingList[0];
+
+  const broadcast = async (target: Target) => {
+    setBusy(target);
     try {
       // Fetch the active session token for backend auth.
       const { supabase: sbClient } = require('./supabaseClient') as typeof import('./supabaseClient');
@@ -931,11 +950,7 @@ function GapBroadcastModal({ visible, onClose, lesson }: { visible: boolean; onC
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          lesson_id: lesson.id,
-          title: 'Lesson slot just opened!',
-          body: `A ${lesson.start_time}–${lesson.end_time} slot has just freed up on ${new Date(lesson.date).toLocaleDateString('en-GB')}. Open ADI Pro to grab it before it's gone.`,
-        }),
+        body: JSON.stringify({ lesson_id: lesson.id, target }),
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) {
@@ -957,7 +972,7 @@ function GapBroadcastModal({ visible, onClose, lesson }: { visible: boolean; onC
     } catch (e: any) {
       Alert.alert('Broadcast failed', e?.message || 'Could not send broadcast.');
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
@@ -968,20 +983,44 @@ function GapBroadcastModal({ visible, onClose, lesson }: { visible: boolean; onC
           <Megaphone size={32} color={theme.colors.accent} />
           <Text style={styles.modalTitle}>Broadcast the gap</Text>
           <Text style={styles.modalSub}>
-            Notify everyone on the waiting list about the freed{' '}
-            {new Date(lesson.date).toLocaleDateString('en-GB')} {lesson.start_time}–{lesson.end_time} slot. First to respond gets the slot.
+            The freed {new Date(lesson.date).toLocaleDateString('en-GB')} {lesson.start_time}–{lesson.end_time} slot. First to respond gets it.
           </Text>
           {!sent ? (
-            <TouchableOpacity
-              style={[styles.modalCta, busy && styles.btnDisabled]}
-              onPress={broadcast}
-              disabled={busy}
-              testID="btn-broadcast"
-            >
-              {busy
-                ? <ActivityIndicator color="#fff" />
-                : <Text style={styles.modalCtaText}>Broadcast now</Text>}
-            </TouchableOpacity>
+            waitingLoading ? (
+              <ActivityIndicator color={theme.colors.accent} style={{ marginVertical: 12 }} />
+            ) : (
+              <View style={{ width: '100%', gap: 8, marginTop: 8 }}>
+                {longestWaiting && (
+                  <>
+                    <Text style={styles.waitingSince} testID="gap-waiting-since">
+                      {waitingList.length} on the waiting list — {longestWaiting.full_name} has been waiting longest, since {waitingSinceLabel(longestWaiting.created_at)}.
+                    </Text>
+                    <BroadcastOption
+                      label={`Offer to ${longestWaiting.full_name} only`}
+                      onPress={() => broadcast('longest_waiting')}
+                      busy={busy === 'longest_waiting'}
+                      disabled={busy !== null}
+                      testID="btn-broadcast-longest"
+                    />
+                    <BroadcastOption
+                      label={`Offer to ${longestWaiting.full_name} + notify active pupils`}
+                      onPress={() => broadcast('longest_waiting_plus_active')}
+                      busy={busy === 'longest_waiting_plus_active'}
+                      disabled={busy !== null}
+                      testID="btn-broadcast-longest-plus-active"
+                    />
+                  </>
+                )}
+                <BroadcastOption
+                  label={longestWaiting ? 'Broadcast to everyone' : 'Broadcast now'}
+                  primary={!longestWaiting}
+                  onPress={() => broadcast('everyone')}
+                  busy={busy === 'everyone'}
+                  disabled={busy !== null}
+                  testID="btn-broadcast"
+                />
+              </View>
+            )
           ) : (
             <View style={styles.sentRow}>
               <Check size={18} color={theme.colors.success} />
@@ -997,6 +1036,33 @@ function GapBroadcastModal({ visible, onClose, lesson }: { visible: boolean; onC
         </View>
       </View>
     </Modal>
+  );
+}
+
+type Target = 'everyone' | 'longest_waiting' | 'longest_waiting_plus_active';
+
+function waitingSinceLabel(iso: string): string {
+  const days = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 14) return `${days} days ago`;
+  return `${Math.round(days / 7)} weeks ago`;
+}
+
+function BroadcastOption({ label, onPress, busy, disabled, primary, testID }: {
+  label: string; onPress: () => void; busy: boolean; disabled: boolean; primary?: boolean; testID: string;
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.modalCta, primary ? undefined : styles.modalCtaSecondary, disabled && !busy && styles.btnDisabled]}
+      onPress={onPress}
+      disabled={disabled}
+      testID={testID}
+    >
+      {busy
+        ? <ActivityIndicator color={primary ? '#fff' : theme.colors.accent} />
+        : <Text style={primary ? styles.modalCtaText : styles.modalCtaSecondaryText}>{label}</Text>}
+    </TouchableOpacity>
   );
 }
 
@@ -1160,6 +1226,13 @@ const styles = StyleSheet.create({
   modalSub: { fontSize: 14, color: theme.colors.textMuted, textAlign: 'center' },
   modalCta: { backgroundColor: theme.colors.accent, height: 50, borderRadius: 12, paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch' },
   modalCtaText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  // Secondary variant for the two fairness-ordered options (22 Sept
+  // 2026) — outlined rather than filled, so "Broadcast to everyone"
+  // (still filled/primary when it's the ONLY option, i.e. an empty
+  // waiting list) doesn't visually compete with them for attention.
+  modalCtaSecondary: { backgroundColor: '#fff', borderWidth: 1.5, borderColor: theme.colors.accent, height: 50, borderRadius: 12, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch' },
+  modalCtaSecondaryText: { color: theme.colors.accent, fontWeight: '700', fontSize: 14, textAlign: 'center' },
+  waitingSince: { fontSize: 12.5, color: theme.colors.textMuted, textAlign: 'center', marginBottom: 2 },
   sentRow: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.successLight, padding: 12, borderRadius: 10, alignSelf: 'stretch' },
   sentText: { color: theme.colors.success, fontWeight: '600', flex: 1, fontSize: 13 },
   modalClose: { color: theme.colors.textMuted, marginTop: 8, fontWeight: '600' },

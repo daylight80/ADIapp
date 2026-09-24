@@ -70,14 +70,16 @@ REMINDER_OFFSETS = [
     {"kind": "h1",  "minutes":      60, "label": "Lesson in 1 hour"},
 ]
 
-# Growth+ feature per tiers.ts's isPaidTier (31 Aug 2026, tier-gating
+# Paid-tier feature per tiers.ts's isPaidTier (31 Aug 2026, tier-gating
 # audit) — this dispatcher previously sent to every student regardless of
 # their instructor's tier, with zero tier-checking anywhere in this file.
 # Mirrors the frontend's isPaidTier() exactly, including its "unknown tier
 # defaults to Starter" behaviour (tierById() falls back to TIERS[0]) — an
 # instructor with a missing/unrecognised tier should not receive a paid
-# feature by accident.
-PAID_TIERS = {"growth", "pro", "franchise"}
+# feature by accident. 'growth' was removed with the Growth tier
+# (23 Sept 2026, Migration 037); a stray legacy row is treated as Starter,
+# same as the frontend.
+PAID_TIERS = {"pro", "franchise"}
 
 
 def _is_paid_tier(tier: Optional[str]) -> bool:

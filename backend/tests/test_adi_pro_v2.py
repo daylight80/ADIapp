@@ -199,7 +199,7 @@ class TestBillingCheckoutStructure:
         r = requests.post(
             f"{BASE_URL}/api/v2/billing/checkout",
             headers={**owner_hdrs, "Content-Type": "application/json"},
-            json={"tier": "growth", "seat_count": 1},
+            json={"tier": "pro", "seat_count": 1},
             timeout=20,
         )
         if r.status_code == 400 and "already have" in r.text.lower():
@@ -218,10 +218,20 @@ class TestBillingCheckoutStructure:
         )
         assert r.status_code == 422
 
+    def test_checkout_retired_growth_tier_422(self, owner_hdrs):
+        """Growth was retired (Migration 037) — it must no longer be purchasable."""
+        r = requests.post(
+            f"{BASE_URL}/api/v2/billing/checkout",
+            headers={**owner_hdrs, "Content-Type": "application/json"},
+            json={"tier": "growth"},
+            timeout=10,
+        )
+        assert r.status_code == 422
+
     def test_checkout_no_token_401(self):
         r = requests.post(
             f"{BASE_URL}/api/v2/billing/checkout",
-            json={"tier": "growth"},
+            json={"tier": "pro"},
             timeout=10,
         )
         assert r.status_code == 401

@@ -41,7 +41,12 @@ GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 ANTHROPIC_API_KEY   = os.environ.get("ANTHROPIC_API_KEY", "")
 
 # Stripe Price IDs per subscription tier (set in backend/.env)
-STRIPE_PRICE_GROWTH         = os.environ.get("STRIPE_PRICE_GROWTH", "")
+# STRIPE_PRICE_GROWTH removed (23 Sept 2026) — Growth tier no longer
+# exists, per Grant directly (tiers.ts). STRIPE_PRICE_PRO and
+# STRIPE_PRICE_FRANCHISE_* now need to point at NEW Stripe Price objects
+# at the new amounts (£11.99 and £13.99+£9.99/seat) — Stripe Prices are
+# immutable once created, so these can't just be edited in place; see
+# Migration 037's own notes for the full rollout.
 STRIPE_PRICE_PRO            = os.environ.get("STRIPE_PRICE_PRO", "")
 STRIPE_PRICE_FRANCHISE_BASE = os.environ.get("STRIPE_PRICE_FRANCHISE_BASE", "")
 STRIPE_PRICE_FRANCHISE_SEAT = os.environ.get("STRIPE_PRICE_FRANCHISE_SEAT", "")
@@ -56,14 +61,10 @@ def tier_to_line_items(tier: str, seat_count: int = 1):
     """Return the Stripe Checkout line_items list for a given subscription tier.
 
     For 'franchise', the school is billed:
-        - £39.99/mo base (qty 1, always)
-        - £10/mo per additional instructor beyond the first (qty = seat_count - 1)
+        - £13.99/mo base (qty 1, always)
+        - £9.99/mo per additional instructor beyond the first (qty = seat_count - 1)
     """
     tier = (tier or "").lower()
-    if tier == "growth":
-        if not STRIPE_PRICE_GROWTH:
-            raise HTTPException(status_code=500, detail="STRIPE_PRICE_GROWTH is not configured")
-        return [{"price": STRIPE_PRICE_GROWTH, "quantity": 1}]
     if tier == "pro":
         if not STRIPE_PRICE_PRO:
             raise HTTPException(status_code=500, detail="STRIPE_PRICE_PRO is not configured")
@@ -92,7 +93,7 @@ logger = logging.getLogger(__name__)
 class CheckoutSessionRequest(BaseModel):
     success_url: Optional[str] = None
     cancel_url: Optional[str] = None
-    tier: Optional[Literal["growth", "pro", "franchise"]] = None
+    tier: Optional[Literal["pro", "franchise"]] = None
     seat_count: Optional[int] = 1
 
 
@@ -404,7 +405,7 @@ async def get_current_supabase_user(authorization: Optional[str] = Header(None))
 # ============================================================================
 
 class CheckoutV2Request(BaseModel):
-    tier: Literal["growth", "pro", "franchise"]
+    tier: Literal["pro", "franchise"]
     seat_count: Optional[int] = 1
     success_url: Optional[str] = None
     cancel_url: Optional[str] = None
@@ -511,7 +512,6 @@ async def billing_v2_sync_seats(sb_user: dict = Depends(get_current_supabase_use
 # ============================================================================
 
 def _tier_from_price_id(price_id: str) -> Optional[str]:
-    if price_id == STRIPE_PRICE_GROWTH:           return "growth"
     if price_id == STRIPE_PRICE_PRO:              return "pro"
     if price_id == STRIPE_PRICE_FRANCHISE_BASE:   return "franchise"
     if price_id == STRIPE_PRICE_FRANCHISE_SEAT:   return "franchise"
@@ -612,7 +612,7 @@ async def _apply_referral_reward_if_due(school: dict) -> None:
     # read live from Stripe rather than hardcoded, so it can never drift
     # out of sync with whatever the actual price is at the time.
     try:
-        referrer_tier = referrer_school.get("tier") or "growth"
+        referrer_tier = referrer_school.get("tier") or "pro"
         price_id = tier_to_line_items(referrer_tier)[0]["price"]
         price = stripe.Price.retrieve(price_id)
         credit_amount = price["unit_amount"]  # pence, positive
@@ -1363,7 +1363,7 @@ async def v2_school_leaderboard(sb_user: dict = Depends(get_current_supabase_use
 
     # Tier / seat metadata so the UI can render the badge + gate the invite button
     tier = (school.get("tier") or "starter").lower()
-    seat_limit_map = {"starter": 1, "growth": 1, "pro": 1, "franchise": None}
+    seat_limit_map = {"starter": 1, "pro": 1, "franchise": None}
     seat_limit = seat_limit_map.get(tier, 1)
     seat_count = len(instructors)
     can_add = (seat_limit is None) or (seat_count < seat_limit)

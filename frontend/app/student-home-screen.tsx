@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/AuthContext';
 import { BottomNav } from '../src/BottomNav';
-import { isPaidTier } from '../src/tiers';
+import { isPaidTier, tierById } from '../src/tiers';
 import {
   useStudentByAuthId, useStudentByEmail, useCompetencies, useLessonsForStudent,
   useBadges, useReflectiveLogs, useMockTestAttempts, createReflectiveLog,
@@ -266,7 +266,7 @@ export default function StudentAppV2Screen() {
                 <View style={s.lockedIcon}><Text style={{ fontSize: 17, color: C.warmText }}>✳</Text></View>
                 <View style={{ flex: 1 }}>
                   <Text style={s.lockedTitle}>Tracker locked</Text>
-                  <Text style={s.lockedSub}>Included from Growth tier. Ask your instructor to upgrade.</Text>
+                  <Text style={s.lockedSub}>{`Included from ${tierById('pro').name} tier. Ask your instructor to upgrade.`}</Text>
                 </View>
               </View>
             ) : (

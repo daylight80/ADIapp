@@ -13,11 +13,19 @@ import {
   TIERS,
 } from '../tiers';
 
+// Updated 23 Sept 2026, per Grant directly — Growth removed entirely
+// (was priced above Drive My Way's equivalent unlimited-student tier),
+// Pro retitled "ADI Pro" and repriced £24.99 -> £11.99 to match Drive
+// My Way's Solo Instructor exactly, Franchise repriced £39.99+£10/seat
+// -> £13.99+£9.99/seat to match their Driving School tier exactly.
+// Every test below that referenced 'growth' either now targets 'pro'
+// (the id didn't change, only its name/price) or was removed outright
+// where it had no equivalent left to test.
+
 describe('tierById', () => {
   it('finds each real tier by id', () => {
     expect(tierById('starter').name).toBe('Starter');
-    expect(tierById('growth').name).toBe('Growth');
-    expect(tierById('pro').name).toBe('Pro');
+    expect(tierById('pro').name).toBe('ADI Pro');
     expect(tierById('franchise').name).toBe('Franchise');
   });
 
@@ -29,6 +37,10 @@ describe('tierById', () => {
     expect(tierById(null).id).toBe('starter');
     expect(tierById(undefined).id).toBe('starter');
   });
+
+  it('falls back to Starter for the now-retired growth id', () => {
+    expect(tierById('growth').id).toBe('starter');
+  });
 });
 
 describe('isPaidTier', () => {
@@ -37,7 +49,6 @@ describe('isPaidTier', () => {
   });
 
   it('is true for every tier above Starter', () => {
-    expect(isPaidTier('growth')).toBe(true);
     expect(isPaidTier('pro')).toBe(true);
     expect(isPaidTier('franchise')).toBe(true);
   });
@@ -47,6 +58,10 @@ describe('isPaidTier', () => {
     expect(isPaidTier(null)).toBe(false);
     expect(isPaidTier(undefined)).toBe(false);
   });
+
+  it('treats the now-retired growth id as not paid too — nothing should still be minting free access off a dead tier', () => {
+    expect(isPaidTier('growth')).toBe(false);
+  });
 });
 
 describe('isFranchiseTier', () => {
@@ -54,9 +69,8 @@ describe('isFranchiseTier', () => {
     expect(isFranchiseTier('franchise')).toBe(true);
   });
 
-  it('is false for every other tier, including Pro', () => {
+  it('is false for every other tier', () => {
     expect(isFranchiseTier('starter')).toBe(false);
-    expect(isFranchiseTier('growth')).toBe(false);
     expect(isFranchiseTier('pro')).toBe(false);
   });
 });
@@ -67,9 +81,8 @@ describe('isProTier', () => {
     expect(isProTier('franchise')).toBe(true);
   });
 
-  it('is false for Starter and Growth', () => {
+  it('is false for Starter', () => {
     expect(isProTier('starter')).toBe(false);
-    expect(isProTier('growth')).toBe(false);
   });
 });
 
@@ -83,11 +96,6 @@ describe('canAddStudent', () => {
     expect(canAddStudent('pro', 0)).toBe(true);
     expect(canAddStudent('pro', 100000)).toBe(true);
     expect(canAddStudent('franchise', 100000)).toBe(true);
-  });
-
-  it('uses the correct per-tier limit for Growth (15)', () => {
-    expect(canAddStudent('growth', 14)).toBe(true);
-    expect(canAddStudent('growth', 15)).toBe(false);
   });
 });
 
@@ -157,12 +165,12 @@ describe('studentUsageMessage', () => {
 
   it('gives the mildest, generic upsell well under the warning threshold', () => {
     const msg = studentUsageMessage(1, 5); // 20%, nowhere near warning
-    expect(msg).toMatch(/unlock more students/i);
+    expect(msg).toMatch(/unlock unlimited students/i);
   });
 
-  it('every non-empty message names Growth\u2019s real current price, not a stale hardcoded figure', () => {
-    const growthPrice = tierById('growth').price_gbp;
-    expect(studentUsageMessage(5, 5)).toContain(String(growthPrice));
+  it("every non-empty message names ADI Pro's real current price, not a stale hardcoded figure — was Growth's, now the only paid tier above Starter", () => {
+    const proPrice = tierById('pro').price_gbp;
+    expect(studentUsageMessage(5, 5)).toContain(String(proPrice));
   });
 });
 
@@ -177,7 +185,7 @@ describe('schoolDisplayName', () => {
   });
 
   it('drops the ADI-number suffix cleanly when no ADI number is set', () => {
-    expect(schoolDisplayName('growth', 'Auto Name', 'Jane Smith', null)).toBe('Jane Smith');
+    expect(schoolDisplayName('pro', 'Auto Name', 'Jane Smith', null)).toBe('Jane Smith');
   });
 
   it('falls back to the business name if even the instructor name is missing', () => {
@@ -194,8 +202,8 @@ describe('schoolDisplayName', () => {
 });
 
 describe('TIERS data integrity', () => {
-  it('has exactly the four tiers this whole app is built around, in a stable order', () => {
-    expect(TIERS.map((t) => t.id)).toEqual(['starter', 'growth', 'pro', 'franchise']);
+  it('has exactly the three tiers this app is now built around, in a stable order', () => {
+    expect(TIERS.map((t) => t.id)).toEqual(['starter', 'pro', 'franchise']);
   });
 
   it('prices increase monotonically with tier — catches an accidental typo/swap', () => {
@@ -207,5 +215,15 @@ describe('TIERS data integrity', () => {
 
   it('Starter is genuinely free', () => {
     expect(tierById('starter').price_gbp).toBe(0);
+  });
+
+  it('ADI Pro matches Drive My Way Solo Instructor exactly (£11.99/mo)', () => {
+    expect(tierById('pro').price_gbp).toBe(11.99);
+  });
+
+  it('Franchise matches Drive My Way Driving School exactly (£13.99/mo + £9.99/seat)', () => {
+    const franchise = tierById('franchise');
+    expect(franchise.price_gbp).toBe(13.99);
+    expect(franchise.per_seat_gbp).toBe(9.99);
   });
 });

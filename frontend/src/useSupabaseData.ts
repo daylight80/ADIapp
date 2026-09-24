@@ -417,7 +417,7 @@ export async function updateCompetency(
 ) {
   const row = await db.upsertCompetency(studentId, category_key, patch);
   // Auto-award a "Confident: <category>" badge once a learner reaches Level 4+.
-  // Gated by tier — Starter plan does NOT get auto-awarded badges (Growth+ only).
+  // Gated by tier — Starter plan does NOT get auto-awarded badges (paid tiers only).
   try {
     const { data: { session } } = await supabase.auth.getSession();
     const uid = session?.user.id;
@@ -428,7 +428,7 @@ export async function updateCompetency(
         .eq('auth_user_id', uid)
         .maybeSingle();
       const tier = ((data as any)?.driving_schools?.tier) || 'starter';
-      if (tier === 'growth' || tier === 'pro' || tier === 'franchise') {
+      if (tier === 'pro' || tier === 'franchise') {
         await db.maybeAwardCompetencyBadge(studentId, row);
       }
     }

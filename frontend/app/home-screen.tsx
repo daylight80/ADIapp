@@ -200,7 +200,7 @@ export default function InstructorHomeV2Screen() {
                 <View style={s.upgradeIcon}><Crown size={18} color="#fff" /></View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={s.upgradeTitle}>
-                    {urgency === 'critical' ? "You've reached your limit" : `Upgrade to ${tierById('growth').name}`}
+                    {urgency === 'critical' ? "You've reached your limit" : `Upgrade to ${tierById('pro').name}`}
                   </Text>
                   <Text style={s.upgradeSub} numberOfLines={1}>
                     {students.length}/{limit} students used · {studentUsageMessage(students.length, limit)}

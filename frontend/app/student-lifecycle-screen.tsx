@@ -18,7 +18,7 @@ import {
   listMySyllabuses, applySyllabusToStudent, type InstructorSyllabus,
   getLatestReminderStatus, type LessonReminderStatus, getInstructorProfile,
 } from '../src/supabaseDb';
-import { isPaidTier } from '../src/tiers';
+import { isPaidTier, tierById } from '../src/tiers';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { openSmsComposer } from '../src/tools';
 import { colorForLessonType } from '../src/diary/lessonTypes';
@@ -809,7 +809,7 @@ export default function StudentProfileV2Screen() {
               <View style={s.lockedCard}>
                 <View style={s.lockedIcon}><Text style={{ fontSize: 20, color: C.warmText }}>✳</Text></View>
                 <Text style={s.lockedTitle}>Competency tracker locked</Text>
-                <Text style={s.lockedSub}>Track progress against the DVSA syllabus — included from Growth tier (£14.99/mo).</Text>
+                <Text style={s.lockedSub}>{`Track progress against the DVSA syllabus — included from ${tierById('pro').name} tier (£${tierById('pro').price_gbp}/mo).`}</Text>
                 <TouchableOpacity style={s.upgradeBtn} onPress={() => router.push('/pricing-screen' as any)} testID="v2-view-plans">
                   <Text style={s.upgradeBtnText}>View plans</Text>
                 </TouchableOpacity>
@@ -1000,13 +1000,13 @@ export default function StudentProfileV2Screen() {
       <PaywallModal
         visible={routePaywallOpen}
         onClose={() => setRoutePaywallOpen(false)}
-        reason="Route recording is available from Growth tier."
+        reason={`Route recording is available from ${tierById('pro').name} tier.`}
       />
 
       <PaywallModal
         visible={invoicePaywallOpen}
         onClose={() => setInvoicePaywallOpen(false)}
-        reason="PDF invoices are available from Growth tier."
+        reason={`PDF invoices are available from ${tierById('pro').name} tier.`}
       />
 
       <Modal

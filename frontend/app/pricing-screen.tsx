@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { ArrowLeft, Check, Crown, Sparkles, Users, User as UserIcon, Car, Building2, GraduationCap } from 'lucide-react-native';
+import { ArrowLeft, Check, Crown, Sparkles, User as UserIcon, Car, Building2, GraduationCap } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { api } from '../src/api';
 import { useAuth } from '../src/AuthContext';
@@ -216,7 +216,6 @@ function TierCard({
 }) {
   const Icon =
     spec.id === 'starter' ? UserIcon :
-    spec.id === 'growth'  ? Users :
     spec.id === 'pro'     ? Crown :
     Building2;
 

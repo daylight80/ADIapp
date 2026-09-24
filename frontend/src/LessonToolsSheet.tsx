@@ -26,7 +26,7 @@ import { patchLesson } from './useSupabaseData';
 import { useStudent, useStudents, useVehicles, useInstructorProfile } from './useSupabaseData';
 import { countUpcomingInSeries, cancelSeriesFromDate } from './useSupabaseData';
 import { useAuth } from './AuthContext';
-import { isPaidTier } from './tiers';
+import { isPaidTier, tierById } from './tiers';
 import { PaywallModal } from './PaywallModal';
 import { queueLessonWrite, useIsOnline } from './offlineSync';
 import { openNavigation, openSmsComposer } from './tools';
@@ -878,7 +878,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
     <PaywallModal
       visible={routePaywallOpen}
       onClose={() => setRoutePaywallOpen(false)}
-      reason="Route recording is available from Growth tier."
+      reason={`Route recording is available from ${tierById('pro').name} tier.`}
     />
     </>
   );

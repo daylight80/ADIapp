@@ -4,7 +4,10 @@
 
 import { supabase } from './supabaseClient';
 
-export type Tier = 'starter' | 'growth' | 'pro' | 'franchise';
+// 'growth' removed from the union (23 Sept 2026) — the tier itself is
+// gone, not just relabelled; see Migration 037 for the one-time move of
+// existing Growth schools onto 'pro'/ADI Pro.
+export type Tier = 'starter' | 'pro' | 'franchise';
 
 export type TierSpec = {
   id: Tier;
@@ -31,55 +34,53 @@ export const TIERS: TierSpec[] = [
     ],
   },
   {
-    id: 'growth',
-    name: 'Growth',
-    price_gbp: 14.99,
-    student_limit: 15,
-    instructor_limit: 1,
-    blurb: 'For solo ADIs scaling their lesson book.',
-    features: [
-      'Up to 15 active students',
-      'Everything in Starter',
-      'DVSA competency tracker',
-      'KPI dashboard & PDF invoices',
-      'Pro features: lesson reminders, push notifications',
-      'Traffic-aware travel time auto-suggest',
-      // Added 11 Sept 2026, per Grant directly — these two were already
-      // genuinely gated at Growth+ throughout the app (receipts-screen.tsx,
-      // route-recorder-screen.tsx, LessonToolsSheet.tsx), found during a
-      // fresh cross-check of every isPaidTier()/isProTier()/
-      // isFranchiseTier() call site in the codebase against this file's
-      // own copy — just never reflected in this list itself until now.
-      'Receipts & expense logging with photo OCR',
-      'Route recording for lessons',
-    ],
-  },
-  {
+    // Retitled from "Pro" and repriced £24.99 -> £11.99 (23 Sept 2026),
+    // per Grant directly, to match Drive My Way's Solo Instructor tier
+    // exactly — Growth (£14.99/mo, capped at 15 students) removed
+    // entirely, since it sat priced ABOVE a competitor offering
+    // unlimited students for less. id stays 'pro' deliberately: it's
+    // the display name and price changing, not the tier itself, so
+    // every existing tier === 'pro' / isProTier() check throughout the
+    // app (and every driving_schools.tier = 'pro' row already in the
+    // database) keeps working completely unchanged — no DB migration
+    // needed for this tier, only for moving former Growth schools onto
+    // it (see Migration 037). Every former Growth feature is folded
+    // directly into this list below now that there's no separate
+    // Growth tier for "Everything in Growth" to point back to.
     id: 'pro',
-    name: 'Pro',
-    price_gbp: 24.99,
+    name: 'ADI Pro',
+    price_gbp: 11.99,
     student_limit: null,
     instructor_limit: 1,
-    blurb: 'Single-instructor — your own RHD vehicle.',
+    blurb: 'Solo ADIs — your own RHD vehicle, unlimited students.',
     features: [
       'Unlimited active students',
-      'Everything in Growth',
+      'Lesson diary, day & week views',
+      'DVSA competency tracker',
+      'KPI dashboard & PDF invoices',
+      'Lesson reminders, push notifications',
+      'Traffic-aware travel time auto-suggest',
+      'Receipts & expense logging with photo OCR',
+      'Route recording for lessons',
       'Block booking & wallet management',
       'Priority email support',
     ],
     recommended: true,
   },
   {
+    // Repriced £39.99+£10/seat -> £13.99+£9.99/seat (23 Sept 2026), per
+    // Grant directly, to match Drive My Way's Driving School tier
+    // exactly. Name and features unchanged — only the price.
     id: 'franchise',
     name: 'Franchise',
-    price_gbp: 39.99,
-    per_seat_gbp: 10.0,
+    price_gbp: 13.99,
+    per_seat_gbp: 9.99,
     student_limit: null,
     instructor_limit: null,
     blurb: 'Multi-car driving schools — billed per seat.',
     features: [
       'Unlimited students across the fleet',
-      'Unlimited instructors (£10 / seat after the first)',
+      'Unlimited instructors (£9.99 / seat after the first)',
       'Ranked instructor leaderboard, sortable by lessons, students, pass rate',
       'Multi-vehicle management & RHD compliance flag',
     ],
@@ -94,7 +95,7 @@ export const tierById = (id: string | null | undefined): TierSpec =>
 // invoices, push notifications, traffic-aware travel time, and auto-award
 // competency badges. Starter intentionally returns false.
 export function isPaidTier(tier: string | null | undefined): boolean {
-  return tier === 'growth' || tier === 'pro' || tier === 'franchise';
+  return tier === 'pro' || tier === 'franchise';
 }
 
 // For features genuinely exclusive to the top tier — e.g. multi-instructor
@@ -186,18 +187,20 @@ export function studentUsageUrgency(current: number, limit: number | null): Usag
 // feels consistent wherever it's seen.
 export function studentUsageMessage(current: number, limit: number | null): string {
   if (limit === null || limit === 0) return '';
-  const growth = tierById('growth');
+  // Was tierById('growth') — Growth no longer exists; Starter's 5-student
+  // cap now nudges straight to ADI Pro (unlimited), the only tier above it.
+  const upgrade = tierById('pro');
   const remaining = limit - current;
   if (remaining <= 0) {
-    return `You've reached your limit — upgrade to ${growth.name} (£${growth.price_gbp}/mo) to add more students.`;
+    return `You've reached your limit — upgrade to ${upgrade.name} (£${upgrade.price_gbp}/mo) to add more students.`;
   }
   if (remaining === 1) {
-    return `Just 1 spot left — upgrade to ${growth.name} (£${growth.price_gbp}/mo) before you hit your limit.`;
+    return `Just 1 spot left — upgrade to ${upgrade.name} (£${upgrade.price_gbp}/mo) before you hit your limit.`;
   }
   if (studentUsageUrgency(current, limit) === 'warning') {
-    return `Getting close to your limit — upgrade to ${growth.name} (£${growth.price_gbp}/mo) for more room to grow.`;
+    return `Getting close to your limit — upgrade to ${upgrade.name} (£${upgrade.price_gbp}/mo) for more room to grow.`;
   }
-  return `Unlock more students + invoicing from £${growth.price_gbp}/mo.`;
+  return `Unlock unlimited students + invoicing from £${upgrade.price_gbp}/mo.`;
 }
 
 // ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@ import { useCompetencies, updateCompetency } from '../src/useSupabaseData';
 import { Card, ProgressBar, Badge, LockedFeature } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { useAuth } from '../src/AuthContext';
-import { isPaidTier } from '../src/tiers';
+import { isPaidTier, tierById } from '../src/tiers';
 
 type Tab = 'overview' | 'lessons' | 'skills';
 const TABS: { key: Tab; label: string }[] = [
@@ -132,7 +132,7 @@ export default function CompetencyDetailScreen() {
         <LockedFeature
           variant="fullscreen"
           title="Competency tracker locked"
-          subtitle="Included from Growth tier (£14.99/mo)."
+          subtitle={`Included from ${tierById('pro').name} (£${tierById('pro').price_gbp}/mo).`}
           onPress={() => router.replace('/pricing-screen')}
           testID="btn-locked-upgrade"
         />

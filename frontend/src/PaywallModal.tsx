@@ -9,12 +9,13 @@ type Props = {
   visible: boolean;
   onClose: () => void;
   reason?: string;
-  // Which tier to promote — defaults to Growth, the cheapest paid tier, since
-  // that's the natural "upgrade from Starter" prompt for most locked features.
+  // Which tier to promote — defaults to ADI Pro (was Growth, now removed),
+  // the cheapest paid tier, since that's the natural "upgrade from
+  // Starter" prompt for most locked features.
   targetTier?: Tier;
 };
 
-export function PaywallModal({ visible, onClose, reason, targetTier = 'growth' }: Props) {
+export function PaywallModal({ visible, onClose, reason, targetTier = 'pro' }: Props) {
   const router = useRouter();
   const tier = tierById(targetTier);
 

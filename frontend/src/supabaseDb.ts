@@ -2101,8 +2101,13 @@ export async function updateLessonPackage(id: string, patch: Partial<{
 }
 
 export async function deleteLessonPackage(id: string): Promise<void> {
-  const { error } = await supabase.from('lesson_packages').delete().eq('id', id);
+  // .select('id') so we can tell a real delete from an RLS-filtered no-op,
+  // which Supabase reports as success with zero rows.
+  const { data, error } = await supabase.from('lesson_packages').delete().eq('id', id).select('id');
   if (error) throw error;
+  if (!data || data.length === 0) {
+    throw new Error('That package could not be deleted — it may already be gone, or you may not have permission.');
+  }
 }
 
 // =============================================================================

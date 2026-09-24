@@ -133,7 +133,11 @@ export default function PackagesScreen() {
   const confirmDelete = (p: LessonPackage) => {
     const exec = async () => {
       try { await deleteLessonPackage(p.id); refresh(); }
-      catch (e: any) { Alert.alert('Delete failed', e?.message); }
+      catch (e: any) {
+        // Alert.alert is a silent no-op on web, so surface the failure there too.
+        if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert(`Delete failed: ${e?.message || 'Try again.'}`);
+        else Alert.alert('Delete failed', e?.message);
+      }
     };
     if (Platform.OS === 'web') {
       if (typeof window !== 'undefined' && window.confirm(`Delete "${p.name}"?`)) exec();

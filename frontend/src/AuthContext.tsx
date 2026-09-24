@@ -18,7 +18,7 @@ export type User = {
   student_id?: string | null;
   adi_number?: string | null;
   subscription_status?: 'free' | 'active' | 'past_due' | 'cancelled' | 'trialing';
-  tier?: 'starter' | 'growth' | 'pro' | 'franchise';
+  tier?: 'starter' | 'pro' | 'franchise';
   created_at: string;
 };
 

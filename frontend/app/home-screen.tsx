@@ -566,7 +566,7 @@ export default function InstructorHomeV2Screen() {
       <PaywallModal
         visible={receiptsPaywallOpen}
         onClose={() => setReceiptsPaywallOpen(false)}
-        reason="Receipt scanning and expense tracking is available from Growth tier."
+        reason="Receipt scanning and expense tracking is available on ADI Pro."
       />
     </SafeAreaView>
   );

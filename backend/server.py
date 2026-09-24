@@ -2,6 +2,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, 
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 import os
+import random
 import time
 import logging
 from pathlib import Path
@@ -540,6 +541,95 @@ def _seat_qty_from_subscription(sub: dict) -> int:
     return max(1, base_qty + seat_qty)
 
 
+REFERRAL_MAX_REWARDS_PER_YEAR = 6  # Grant's own suggested range was 3-6; trivial to change, this is the one place it's defined.
+
+
+async def _apply_referral_reward_if_due(school: dict) -> None:
+    """Called right after a school's Stripe subscription goes active
+    (checkout.session.completed below) — the only trigger, per Grant
+    directly: bare signup would be trivial to game with fake accounts.
+    Applies a Stripe customer-balance credit (used automatically on the
+    referrer's next invoice) equal to one month of the REFERRER's own
+    current tier price, capped at REFERRAL_MAX_REWARDS_PER_YEAR rewarded
+    referrals per rolling 12 months. referral_reward_status == 'pending'
+    is the idempotency guard — a later resubscribe re-fires this same
+    webhook event, but by then status is already 'rewarded' or 'capped',
+    so it's a no-op rather than a second free month for the same referral.
+    """
+    if school.get("is_comp_account"):
+        return
+    referrer_instructor_id = school.get("referred_by_instructor_id")
+    if not referrer_instructor_id or school.get("referral_reward_status") != "pending":
+        return
+
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        ref = await client_http.get(
+            f"{_sb_rest_base}/instructors",
+            params={"id": f"eq.{referrer_instructor_id}", "select": "id,school_id"},
+            headers=_sb_headers(),
+        )
+    referrer_rows = ref.json() if ref.status_code < 400 else []
+    referrer_school_id = referrer_rows[0]["school_id"] if referrer_rows else None
+    if not referrer_school_id:
+        logger.warning("Referral reward skipped — referrer instructor %s has no school", referrer_instructor_id)
+        return
+    referrer_school = await sb_get_school_by_id(referrer_school_id)
+    if not referrer_school:
+        return
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Cap check — rewarded referrals by this same referrer in the last 12 months.
+    one_year_ago = (datetime.now(timezone.utc) - timedelta(days=365)).isoformat()
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        cap_check = await client_http.get(
+            f"{_sb_rest_base}/driving_schools",
+            params={
+                "referred_by_instructor_id": f"eq.{referrer_instructor_id}",
+                "referral_reward_status": "eq.rewarded",
+                "referral_resolved_at": f"gte.{one_year_ago}",
+                "select": "id",
+            },
+            headers=_sb_headers(),
+        )
+    rewarded_count = len(cap_check.json()) if cap_check.status_code < 400 else 0
+    if rewarded_count >= REFERRAL_MAX_REWARDS_PER_YEAR:
+        await sb_update_school(school["id"], {"referral_reward_status": "capped", "referral_resolved_at": now_iso})
+        logger.info("Referral for school %s capped — referrer %s already at %s rewarded this year", school["id"], referrer_instructor_id, rewarded_count)
+        return
+
+    # Ensure the referrer has a Stripe customer to credit (same pattern as checkout-session creation above).
+    customer_id = referrer_school.get("stripe_customer_id")
+    if not customer_id:
+        customer = stripe.Customer.create(
+            name=referrer_school.get("business_name"),
+            metadata={"school_id": referrer_school["id"]},
+        )
+        customer_id = customer.id
+        await sb_update_school(referrer_school["id"], {"stripe_customer_id": customer_id})
+
+    # Credit amount = one month of the referrer's OWN current tier price,
+    # read live from Stripe rather than hardcoded, so it can never drift
+    # out of sync with whatever the actual price is at the time.
+    try:
+        referrer_tier = referrer_school.get("tier") or "growth"
+        price_id = tier_to_line_items(referrer_tier)[0]["price"]
+        price = stripe.Price.retrieve(price_id)
+        credit_amount = price["unit_amount"]  # pence, positive
+    except Exception:
+        logger.exception("Could not determine referral credit amount for school %s — skipping credit", referrer_school["id"])
+        return
+
+    stripe.Customer.create_balance_transaction(
+        customer_id,
+        amount=-credit_amount,  # negative = credit toward their next invoice
+        currency="gbp",
+        description="Referral reward — 1 free month",
+    )
+    await sb_update_school(school["id"], {"referral_reward_status": "rewarded", "referral_resolved_at": now_iso})
+    logger.info("Referral reward applied: referrer school %s credited %d pence for referring school %s", referrer_school["id"], credit_amount, school["id"])
+
+
 @api_router.post("/billing/webhook")
 async def stripe_webhook(request: FastAPIRequest):
     if not STRIPE_WEBHOOK_SECRET:
@@ -573,6 +663,9 @@ async def stripe_webhook(request: FastAPIRequest):
                         "stripe_customer_id": data.get("customer"),
                     }
                     await sb_update_school(school_id, patch)
+                    updated_school = await sb_get_school_by_id(school_id)
+                    if updated_school:
+                        await _apply_referral_reward_if_due(updated_school)
 
         elif etype in ("customer.subscription.updated", "customer.subscription.created"):
             customer_id = data.get("customer")
@@ -611,6 +704,96 @@ async def stripe_webhook(request: FastAPIRequest):
         return {"received": True, "handled": False, "error": str(e)}
 
     return {"received": True, "handled": True, "type": etype}
+
+
+# ============================================================================
+# Referral program (23 Sept 2026), per Grant directly
+# ============================================================================
+
+_REFERRAL_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no 0/O/1/I/L — easier to read back verbally or off a screen
+
+
+class ReferralCodeResponse(BaseModel):
+    code: str
+    share_link: str
+
+
+class ReferralSummaryResponse(BaseModel):
+    pending: int
+    rewarded_this_year: int
+    capped: int
+    cap_per_year: int
+
+
+async def _get_own_instructor(sb_user: dict) -> dict:
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.get(
+            f"{_sb_rest_base}/instructors",
+            params={"auth_user_id": f"eq.{sb_user['auth_user_id']}", "select": "id,referral_code"},
+            headers=_sb_headers(),
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Instructor read failed: {r.text}")
+    rows = r.json()
+    if not rows:
+        raise HTTPException(status_code=400, detail="No instructor row linked to this account")
+    return rows[0]
+
+
+@api_router.get("/referrals/my-code", response_model=ReferralCodeResponse)
+async def get_my_referral_code(sb_user: dict = Depends(get_current_supabase_user)):
+    """Lazily generates the caller's referral code on first request, rather
+    than backfilling one onto every existing instructor row up front."""
+    instructor = await _get_own_instructor(sb_user)
+    code = instructor.get("referral_code")
+    if not code:
+        # Retry on the rare collision rather than trusting a single
+        # attempt — the alphabet is 32 chars over 6 positions, so a
+        # collision is very unlikely, but "very unlikely" isn't "can't
+        # happen" and the fix is three extra lines.
+        for _ in range(5):
+            candidate = "".join(random.choice(_REFERRAL_CODE_ALPHABET) for _ in range(6))
+            async with httpx.AsyncClient(timeout=10.0) as client_http:
+                resp = await client_http.patch(
+                    f"{_sb_rest_base}/instructors",
+                    params={"id": f"eq.{instructor['id']}"},
+                    headers=_sb_headers(prefer="return=representation"),
+                    json={"referral_code": candidate},
+                )
+            if resp.status_code < 400 and resp.json():
+                code = candidate
+                break
+        if not code:
+            raise HTTPException(status_code=500, detail="Could not generate a unique referral code")
+    return ReferralCodeResponse(code=code, share_link=f"{APP_DOMAIN}/sign-up-login-screen?ref={code}")
+
+
+@api_router.get("/referrals/summary", response_model=ReferralSummaryResponse)
+async def get_referral_summary(sb_user: dict = Depends(get_current_supabase_user)):
+    instructor = await _get_own_instructor(sb_user)
+    one_year_ago = (datetime.now(timezone.utc) - timedelta(days=365)).isoformat()
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.get(
+            f"{_sb_rest_base}/driving_schools",
+            params={
+                "referred_by_instructor_id": f"eq.{instructor['id']}",
+                "select": "referral_reward_status,referral_resolved_at",
+            },
+            headers=_sb_headers(),
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Referral summary read failed: {r.text}")
+    rows = r.json()
+    pending = sum(1 for row in rows if row.get("referral_reward_status") == "pending")
+    rewarded_this_year = sum(
+        1 for row in rows
+        if row.get("referral_reward_status") == "rewarded" and (row.get("referral_resolved_at") or "") >= one_year_ago
+    )
+    capped = sum(1 for row in rows if row.get("referral_reward_status") == "capped")
+    return ReferralSummaryResponse(
+        pending=pending, rewarded_this_year=rewarded_this_year, capped=capped,
+        cap_per_year=REFERRAL_MAX_REWARDS_PER_YEAR,
+    )
 
 
 # ============================================================================

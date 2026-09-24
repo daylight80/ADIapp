@@ -119,12 +119,19 @@ export default function SignInV2Screen() {
   const params = useLocalSearchParams();
   const router = useRouter();
   const inviteToken = (params.invite as string) || '';
+  // Referral program (23 Sept 2026), per Grant directly — a referral
+  // link is just this same screen with ?ref=CODE appended, matching how
+  // the invite link above already works. Pre-fills the field below so a
+  // shared link needs no manual entry, but the field stays editable for
+  // anyone who was just told a code verbally instead.
+  const referralFromLink = (params.ref as string) || '';
 
   const [tab, setTab] = useState<Tab>(inviteToken ? 'signup' : 'signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [adi, setAdi] = useState('');
+  const [referralCode, setReferralCode] = useState(referralFromLink);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -174,7 +181,7 @@ export default function SignInV2Screen() {
         setError('Please enter your DVSA ADI number');
         return;
       }
-      r = await signUp(email.trim(), password, name.trim(), adi.trim());
+      r = await signUp(email.trim(), password, name.trim(), adi.trim(), referralCode.trim() || undefined);
     }
     setBusy(false);
     if (!r.ok) setError(r.error || 'Registration failed');
@@ -287,6 +294,12 @@ export default function SignInV2Screen() {
                   placeholder="e.g. 123456" keyboardType="number-pad"
                   helper="Your ADI number is the unique reference that secures your account and all your students."
                   testID="v2-input-adi"
+                />
+                <Field
+                  label="Referral code (optional)" value={referralCode} onChangeText={setReferralCode}
+                  placeholder="e.g. K7XQPL" autoCapitalize="characters"
+                  helper="Got one from another instructor? Enter it here."
+                  testID="v2-input-referral"
                 />
               </>
             )}

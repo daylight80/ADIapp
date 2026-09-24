@@ -29,7 +29,7 @@ type AuthContextType = {
   session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<SignUpResult>;
-  signUp: (email: string, password: string, name: string, adi_number: string) => Promise<SignUpResult>;
+  signUp: (email: string, password: string, name: string, adi_number: string, referralCode?: string) => Promise<SignUpResult>;
   signOut: () => Promise<void>;
   acceptInvite: (invite_token: string, password: string, name?: string) => Promise<SignUpResult>;
   forgotPassword: (email: string) => Promise<SignUpResult>;
@@ -148,6 +148,7 @@ async function ensureInstructorBootstrap(args: {
   email: string;
   name: string;
   adi_number: string;
+  referralCode?: string;
 }) {
   // 1. Find or create a driving_school owned by this auth user.
   let schoolId: string | null = null;
@@ -161,12 +162,30 @@ async function ensureInstructorBootstrap(args: {
     schoolId = existingSchool.id;
   } else {
     const businessName = `${args.name.split(' ')[0]}'s Driving School`;
+    // Referral program (23 Sept 2026), per Grant directly — resolves a
+    // referral code entered at signup to the referrer's own instructor
+    // id, stored here so the Stripe webhook (server.py) can find it once
+    // this new school actually converts to a paying subscriber, which
+    // is the only thing that triggers the reward. An invalid or unknown
+    // code is silently ignored rather than blocking signup over it —
+    // this is a nice-to-have bonus, not something that should ever be
+    // able to stop someone creating their account.
+    let referredByInstructorId: string | null = null;
+    if (args.referralCode) {
+      const { data: referrer } = await supabase
+        .from('instructors')
+        .select('id')
+        .eq('referral_code', args.referralCode.trim().toUpperCase())
+        .maybeSingle();
+      if (referrer) referredByInstructorId = referrer.id;
+    }
     const { data: school, error: schoolErr } = await supabase
       .from('driving_schools')
       .insert({
         business_name: businessName,
         owner_auth_id: args.authUserId,
         subscription_status: 'free',
+        ...(referredByInstructorId ? { referred_by_instructor_id: referredByInstructorId, referral_reward_status: 'pending' } : {}),
       })
       .select('id')
       .single();
@@ -284,7 +303,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { ok: true };
   }, []);
 
-  const signUp: AuthContextType['signUp'] = useCallback(async (email, password, name, adi_number) => {
+  const signUp: AuthContextType['signUp'] = useCallback(async (email, password, name, adi_number, referralCode) => {
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
@@ -310,6 +329,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: data.user!.email!,
         name,
         adi_number,
+        referralCode,
       });
     } catch (e: any) {
       return { ok: false, error: e?.message || 'Profile setup failed' };

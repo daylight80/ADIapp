@@ -16,6 +16,7 @@ import { isPaidTier, isFranchiseTier, tierById, studentUsageUrgency, studentUsag
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { MessageButton } from '../src/MessageButton';
 import { ContactsImportBanner } from '../src/ContactsImportBanner';
+import { ReferralBanner } from '../src/ReferralBanner';
 import { PaywallModal } from '../src/PaywallModal';
 import { Crown, ChevronRight, Users, CalendarDays, Receipt, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { usePendingSyncCount } from '../src/offlineSync';
@@ -178,6 +179,10 @@ export default function InstructorHomeV2Screen() {
           <View style={{ marginHorizontal: 20, marginTop: 12 }}>
             <ContactsImportBanner studentCount={students.length} isInstructor />
           </View>
+
+          {/* Referral banner — self-styled (own margins), dismissible and
+              remembers it via AsyncStorage. */}
+          <ReferralBanner />
 
           {/* Upgrade banner (Starter tier only) — real urgency, not
               cosmetic: escalates to a danger colour once the student

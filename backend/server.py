@@ -11,6 +11,7 @@ from typing import Optional, Literal, List
 from datetime import datetime, timedelta, timezone
 import stripe
 from lesson_reminders import start_lesson_reminder_scheduler, stop_lesson_reminder_scheduler
+import email_service
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -794,6 +795,111 @@ async def get_referral_summary(sb_user: dict = Depends(get_current_supabase_user
         pending=pending, rewarded_this_year=rewarded_this_year, capped=capped,
         cap_per_year=REFERRAL_MAX_REWARDS_PER_YEAR,
     )
+
+
+# ---------------------------------------------------------------------------
+# Referral by email (25 Sept 2026), per Grant directly: the instructor types a
+# colleague's email address and we send it on their behalf (their name in the
+# From display name, their own address as Reply-To). Sent only as a direct
+# result of that instructor's own action, once per address, with an opt-out
+# route in the footer — the safest shape under UK PECR/GDPR for a referral.
+# ---------------------------------------------------------------------------
+REFERRAL_EMAILS_PER_DAY = 10       # per instructor, rolling 24h
+REFERRAL_EMAIL_REPEAT_DAYS = 30    # the same address can't be emailed again (by anyone) inside this window
+
+
+class ReferralEmailRequest(BaseModel):
+    email: EmailStr
+
+
+class ReferralEmailResponse(BaseModel):
+    sent: bool
+    email: str
+
+
+def _referral_invites_table_error(r: "httpx.Response") -> HTTPException:
+    if "referral_email_invites" in r.text and ("does not exist" in r.text or "schema cache" in r.text):
+        return HTTPException(status_code=500, detail="Referral emails aren't ready yet — Migration 038 hasn't been applied.")
+    return HTTPException(status_code=500, detail=f"Referral invite check failed: {r.text[:200]}")
+
+
+@api_router.post("/referrals/invite-by-email", response_model=ReferralEmailResponse)
+async def invite_instructor_by_email(req: ReferralEmailRequest, sb_user: dict = Depends(get_current_supabase_user)):
+    if not email_service.is_configured():
+        raise HTTPException(status_code=503, detail="Email sending isn't set up yet.")
+
+    recipient = req.email.strip().lower()
+    if recipient == (sb_user.get("email") or "").strip().lower():
+        raise HTTPException(status_code=400, detail="That's your own email address.")
+
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        ir = await client_http.get(
+            f"{_sb_rest_base}/instructors",
+            params={"auth_user_id": f"eq.{sb_user['auth_user_id']}", "select": "id,full_name", "limit": "1"},
+            headers=_sb_headers(),
+        )
+    if ir.status_code >= 400 or not ir.json():
+        raise HTTPException(status_code=400, detail="No instructor row linked to this account")
+    instructor = ir.json()[0]
+
+    now = datetime.now(timezone.utc)
+    day_ago = (now - timedelta(hours=24)).isoformat()
+    repeat_cutoff = (now - timedelta(days=REFERRAL_EMAIL_REPEAT_DAYS)).isoformat()
+
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        # Daily cap for this instructor.
+        sent_today = await client_http.get(
+            f"{_sb_rest_base}/referral_email_invites",
+            params={"instructor_id": f"eq.{instructor['id']}", "created_at": f"gte.{day_ago}", "select": "id"},
+            headers=_sb_headers(),
+        )
+        if sent_today.status_code >= 400:
+            raise _referral_invites_table_error(sent_today)
+        if len(sent_today.json()) >= REFERRAL_EMAILS_PER_DAY:
+            raise HTTPException(status_code=429, detail=f"You've reached today's limit of {REFERRAL_EMAILS_PER_DAY} referral emails. Try again tomorrow.")
+
+        # Same address, recently, by anyone.
+        repeat = await client_http.get(
+            f"{_sb_rest_base}/referral_email_invites",
+            params={"recipient_email": f"eq.{recipient}", "created_at": f"gte.{repeat_cutoff}", "select": "id", "limit": "1"},
+            headers=_sb_headers(),
+        )
+        if repeat.status_code >= 400:
+            raise _referral_invites_table_error(repeat)
+        if repeat.json():
+            raise HTTPException(status_code=409, detail="That address has been invited recently, so we won't email it again yet.")
+
+        # Record BEFORE sending, so a double-tap can't send two emails; undone below if the send fails.
+        ins = await client_http.post(
+            f"{_sb_rest_base}/referral_email_invites",
+            headers=_sb_headers(prefer="return=representation"),
+            json={"instructor_id": instructor["id"], "recipient_email": recipient},
+        )
+        if ins.status_code >= 400 or not ins.json():
+            raise _referral_invites_table_error(ins)
+        invite_row_id = ins.json()[0]["id"]
+
+    code_resp = await get_my_referral_code(sb_user)
+    subject, html_body, text_body = email_service.render_referral_email(
+        instructor.get("full_name") or "", code_resp.code, code_resp.share_link,
+    )
+    payload = email_service.build_payload(
+        to=recipient, subject=subject, html_body=html_body, text_body=text_body,
+        from_display_name=instructor.get("full_name") or "", reply_to=sb_user.get("email"),
+    )
+    try:
+        await email_service.send_email(payload)
+    except email_service.EmailSendError as e:
+        logger.error("Referral email to %s failed: %s", recipient, e)
+        async with httpx.AsyncClient(timeout=10.0) as client_http:
+            await client_http.delete(
+                f"{_sb_rest_base}/referral_email_invites",
+                params={"id": f"eq.{invite_row_id}"},
+                headers=_sb_headers(),
+            )
+        raise HTTPException(status_code=502, detail="We couldn't send that email. Please try again in a moment.")
+
+    return ReferralEmailResponse(sent=True, email=recipient)
 
 
 # ============================================================================

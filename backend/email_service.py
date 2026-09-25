@@ -5,7 +5,7 @@ a no-op-with-a-clear-error until RESEND_API_KEY is set (on Render, never in the
 repo), so this module is safe to deploy before the Resend account and DNS are
 ready.
 
-Sending domain: Resend is set up on a SUBDOMAIN (mail.drivingschoolsolutions.co.uk),
+Sending domain: Resend is set up on a SUBDOMAIN (adipro.drivingschoolsolutions.co.uk),
 deliberately not the root domain — the root already has live mailbox email via
 Stack (MX + an SPF record ending in -all), and sending from the root through
 Resend would mean editing that SPF record and risking the existing mailbox.
@@ -21,7 +21,7 @@ RESEND_API_URL = "https://api.resend.com/emails"
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 # The address part only; the display name is added per email (see sender_header).
-EMAIL_FROM_ADDRESS = os.environ.get("EMAIL_FROM_ADDRESS", "hello@mail.drivingschoolsolutions.co.uk")
+EMAIL_FROM_ADDRESS = os.environ.get("EMAIL_FROM_ADDRESS", "hello@adipro.drivingschoolsolutions.co.uk")
 # Shown in the footer of referral emails as the opt-out route (PECR: the
 # recipient must be able to say "stop"). Must be a mailbox that is actually read.
 EMAIL_SUPPORT_ADDRESS = os.environ.get("EMAIL_SUPPORT_ADDRESS", "hello@drivingschoolsolutions.co.uk")

@@ -1,0 +1,34 @@
+<!--
+  Supabase Auth "Invite user" email template — the email a student gets when an
+  instructor invites them (backend/server.py, POST /api/v2/students/invite).
+
+  Paste into: Supabase dashboard -> Authentication -> Emails -> "Invite user".
+  Subject line to use:  {{ .Data.inviter_name }} has invited you to ADI Pro
+
+  Variables used (all set by the backend's invite call, except ConfirmationURL
+  which Supabase generates):
+    {{ .ConfirmationURL }}   the one-time accept/sign-up link
+    {{ .Data.inviter_name }} the instructor's name
+    {{ .Data.name }}         the student's name
+
+  Sent through Resend SMTP from hello@adipro.drivingschoolsolutions.co.uk.
+  This file is a copy for version control; the live template is whatever is
+  saved in the Supabase dashboard.
+-->
+<!doctype html>
+<html lang="en-GB">
+<body style="margin:0;padding:24px;background:#f5f2ec;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;">
+    <tr><td style="padding:28px 28px 8px;">
+      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">ADI PRO</div>
+      <h1 style="font-size:20px;line-height:1.3;margin:10px 0 14px;">Hi {{ .Data.name }}, {{ .Data.inviter_name }} has invited you to ADI Pro</h1>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">Your driving instructor uses ADI Pro to manage your lessons. Once you've set up your account you can see your upcoming lessons, track your progress, and stay in touch with them.</p>
+      <p style="margin:0 0 20px;"><a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#ff6b00;color:#ffffff;text-decoration:none;font-weight:bold;font-size:15px;padding:12px 22px;border-radius:10px;">Set up my account</a></p>
+      <p style="font-size:13px;line-height:1.5;color:#64748b;margin:0 0 6px;">If the button doesn't work, copy this link into your browser:<br><span style="word-break:break-all;">{{ .ConfirmationURL }}</span></p>
+    </td></tr>
+    <tr><td style="padding:16px 28px 24px;border-top:1px solid #e4ded2;">
+      <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">You're receiving this because {{ .Data.inviter_name }} entered your email address. If you weren't expecting it, you can ignore this email and no account will be created.</p>
+    </td></tr>
+  </table>
+</body>
+</html>

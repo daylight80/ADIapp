@@ -105,6 +105,15 @@ export function isFranchiseTier(tier: string | null | undefined): boolean {
   return tier === 'franchise';
 }
 
+// Whether Home should offer the School dashboard (owner-dashboard-screen: the
+// school-wide leaderboard, Add instructor and student assignments). Only the
+// owner of a Franchise school — a non-owner instructor inside a Franchise school
+// can't add instructors, and Starter/ADI Pro instructors are solo. This is a UX
+// gate only; RLS is the real boundary.
+export function canOpenSchoolDashboard(tier: string | null | undefined, isOwner: boolean): boolean {
+  return isFranchiseTier(tier) && isOwner;
+}
+
 // For features exclusive to Pro and above — e.g. block booking & wallet
 // management, per tiers.ts's own feature list. Added 1 Sept 2026 during a
 // tier-gating audit that found wallet-screen.tsx (block booking + wallet

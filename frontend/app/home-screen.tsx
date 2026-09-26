@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -10,15 +10,15 @@ import {
   useStudents, useTodayLessons, useInstructorEarnings,
   useInstructorTestOutcomes, useCompetencyPatterns,
 } from '../src/useSupabaseData';
-import { computeTestKpis } from '../src/supabaseDb';
+import { computeTestKpis, getMySchoolProfile } from '../src/supabaseDb';
 import { colorForLessonType } from '../src/diary/lessonTypes';
-import { isPaidTier, isFranchiseTier, tierById, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
+import { isPaidTier, isFranchiseTier, canOpenSchoolDashboard, tierById, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { MessageButton } from '../src/MessageButton';
 import { ContactsImportBanner } from '../src/ContactsImportBanner';
 import { ReferralBanner } from '../src/ReferralBanner';
 import { PaywallModal } from '../src/PaywallModal';
-import { Crown, ChevronRight, Users, CalendarDays, Receipt, Lock, Eye, EyeOff } from 'lucide-react-native';
+import { Crown, ChevronRight, Users, CalendarDays, Receipt, Lock, Eye, EyeOff, LayoutDashboard } from 'lucide-react-native';
 import { usePendingSyncCount } from '../src/offlineSync';
 
 /**
@@ -107,6 +107,23 @@ export default function InstructorHomeV2Screen() {
 
   const tier = tierById(user?.tier);
   const paid = isPaidTier(user?.tier);
+
+  // School dashboard entry (26 Sept 2026). owner-dashboard-screen had no link
+  // from anywhere, so a Franchise owner could not reach Add instructor, the
+  // leaderboard or student assignments. getMySchoolProfile() only returns a
+  // row for the school's owner, so a non-null result is the owner check (same
+  // approach the dashboard itself uses). Only queried for Franchise users, so
+  // solo tiers make no extra request.
+  const [isSchoolOwner, setIsSchoolOwner] = useState(false);
+  useEffect(() => {
+    if (!isFranchiseTier(user?.tier)) { setIsSchoolOwner(false); return; }
+    let active = true;
+    getMySchoolProfile()
+      .then((school) => { if (active) setIsSchoolOwner(!!school); })
+      .catch(() => { if (active) setIsSchoolOwner(false); });
+    return () => { active = false; };
+  }, [user?.tier, user?.id]);
+  const showSchoolDashboard = canOpenSchoolDashboard(user?.tier, isSchoolOwner);
   // Receipts is a Growth+ feature (31 Aug 2026, per Grant testing on
   // Starter) — was showing fully active with no gating at all. Greyed out
   // rather than hidden, unlike this file's other `{paid && ...}` sections:
@@ -230,6 +247,18 @@ export default function InstructorHomeV2Screen() {
               <Text style={s.qaText}>Receipts</Text>
             </TouchableOpacity>
           </View>
+
+          {showSchoolDashboard && (
+            <TouchableOpacity
+              style={s.schoolDashBtn}
+              onPress={() => router.push('/owner-dashboard-screen' as any)}
+              testID="v2-qa-school-dashboard"
+            >
+              <LayoutDashboard size={18} color="#fff" />
+              <Text style={s.schoolDashText}>School dashboard</Text>
+              <ChevronRight size={18} color="#fff" />
+            </TouchableOpacity>
+          )}
 
           {/* Pending sync banner — only shown when there's actually
               something queued, so it never clutters the screen for the
@@ -591,6 +620,8 @@ const s = StyleSheet.create({
 
   qaBtn: { flex: 1, minHeight: 54, borderRadius: 14, alignItems: 'center', justifyContent: 'center', gap: 4 },
   qaText: { fontFamily: 'Barlow_700Bold', fontSize: 11.5, color: '#fff' },
+  schoolDashBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 20, marginTop: 9, minHeight: 48, borderRadius: 14, paddingHorizontal: 16, backgroundColor: C.ink },
+  schoolDashText: { flex: 1, fontFamily: 'Barlow_700Bold', fontSize: 14, color: '#fff' },
 
   dayCard: { marginHorizontal: 20, marginTop: 18, padding: 14, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 18 },
 

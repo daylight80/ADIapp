@@ -11,7 +11,7 @@ import { Card, Badge, LockedFeature } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { supabase } from '../src/supabaseClient';
 import { useAuth } from '../src/AuthContext';
-import { isFranchiseTier } from '../src/tiers';
+import { isFranchiseTier, tierById } from '../src/tiers';
 
 const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || '';
 
@@ -193,7 +193,7 @@ export default function ManageAssignmentsScreen() {
         <LockedFeature
           variant="fullscreen"
           title="Student assignments locked"
-          subtitle="Managing assignments across instructors is included from Franchise tier (£39.99/mo)."
+          subtitle={`Managing assignments across instructors is included from Franchise tier (from £${tierById('franchise').price_gbp}/mo).`}
         />
       </SafeAreaView>
     );

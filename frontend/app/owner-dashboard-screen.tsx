@@ -6,7 +6,7 @@ import { UserPlus, X } from 'lucide-react-native';
 import { useAuth } from '../src/AuthContext';
 import { supabase } from '../src/supabaseClient';
 import { DateField } from '../src/DateTimeFields';
-import { isFranchiseTier, schoolDisplayName } from '../src/tiers';
+import { isFranchiseTier, schoolDisplayName, tierById } from '../src/tiers';
 import { copyToClipboard, openSmsComposer } from '../src/tools';
 import {
   listTestOutcomesForSchool, computeTestKpis, type TestOutcome, getArrearsSummary,
@@ -566,7 +566,7 @@ export default function OwnerDashboardV2Screen() {
           {!isFranchise && (
             <TouchableOpacity style={s.upsellCard} onPress={() => router.push('/pricing-screen' as any)} testID="v2-upsell">
               <Text style={s.upsellText}>
-                Add instructors and see a ranked leaderboard on Franchise tier (£39.99/mo).
+                Add instructors and see a ranked leaderboard on Franchise tier (from £{tierById('franchise').price_gbp}/mo).
               </Text>
               <Text style={s.upsellChevron}>›</Text>
             </TouchableOpacity>

@@ -977,7 +977,7 @@ function GapBroadcastModal({ visible, onClose, lesson }: { visible: boolean; onC
 
       // Backend URL is exposed via EXPO_PUBLIC_BACKEND_URL (or the dev proxy
       // strips /api at the ingress). The /api prefix is always required.
-      const base = (process as any).env?.EXPO_PUBLIC_BACKEND_URL || '';
+      const base = process.env.EXPO_PUBLIC_BACKEND_URL || '';
       const url = `${base.replace(/\/+$/, '')}/api/broadcasts/gap`;
 
       const resp = await fetch(url, {

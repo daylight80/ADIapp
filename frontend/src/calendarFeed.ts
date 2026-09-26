@@ -15,7 +15,7 @@ export type CalendarStatus = {
 };
 
 function backendBase(): string {
-  const raw = (process as any).env?.EXPO_PUBLIC_BACKEND_URL || '';
+  const raw = process.env.EXPO_PUBLIC_BACKEND_URL || '';
   return String(raw).replace(/\/+$/, '');
 }
 

@@ -4,6 +4,7 @@ import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabaseClient';
 import { registerExpoPushToken, setUpReminderReadListener } from './notifications';
 import { stampStudentActivity } from './supabaseDb';
+import { instructorBootstrapArgsFromAuthUser } from './authBootstrap';
 
 export type Role = 'instructor' | 'student';
 
@@ -51,6 +52,17 @@ const AuthContext = createContext<AuthContextType | null>(null);
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Names the instructors -> driving_schools relationship explicitly. Two exist
+// (instructors.school_id, and driving_schools.referred_by_instructor_id), so an
+// unhinted embed is ambiguous and PostgREST answers 300 (see Migration 040).
+const INSTRUCTOR_PROFILE_SELECT =
+  'id, full_name, adi_number, school_id, driving_schools!instructors_school_id_fkey(id, business_name, subscription_status, tier)';
+
+// loadProfile can run twice at once on launch (initial getSession + the auth
+// state listener). Onboarding creates rows, so share one in-flight run per user
+// instead of racing two of them into duplicate schools.
+const onboardingInFlight = new Map<string, Promise<unknown>>();
+
 async function loadProfile(session: Session): Promise<User> {
   const authUser = session.user;
   const email = authUser.email || '';
@@ -60,7 +72,7 @@ async function loadProfile(session: Session): Promise<User> {
   // 1) Try instructor lookup — single source of truth for instructor role
   let { data: instructor } = await supabase
     .from('instructors')
-    .select('id, full_name, adi_number, school_id, driving_schools!instructors_school_id_fkey(id, business_name, subscription_status, tier)')
+    .select(INSTRUCTOR_PROFILE_SELECT)
     .eq('auth_user_id', authUser.id)
     .maybeSingle();
 
@@ -77,13 +89,38 @@ async function loadProfile(session: Session): Promise<User> {
   if (!instructor && email) {
     const { data: byEmail } = await supabase
       .from('instructors')
-      .select('id, full_name, adi_number, school_id, driving_schools!instructors_school_id_fkey(id, business_name, subscription_status, tier)')
+      .select(INSTRUCTOR_PROFILE_SELECT)
       .eq('email', email.toLowerCase())
       .is('auth_user_id', null)
       .maybeSingle();
     if (byEmail) {
       await supabase.from('instructors').update({ auth_user_id: authUser.id }).eq('id', byEmail.id);
       instructor = byEmail;
+    }
+  }
+
+  // Self-registered instructor with no school/instructor rows yet (26 Sept
+  // 2026). signUp() only creates them when Supabase returns a session
+  // immediately; with "Confirm email" ON it doesn't, so finish the job here,
+  // on first sign-in, from the details saved on the auth user at sign-up.
+  // ensureInstructorBootstrap is idempotent, so a false alarm (e.g. the lookup
+  // above failed transiently) can't create duplicates. A failure is logged and
+  // falls through to the normal fallback rather than blocking sign-in.
+  if (!instructor) {
+    const bootstrapArgs = instructorBootstrapArgsFromAuthUser(authUser);
+    if (bootstrapArgs) {
+      try {
+        await ensureInstructorBootstrapOnce(bootstrapArgs);
+        const { data: created } = await supabase
+          .from('instructors')
+          .select(INSTRUCTOR_PROFILE_SELECT)
+          .eq('auth_user_id', authUser.id)
+          .maybeSingle();
+        if (created) instructor = created;
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[auth] deferred instructor onboarding failed', e);
+      }
     }
   }
 
@@ -213,6 +250,19 @@ async function ensureInstructorBootstrap(args: {
   return { schoolId };
 }
 
+// Single entry point for onboarding: both signUp() and loadProfile() go through
+// this, so a sign-up that returns a session immediately (loadProfile fires from
+// the SIGNED_IN event at the same moment signUp() continues) can't create two
+// schools by running the bootstrap twice concurrently.
+function ensureInstructorBootstrapOnce(args: Parameters<typeof ensureInstructorBootstrap>[0]) {
+  let run = onboardingInFlight.get(args.authUserId);
+  if (!run) {
+    run = ensureInstructorBootstrap(args).finally(() => onboardingInFlight.delete(args.authUserId));
+    onboardingInFlight.set(args.authUserId, run);
+  }
+  return run;
+}
+
 // ---------------------------------------------------------------------------
 // Provider
 // ---------------------------------------------------------------------------
@@ -308,12 +358,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: email.trim(),
       password,
       options: {
-        data: { name, role: 'instructor', adi_number },
+        // referral_code is saved here (not only used below) so it survives the
+        // email-confirmation step: with "Confirm email" ON there is no session
+        // now, and loadProfile() finishes onboarding from this metadata on
+        // first sign-in (see authBootstrap.ts).
+        data: {
+          name,
+          role: 'instructor',
+          adi_number,
+          ...(referralCode?.trim() ? { referral_code: referralCode.trim().toUpperCase() } : {}),
+        },
       },
     });
     if (error) return { ok: false, error: error.message };
 
     // If email confirmation is enabled, signUp returns user but no session.
+    // Onboarding (school + instructor rows) then happens on first sign-in.
     if (!data.session) {
       return {
         ok: true,
@@ -324,7 +384,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Session present — bootstrap school + instructor rows.
     try {
-      await ensureInstructorBootstrap({
+      await ensureInstructorBootstrapOnce({
         authUserId: data.user!.id,
         email: data.user!.email!,
         name,

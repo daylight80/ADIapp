@@ -10,6 +10,7 @@ import {
   useBadges, useReflectiveLogs, useMockTestAttempts, createReflectiveLog,
 } from '../src/useSupabaseData';
 import { DVSA_SYLLABUS } from '../src/supabaseDb';
+import { nextUpcomingLesson, describeLessonWhen } from '../src/nextLesson';
 
 /**
  * Student App home — redesigned visual direction from the Claude Design
@@ -82,8 +83,14 @@ export default function StudentAppV2Screen() {
   const { competencies: sbCompetencies } = useCompetencies(supabaseStudent?.id);
   const competencies = sbCompetencies || [];
 
-  const { lessons: sbLessons } = useLessonsForStudent(supabaseStudent?.id);
+  const { lessons: sbLessons, loading: lessonsLoading } = useLessonsForStudent(supabaseStudent?.id);
   const lessons = sbLessons || [];
+
+  // Next lesson (26 Sept 2026): the earliest Scheduled lesson that hasn't
+  // finished yet — see src/nextLesson.ts. `lessons` arrives oldest-first, so
+  // this can't just take lessons[0].
+  const nextLesson = useMemo(() => nextUpcomingLesson(sbLessons || []), [sbLessons]);
+  const nextLessonWhen = nextLesson ? describeLessonWhen(nextLesson) : null;
 
   const { badges } = useBadges(student?.id);
   const { logs: sbReflections } = useReflectiveLogs(supabaseStudent ? student?.id : undefined);
@@ -184,6 +191,30 @@ export default function StudentAppV2Screen() {
               <Text style={s.greeting} numberOfLines={1}>{(student.name || 'Student').split(' ')[0]}</Text>
             </View>
             <View style={s.avatar}><Text style={s.avatarText}>{initialsOf(student.name || 'S')}</Text></View>
+          </View>
+
+          <View style={s.nextLessonCard} testID="v2-student-next-lesson">
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={s.sectionLabel}>Next lesson</Text>
+              {nextLessonWhen?.inProgress && <Text style={s.nextLessonBadge}>Happening now</Text>}
+            </View>
+            {nextLesson && nextLessonWhen ? (
+              <>
+                <Text style={s.nextLessonWhen} testID="v2-student-next-lesson-when">
+                  {nextLessonWhen.day} · {nextLessonWhen.time}
+                </Text>
+                <Text style={s.nextLessonSub} numberOfLines={2}>
+                  {[
+                    nextLesson.topic || nextLesson.lesson_type,
+                    nextLesson.pickup_address ? `Pick-up: ${nextLesson.pickup_address}` : '',
+                  ].filter(Boolean).join(' · ')}
+                </Text>
+              </>
+            ) : (
+              <Text style={s.nextLessonEmpty}>
+                {lessonsLoading ? 'Loading…' : 'No upcoming lessons booked yet.'}
+              </Text>
+            )}
           </View>
 
           <View style={s.readyCard}>
@@ -498,6 +529,11 @@ const s = StyleSheet.create({
   readyNudgeWrap: { marginTop: 15, paddingTop: 13, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,.22)' },
   readyNudge: { fontFamily: 'Barlow_500Medium', fontSize: 13, lineHeight: 18.5, color: 'rgba(255,255,255,.8)' },
 
+  nextLessonCard: { marginHorizontal: 20, marginTop: 14, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 18, padding: 16 },
+  nextLessonBadge: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: '#fff', backgroundColor: C.accent, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, overflow: 'hidden' },
+  nextLessonWhen: { fontFamily: 'Archivo_800ExtraBold', fontSize: 22, letterSpacing: -0.4, color: C.text, marginTop: 6 },
+  nextLessonSub: { fontFamily: 'Barlow_500Medium', fontSize: 13.5, color: C.textMuted2, marginTop: 4 },
+  nextLessonEmpty: { fontFamily: 'Barlow_500Medium', fontSize: 14, color: C.textMuted2, marginTop: 6 },
   mockCta: { marginHorizontal: 20, marginTop: 14, borderRadius: 18, backgroundColor: C.accent, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 },
   mockIcon: { width: 52, height: 52, borderRadius: 15, backgroundColor: 'rgba(255,255,255,.22)', alignItems: 'center', justifyContent: 'center' },
   mockIconText: { fontFamily: 'Archivo_800ExtraBold', fontSize: 15, color: '#fff' },

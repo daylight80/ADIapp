@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, TextInput, Modal, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { UserPlus, X } from 'lucide-react-native';
+import { UserPlus, X, ArrowLeft } from 'lucide-react-native';
 import { useAuth } from '../src/AuthContext';
 import { supabase } from '../src/supabaseClient';
 import { DateField } from '../src/DateTimeFields';
@@ -351,6 +351,12 @@ export default function OwnerDashboardV2Screen() {
       >
         {/* Header */}
         <View style={{ paddingHorizontal: 20, paddingTop: 10 }}>
+          {/* This screen has no bottom nav, so it needs its own way back to Home
+              (added when Home gained a School dashboard entry, 26 Sept 2026). */}
+          <TouchableOpacity style={s.backBtn} onPress={() => router.replace('/home-screen' as any)} testID="btn-back-home">
+            <ArrowLeft size={18} color={C.textMuted2} />
+            <Text style={s.backBtnText}>Home</Text>
+          </TouchableOpacity>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
             <Text style={s.ownerLabel}>School owner</Text>
             <Text style={s.tierPill}>{leaderboard?.tier || 'starter'}</Text>
@@ -753,6 +759,8 @@ export default function OwnerDashboardV2Screen() {
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.surface },
 
+  backBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 6, marginBottom: 6 },
+  backBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 14, color: C.textMuted2 },
   ownerLabel: { fontFamily: 'Archivo_800ExtraBold', fontSize: 11, letterSpacing: 1.8, textTransform: 'uppercase', color: C.accent },
   tierPill: { fontFamily: 'Barlow_700Bold', fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: C.primary, backgroundColor: C.primaryLight, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, overflow: 'hidden' },
   schoolName: { fontFamily: 'Archivo_800ExtraBold', fontSize: 22, letterSpacing: -0.45, color: C.text, marginTop: 5 },

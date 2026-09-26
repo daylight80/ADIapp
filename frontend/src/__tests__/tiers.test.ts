@@ -8,7 +8,7 @@
 jest.mock('../supabaseClient', () => ({ supabase: {} }));
 
 import {
-  tierById, isPaidTier, isFranchiseTier, isProTier, canAddStudent,
+  tierById, isPaidTier, isFranchiseTier, isProTier, canAddStudent, canOpenSchoolDashboard,
   explainLimitError, studentUsageUrgency, studentUsageMessage, schoolDisplayName,
   TIERS,
 } from '../tiers';
@@ -72,6 +72,27 @@ describe('isFranchiseTier', () => {
   it('is false for every other tier', () => {
     expect(isFranchiseTier('starter')).toBe(false);
     expect(isFranchiseTier('pro')).toBe(false);
+  });
+});
+
+describe('canOpenSchoolDashboard', () => {
+  it('is true only for the owner of a Franchise school', () => {
+    expect(canOpenSchoolDashboard('franchise', true)).toBe(true);
+  });
+
+  it('is false for a non-owner instructor inside a Franchise school', () => {
+    expect(canOpenSchoolDashboard('franchise', false)).toBe(false);
+  });
+
+  it('is false for solo tiers even when the user owns their (one-instructor) school', () => {
+    expect(canOpenSchoolDashboard('starter', true)).toBe(false);
+    expect(canOpenSchoolDashboard('pro', true)).toBe(false);
+  });
+
+  it('is false when the tier is missing or unknown', () => {
+    expect(canOpenSchoolDashboard(undefined, true)).toBe(false);
+    expect(canOpenSchoolDashboard(null, true)).toBe(false);
+    expect(canOpenSchoolDashboard('growth', true)).toBe(false);
   });
 });
 

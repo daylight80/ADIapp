@@ -24,11 +24,15 @@ const DISMISSED_KEY = 'referral_banner_dismissed_v1';
 
 type Summary = { pending: number; rewarded_this_year: number; capped: number; cap_per_year: number };
 
+// NOTE: read EXPO_PUBLIC_* as the exact expression `process.env.EXPO_PUBLIC_X`.
+// Expo only substitutes that static form at build time; `(process as any).env?.X`
+// or `process.env?.X` are left as runtime lookups that come back undefined,
+// so the backend URL silently became '' and every call 404'd on web.
 async function authedGet(path: string): Promise<any> {
   const { data: sess } = await supabase.auth.getSession();
   const token = sess.session?.access_token;
   if (!token) throw new Error('Not signed in');
-  const base = (process as any).env?.EXPO_PUBLIC_BACKEND_URL || '';
+  const base = process.env.EXPO_PUBLIC_BACKEND_URL || '';
   const resp = await fetch(`${base.replace(/\/+$/, '')}/api${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -42,7 +46,7 @@ async function authedPost(path: string, body: unknown): Promise<any> {
   const { data: sess } = await supabase.auth.getSession();
   const token = sess.session?.access_token;
   if (!token) throw new Error('Not signed in');
-  const base = (process as any).env?.EXPO_PUBLIC_BACKEND_URL || '';
+  const base = process.env.EXPO_PUBLIC_BACKEND_URL || '';
   const resp = await fetch(`${base.replace(/\/+$/, '')}/api${path}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },

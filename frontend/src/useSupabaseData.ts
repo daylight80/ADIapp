@@ -424,7 +424,7 @@ export async function updateCompetency(
     if (uid) {
       const { data } = await supabase
         .from('instructors')
-        .select('driving_schools(tier)')
+        .select('driving_schools!instructors_school_id_fkey(tier)')
         .eq('auth_user_id', uid)
         .maybeSingle();
       const tier = ((data as any)?.driving_schools?.tier) || 'starter';

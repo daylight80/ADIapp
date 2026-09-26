@@ -60,7 +60,7 @@ async function loadProfile(session: Session): Promise<User> {
   // 1) Try instructor lookup — single source of truth for instructor role
   let { data: instructor } = await supabase
     .from('instructors')
-    .select('id, full_name, adi_number, school_id, driving_schools(id, business_name, subscription_status, tier)')
+    .select('id, full_name, adi_number, school_id, driving_schools!instructors_school_id_fkey(id, business_name, subscription_status, tier)')
     .eq('auth_user_id', authUser.id)
     .maybeSingle();
 
@@ -77,7 +77,7 @@ async function loadProfile(session: Session): Promise<User> {
   if (!instructor && email) {
     const { data: byEmail } = await supabase
       .from('instructors')
-      .select('id, full_name, adi_number, school_id, driving_schools(id, business_name, subscription_status, tier)')
+      .select('id, full_name, adi_number, school_id, driving_schools!instructors_school_id_fkey(id, business_name, subscription_status, tier)')
       .eq('email', email.toLowerCase())
       .is('auth_user_id', null)
       .maybeSingle();

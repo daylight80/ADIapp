@@ -1,0 +1,41 @@
+-- =============================================================================
+-- Migration 040 — Drop the referred_by_instructor_id foreign key (ambiguity fix)
+-- =============================================================================
+-- Migration 036 added driving_schools.referred_by_instructor_id -> instructors(id).
+-- That gave PostgREST TWO relationships between instructors and driving_schools:
+--   - instructors.school_id            -> driving_schools   (the original)
+--   - driving_schools.referred_by_...  -> instructors        (new)
+-- so any query embedding one table inside the other, e.g.
+--   instructors?select=...,driving_schools(tier)
+-- became ambiguous and PostgREST answered "300 Multiple Choices" (PGRST201)
+-- instead of data. Effects seen on 26 Sept 2026:
+--   - AuthContext.loadProfile got no instructor row -> no school_id /
+--     instructor_id / tier for signed-in instructors (spinners, e.g. adding a
+--     student).
+--   - backend/lesson_reminders.py crashed every 5 minutes
+--     ('str' object has no attribute 'get'), so no lesson reminders sent.
+--   - the competency auto-badge tier check silently fell back to 'starter'.
+--
+-- Fix, applied live to ADI-PRO on 26 Sept 2026: drop the new constraint. The
+-- column and its data are kept. The only thing lost is the database refusing
+-- a referred_by_instructor_id that points at a non-existent instructor; the
+-- referral reward code already tolerates a missing referrer.
+--
+-- The code now names the relationship explicitly
+--   driving_schools!instructors_school_id_fkey(...)
+-- so this FK can be re-added later without reintroducing the ambiguity, e.g.:
+--   alter table public.driving_schools
+--     add constraint driving_schools_referred_by_instructor_id_fkey
+--     foreign key (referred_by_instructor_id) references public.instructors(id)
+--     on delete set null;
+-- (only after the disambiguated code is deployed to web, backend and the APK).
+--
+-- Idempotent: safe to re-run.
+-- =============================================================================
+
+alter table public.driving_schools
+    drop constraint if exists driving_schools_referred_by_instructor_id_fkey;
+
+-- =============================================================================
+-- DONE.
+-- =============================================================================

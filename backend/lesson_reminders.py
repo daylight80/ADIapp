@@ -128,7 +128,7 @@ async def _find_due_lessons(
         "select": (
             "id,start_time,end_time,status,pickup_address,topic,student_id,"
             "students(id,auth_user_id,full_name),"
-            "instructors(id,full_name,driving_schools(tier))"
+            "instructors(id,full_name,driving_schools!instructors_school_id_fkey(tier))"
         ),
         "start_time": f"gte.{lo.isoformat()}",
         "and": f"(start_time.lte.{hi.isoformat()})",

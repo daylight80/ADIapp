@@ -85,3 +85,6 @@ android-sdk/
 frontend/.env
 frontend/.metro-cache/
 frontend/dist/
+
+# Claude Code local settings (personal overrides, not shared with the team)
+.claude/settings.local.json

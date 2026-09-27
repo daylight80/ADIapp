@@ -56,6 +56,23 @@ export function nextUpcomingLesson<T extends LessonLike>(lessons: T[], now: Date
   return best?.lesson;
 }
 
+/**
+ * The student's most recently completed lesson — used for the "Last lesson"
+ * feedback card and to anchor the post-lesson reflection form. Input order
+ * doesn't matter (the caller's list arrives oldest-first); rows with an
+ * unusable date/time are skipped rather than throwing.
+ */
+export function mostRecentCompletedLesson<T extends LessonLike>(lessons: T[]): T | undefined {
+  let best: { lesson: T; startMs: number } | undefined;
+  for (const lesson of lessons) {
+    if (lesson.status !== 'Completed') continue;
+    const b = lessonBounds(lesson);
+    if (!b) continue;
+    if (!best || b.start.getTime() > best.startMs) best = { lesson, startMs: b.start.getTime() };
+  }
+  return best?.lesson;
+}
+
 function startOfDay(d: Date): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 }

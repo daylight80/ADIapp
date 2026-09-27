@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, RotateCcw, Flag } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { DVSA_CATEGORIES_BASE } from '../src/mockDb';
 import { BottomNav } from '../src/BottomNav';
 import { useAuth } from '../src/AuthContext';
-import { useStudentByAuthId, useStudentByEmail } from '../src/useSupabaseData';
+import { useStudentByAuthId, useStudentByEmail, useStudent } from '../src/useSupabaseData';
 import { addMockTestAttempt } from '../src/supabaseDb';
 
 type FaultType = 'driving' | 'serious' | 'dangerous';
@@ -24,13 +24,22 @@ const initialFaults = (): Faults => {
 export default function Dl25MockTestScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  // Resolve the learner row the same way theory-test-screen does: Supabase
-  // via auth uid → email → mockDb fallback (offline/no-linked-row demo).
-  const { student: sbStudentByAuth } = useStudentByAuthId(user?.id);
+  const params = useLocalSearchParams();
+  // Instructor-run mock test (26 Sept 2026): student-lifecycle-screen links
+  // here with ?studentId=... so the instructor can conduct and score the test
+  // live with a student, rather than this only being self-service in the
+  // student app. When present, it takes over entirely — the student's own
+  // auth is irrelevant here, since it's the INSTRUCTOR'S session driving this
+  // screen. Otherwise this stays the original student self-test flow: resolve
+  // the learner row via auth uid → email → mockDb fallback (offline/demo),
+  // same as theory-test-screen.
+  const instructorStudentId = (params.studentId as string) || '';
+  const { student: instructorStudent } = useStudent(instructorStudentId || undefined);
+  const { student: sbStudentByAuth } = useStudentByAuthId(instructorStudentId ? undefined : user?.id);
   const { student: sbStudentByEmail } = useStudentByEmail(
-    !sbStudentByAuth ? user?.email : undefined,
+    !instructorStudentId && !sbStudentByAuth ? user?.email : undefined,
   );
-  const supabaseStudent = sbStudentByAuth || sbStudentByEmail;
+  const supabaseStudent = instructorStudentId ? instructorStudent : (sbStudentByAuth || sbStudentByEmail);
   const [faults, setFaults] = useState<Faults>(initialFaults());
   const [finishing, setFinishing] = useState(false);
 
@@ -91,6 +100,9 @@ export default function Dl25MockTestScreen() {
         x: totals.dangerous.toString(),
         passed: passed ? '1' : '0',
         breakdown: JSON.stringify(faults),
+        // Carried through so the report screen keeps resolving the same
+        // student (and its Retake button comes back here with it too).
+        ...(instructorStudentId ? { studentId: instructorStudentId } : {}),
       },
     });
   };
@@ -108,7 +120,9 @@ export default function Dl25MockTestScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="btn-back">
           <ArrowLeft size={22} color={theme.colors.text} />
         </TouchableOpacity>
-        <Text style={styles.title}>DL25 Mock Test</Text>
+        <Text style={styles.title} numberOfLines={1}>
+          {instructorStudentId ? `DL25 Mock Test · ${instructorStudent?.name?.split(' ')[0] || '…'}` : 'DL25 Mock Test'}
+        </Text>
         <TouchableOpacity onPress={handleReset} style={styles.iconBtn} testID="btn-reset">
           <RotateCcw size={20} color={theme.colors.textMuted} />
         </TouchableOpacity>
@@ -158,7 +172,7 @@ export default function Dl25MockTestScreen() {
         })}
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, instructorStudentId && styles.footerNoNav]}>
         <TouchableOpacity
           style={[styles.finishBtn, finishing && styles.finishBtnDisabled]}
           onPress={handleFinish}
@@ -170,7 +184,10 @@ export default function Dl25MockTestScreen() {
         </TouchableOpacity>
       </View>
 
-      <BottomNav role="student" />
+      {/* No bottom nav for the instructor-run flow — same as every other
+          instructor sub-screen (student-lifecycle-screen, competency-detail-
+          screen, ...), all of which rely on the header's back button instead. */}
+      {!instructorStudentId && <BottomNav role="student" />}
     </SafeAreaView>
   );
 }
@@ -250,6 +267,10 @@ const styles = StyleSheet.create({
   ctrlSign: { fontSize: 18, fontWeight: '700' },
   ctrlValue: { fontSize: 18, fontWeight: '700', minWidth: 22, textAlign: 'center' },
   footer: { position: 'absolute', bottom: 84, left: 16, right: 16 },
+  // No BottomNav in the instructor flow, so the floating footer sits just
+  // above the safe area instead of leaving an 84px gap for a nav bar that
+  // isn't there.
+  footerNoNav: { bottom: 16 },
   finishBtn: {
     height: 54,
     borderRadius: theme.radius.md,

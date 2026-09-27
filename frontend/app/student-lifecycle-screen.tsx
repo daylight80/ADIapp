@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, TextInput, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Lock, FileText, Download, X } from 'lucide-react-native';
+import { ArrowLeft, Lock, FileText, Download, X, Flag } from 'lucide-react-native';
 import { PaywallModal } from '../src/PaywallModal';
 import { useAuth } from '../src/AuthContext';
 import { BottomSheet } from '../src/BottomSheet';
@@ -693,7 +693,23 @@ export default function StudentProfileV2Screen() {
               </View>
 
               <View style={s.card}>
-                <Text style={s.sectionLabel}>Mock test history</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={s.sectionLabel}>Mock test history</Text>
+                  {/* Instructor-run mock test (26 Sept 2026) — previously the DL25
+                      mock test could only be self-taken by the student in the
+                      app; this lets the instructor conduct and score one live,
+                      here, on the student's record. */}
+                  <TouchableOpacity
+                    style={s.logTestBtn}
+                    onPress={() => router.push({ pathname: '/dl25-mock-test-screen', params: { studentId: student.id } } as any)}
+                    testID="v2-start-mock-test"
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                      <Flag size={12} color="#fff" />
+                      <Text style={s.logTestBtnText}>Start mock test</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
                 {mockAttempts.length === 0 ? (
                   <Text style={s.emptyMuted}>No mock tests taken yet.</Text>
                 ) : (

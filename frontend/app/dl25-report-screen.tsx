@@ -7,20 +7,23 @@ import { theme } from '../src/theme';
 import { DVSA_CATEGORIES_BASE } from '../src/mockDb';
 import { Card, Badge } from '../src/ui';
 import { useAuth } from '../src/AuthContext';
-import { useStudentByAuthId, useStudentByEmail, useMockTestAttempts } from '../src/useSupabaseData';
+import { useStudentByAuthId, useStudentByEmail, useMockTestAttempts, useStudent } from '../src/useSupabaseData';
 
 export default function Dl25ReportScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { user } = useAuth();
 
-  // Same student-resolution pattern as the mock test screen itself, so the
-  // history shown here lines up with whatever attempt was just saved.
-  const { student: sbStudentByAuth } = useStudentByAuthId(user?.id);
+  // Same student-resolution pattern as the mock test screen itself (including
+  // the instructor-run ?studentId= override, 26 Sept 2026), so the history
+  // shown here lines up with whatever attempt was just saved.
+  const instructorStudentId = (params.studentId as string) || '';
+  const { student: instructorStudent } = useStudent(instructorStudentId || undefined);
+  const { student: sbStudentByAuth } = useStudentByAuthId(instructorStudentId ? undefined : user?.id);
   const { student: sbStudentByEmail } = useStudentByEmail(
-    !sbStudentByAuth ? user?.email : undefined,
+    !instructorStudentId && !sbStudentByAuth ? user?.email : undefined,
   );
-  const supabaseStudent = sbStudentByAuth || sbStudentByEmail;
+  const supabaseStudent = instructorStudentId ? instructorStudent : (sbStudentByAuth || sbStudentByEmail);
   const { attempts, loading: attemptsLoading } = useMockTestAttempts(supabaseStudent?.id);
 
   // The attempt just taken is always attempts[0] (most recent) once saved,
@@ -51,7 +54,9 @@ export default function Dl25ReportScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="btn-back">
           <ArrowLeft size={22} color={theme.colors.text} />
         </TouchableOpacity>
-        <Text style={styles.title}>DL25 Report</Text>
+        <Text style={styles.title} numberOfLines={1}>
+          {instructorStudentId ? `DL25 Report · ${instructorStudent?.name?.split(' ')[0] || '…'}` : 'DL25 Report'}
+        </Text>
         <View style={styles.iconBtn} />
       </View>
 
@@ -150,7 +155,11 @@ export default function Dl25ReportScreen() {
         <View style={{ gap: 10, marginTop: 4 }}>
           <TouchableOpacity
             style={styles.btnPrimary}
-            onPress={() => router.replace('/dl25-mock-test-screen')}
+            onPress={() => router.replace(
+              instructorStudentId
+                ? { pathname: '/dl25-mock-test-screen', params: { studentId: instructorStudentId } }
+                : '/dl25-mock-test-screen',
+            )}
             testID="btn-retake"
           >
             <RotateCcw size={18} color="#fff" />
@@ -158,11 +167,15 @@ export default function Dl25ReportScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.btnPrimary, { backgroundColor: theme.colors.primary }]}
-            onPress={() => router.replace('/student-home-screen')}
+            onPress={() => router.replace(
+              instructorStudentId
+                ? { pathname: '/student-lifecycle-screen', params: { id: instructorStudentId } }
+                : '/student-home-screen',
+            )}
             testID="btn-back-home"
           >
             <Home size={18} color="#fff" />
-            <Text style={styles.btnText}>Back to My Learning</Text>
+            <Text style={styles.btnText}>{instructorStudentId ? `Back to ${instructorStudent?.name?.split(' ')[0] || 'student'}` : 'Back to My Learning'}</Text>
           </TouchableOpacity>
         </View>
 

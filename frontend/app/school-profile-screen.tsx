@@ -154,7 +154,7 @@ export default function SchoolProfileScreen() {
 
         <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
           <Text style={styles.subtitle}>
-            This appears on your invoices and, once you're on Franchise, on your dashboard header.
+            This appears on your invoices, and on your dashboard header if you're on Franchise.
           </Text>
 
           <Card style={{ gap: 12, alignItems: 'center' }}>

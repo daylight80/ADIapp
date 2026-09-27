@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Alert, KeyboardAvoidingView, Platform, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, IdCard, Phone, Mail, MapPin, Car, Fingerprint, Star } from 'lucide-react-native';
+import { ArrowLeft, IdCard, Phone, Mail, MapPin, Car, Fingerprint, Star, Building2, ChevronRight } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
 import { getInstructorProfile, updateMyInstructorProfile } from '../src/supabaseDb';
 import { bump } from '../src/useSupabaseData';
 import { isBiometricAvailable, isBiometricEnabled, setBiometricEnabled } from '../src/biometrics';
+import { useAuth } from '../src/AuthContext';
 
 /**
  * "My Details" — a self-editable instructor profile (11 Sept 2026), per
@@ -29,6 +30,7 @@ import { isBiometricAvailable, isBiometricEnabled, setBiometricEnabled } from '.
  */
 export default function MyDetailsScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -162,6 +164,35 @@ export default function MyDetailsScreen() {
                   </View>
                 </View>
               </Card>
+
+              {/* Business branding, ADI Pro only (27 Sept 2026), per Grant
+                  directly — Franchise already reaches school-profile-screen
+                  via student-lifecycle-screen/owner-dashboard-screen, and
+                  Starter is deliberately excluded because it can't issue
+                  invoices in the first place (the only thing business_name/
+                  logo_url are actually used for below Franchise). This is
+                  a plain link, not a paywall — the screen and its RLS
+                  (ds_owner_all: owner_auth_id = auth.uid()) already work for
+                  any solo instructor, who is always their own school owner;
+                  nothing here was previously reachable for ADI Pro, only
+                  the individual Google review field was ever duplicated
+                  onto this screen for that reason. */}
+              {user?.tier === 'pro' && (
+                <Card>
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}
+                    onPress={() => router.push('/school-profile-screen' as any)}
+                    testID="link-school-profile"
+                  >
+                    <Building2 size={18} color={theme.colors.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cardTitle}>Business name & logo</Text>
+                      <Text style={styles.fieldLabel}>Shown on your invoices — edit your business name, logo and contact details.</Text>
+                    </View>
+                    <ChevronRight size={18} color={theme.colors.textMuted} />
+                  </TouchableOpacity>
+                </Card>
+              )}
 
               <Card style={{ gap: 14 }}>
                 <Text style={styles.cardTitle}>Contact details</Text>

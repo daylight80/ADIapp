@@ -1,4 +1,4 @@
-import { nextUpcomingLesson, describeLessonWhen, lessonBounds } from '../nextLesson';
+import { nextUpcomingLesson, describeLessonWhen, lessonBounds, mostRecentCompletedLesson } from '../nextLesson';
 
 // A fixed "now": Saturday 26 Sept 2026, 10:00 local.
 const NOW = new Date(2026, 8, 26, 10, 0, 0);
@@ -54,6 +54,34 @@ describe('nextUpcomingLesson', () => {
   it('accepts HH:mm:ss times', () => {
     const l = lesson({ id: 'sec', date: '2026-09-27', start_time: '11:00:00', end_time: '12:00:00' });
     expect(nextUpcomingLesson([l], NOW)?.id).toBe('sec');
+  });
+});
+
+describe('mostRecentCompletedLesson', () => {
+  it('returns undefined when there are no lessons', () => {
+    expect(mostRecentCompletedLesson([])).toBeUndefined();
+  });
+
+  it('picks the most recently completed lesson regardless of input order', () => {
+    const oldest = lesson({ id: 'oldest', date: '2026-09-01', status: 'Completed' });
+    const newest = lesson({ id: 'newest', date: '2026-09-25', status: 'Completed' });
+    const middle = lesson({ id: 'middle', date: '2026-09-15', status: 'Completed' });
+    expect(mostRecentCompletedLesson([oldest, newest, middle])?.id).toBe('newest');
+    expect(mostRecentCompletedLesson([newest, oldest, middle])?.id).toBe('newest');
+  });
+
+  it('ignores Scheduled and Cancelled lessons, even ones in the past', () => {
+    const scheduled = lesson({ id: 'sched', date: '2026-09-25', status: 'Scheduled' });
+    const cancelled = lesson({ id: 'cancel', date: '2026-09-26', status: 'Cancelled' });
+    const completed = lesson({ id: 'done', date: '2026-09-01', status: 'Completed' });
+    expect(mostRecentCompletedLesson([scheduled, cancelled, completed])?.id).toBe('done');
+    expect(mostRecentCompletedLesson([scheduled, cancelled])).toBeUndefined();
+  });
+
+  it('skips rows with unusable dates instead of throwing', () => {
+    const bad = lesson({ id: 'bad', date: 'not-a-date', status: 'Completed' });
+    const good = lesson({ id: 'good', date: '2026-09-10', status: 'Completed' });
+    expect(mostRecentCompletedLesson([bad, good])?.id).toBe('good');
   });
 });
 

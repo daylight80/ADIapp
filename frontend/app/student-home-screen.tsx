@@ -10,7 +10,7 @@ import {
   useBadges, useReflectiveLogs, useMockTestAttempts, createReflectiveLog,
 } from '../src/useSupabaseData';
 import { DVSA_SYLLABUS } from '../src/supabaseDb';
-import { nextUpcomingLesson, describeLessonWhen } from '../src/nextLesson';
+import { nextUpcomingLesson, describeLessonWhen, mostRecentCompletedLesson } from '../src/nextLesson';
 
 /**
  * Student App home — redesigned visual direction from the Claude Design
@@ -108,7 +108,15 @@ export default function StudentAppV2Screen() {
   const [slotAlerts, setSlotAlerts] = useState(true);
 
   const completedLessons = lessons.filter((l) => l.status === 'Completed');
-  const recentLesson = completedLessons[0] || lessons[0];
+  // Was completedLessons[0] || lessons[0] — completedLessons[0] is the OLDEST
+  // completed lesson (lessons arrives oldest-first from listLessonsForStudent),
+  // so "Last lesson" showed a learner's very first lesson forever, and the
+  // reflection form (lesson_id below) anchored to it too. The lessons[0]
+  // fallback was worse still: with zero completed lessons it showed whichever
+  // lesson happened to sort first — including a future Scheduled one — as the
+  // "Last lesson". mostRecentCompletedLesson (src/nextLesson.ts) fixes both:
+  // the true most-recent Completed lesson, or none at all.
+  const recentLesson = mostRecentCompletedLesson(lessons);
 
   const levelByKey = useMemo(() => {
     const map: Record<string, number> = {};

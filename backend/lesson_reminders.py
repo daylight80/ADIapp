@@ -34,6 +34,7 @@ import os
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -198,10 +199,31 @@ async def _push_tokens_for_user(auth_user_id: str) -> List[str]:
     return [row["expo_token"] for row in r.json() if row.get("expo_token")]
 
 
+# Lesson times are stored and returned by Supabase as UTC (timestamptz, DB
+# TimeZone = UTC), but every student and instructor is in the UK, so the times
+# in reminder copy must be shown in UK local time — GMT in winter, BST in
+# summer. Formatting the raw value made a 09:00 BST lesson read "08:00", and
+# could even show the wrong weekday for lessons near midnight (28 Sept 2026).
+try:
+    UK_TZ = ZoneInfo("Europe/London")
+except ZoneInfoNotFoundError:  # pragma: no cover — tzdata is in requirements.txt
+    log.error("[reminders] Europe/London tz data missing — reminder times will show UTC. Install tzdata.")
+    UK_TZ = timezone.utc
+
+
+def _to_uk_time(start_iso: str) -> datetime:
+    """Parse a Supabase timestamp and convert it to UK local time. A value
+    with no offset is assumed to already be UTC, which is what Supabase sends."""
+    dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(UK_TZ)
+
+
 def _format_lesson_time(start_iso: str) -> str:
-    """e.g. 'Wed 5 Jun, 09:00'."""
+    """e.g. 'Wed 5 Jun, 09:00' (UK local time)."""
     try:
-        dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+        dt = _to_uk_time(start_iso)
         # Render in UK locale-friendly format. We avoid `locale.setlocale` for
         # portability; the abbreviated forms below are good across both web
         # and standalone builds.
@@ -211,9 +233,9 @@ def _format_lesson_time(start_iso: str) -> str:
 
 
 def _format_day_and_time(start_iso: str) -> tuple[str, str]:
-    """Return ('Thursday', '14:00') style components for richer copy."""
+    """Return ('Thursday', '14:00') style components for richer copy (UK local time)."""
     try:
-        dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+        dt = _to_uk_time(start_iso)
         return dt.strftime("%A"), dt.strftime("%H:%M")
     except Exception:
         return "your scheduled day", start_iso

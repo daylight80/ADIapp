@@ -32,6 +32,7 @@ a system actor.
 
 import os
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 
@@ -39,6 +40,38 @@ import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 log = logging.getLogger("lesson_reminders")
+
+# One shared HTTP client for every call this module makes (28 Sept 2026).
+# These helpers used to each open a brand-new httpx.AsyncClient per call.
+# Building a client builds a fresh SSL context and loads the CA bundle each
+# time, and the scheduler does that ~3x every 5 minutes around the clock. On
+# Render that showed up as memory climbing in a dead-straight line (~31 MB/h,
+# ~0.9 MB per client) from ~75 MB after a restart to the 512 MB limit about
+# 24 h later, then an OOM kill — three in a row on 26-28 Sept, with almost no
+# real user traffic in between. Reusing one client keeps a single SSL context
+# and connection pool for the life of the process.
+_http_client: Optional[httpx.AsyncClient] = None
+
+
+@asynccontextmanager
+async def _client():
+    """Yield the shared client (created on first use). Drop-in replacement
+    for `async with httpx.AsyncClient(...)` — it deliberately does NOT close
+    the client on exit; that happens once, in close_http_client()."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=15.0)
+    yield _http_client
+
+
+async def close_http_client() -> None:
+    """Called from server.py's shutdown hook."""
+    global _http_client
+    if _http_client is not None:
+        try:
+            await _http_client.aclose()
+        finally:
+            _http_client = None
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -136,7 +169,7 @@ async def _find_due_lessons(
         "order": "start_time.asc",
         "limit": "500",
     }
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with _client() as client:
         r = await client.get(f"{sb_url}/rest/v1/lessons", headers=_sb_headers(), params=params)
     if r.status_code >= 400:
         log.warning("[reminders] lesson query failed: %s %s", r.status_code, r.text[:200])
@@ -148,7 +181,7 @@ async def _already_sent(lesson_id: str, kind: str) -> bool:
     sb_url = _sb_url()
     if not sb_url:
         return False
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with _client() as client:
         r = await client.get(
             f"{sb_url}/rest/v1/lesson_reminder_log",
             headers=_sb_headers(),
@@ -175,7 +208,7 @@ async def _log_sent(lesson_id: str, kind: str, push_count: int, receipt_ids: Opt
     # only sent when present so this keeps working against an older schema too.
     if receipt_ids:
         payload["receipt_ids"] = receipt_ids
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with _client() as client:
         await client.post(
             f"{sb_url}/rest/v1/lesson_reminder_log",
             headers={**_sb_headers(), "Prefer": "resolution=ignore-duplicates"},
@@ -187,7 +220,7 @@ async def _push_tokens_for_user(auth_user_id: str) -> List[str]:
     sb_url = _sb_url()
     if not sb_url:
         return []
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with _client() as client:
         r = await client.get(
             f"{sb_url}/rest/v1/push_tokens",
             headers=_sb_headers(),
@@ -251,7 +284,7 @@ async def _send_push(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not messages:
         return {"accepted": 0, "receipt_ids": []}
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with _client() as client:
             r = await client.post(
                 EXPO_PUSH_URL,
                 json=messages,
@@ -293,7 +326,7 @@ async def check_reminder_receipts() -> Dict[str, Any]:
     oldest = (now - timedelta(hours=RECEIPT_MAX_AGE_HOURS)).isoformat()
     newest = (now - timedelta(minutes=RECEIPT_MIN_AGE_MIN)).isoformat()
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with _client() as client:
         r = await client.get(
             f"{sb_url}/rest/v1/lesson_reminder_log",
             headers=_sb_headers(),
@@ -324,7 +357,7 @@ async def check_reminder_receipts() -> Dict[str, Any]:
 
     receipts: Dict[str, Any] = {}
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with _client() as client:
             resp = await client.post(
                 EXPO_RECEIPTS_URL,
                 json={"ids": all_ids},
@@ -354,7 +387,7 @@ async def check_reminder_receipts() -> Dict[str, Any]:
             failed_ids.append(row["id"])
         # else: mixed pending/error with no "ok" yet — wait for next tick
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with _client() as client:
         if delivered_ids:
             await client.patch(
                 f"{sb_url}/rest/v1/lesson_reminder_log",

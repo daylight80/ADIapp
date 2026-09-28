@@ -10,7 +10,7 @@ from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, Literal, List
 from datetime import datetime, timedelta, timezone
 import stripe
-from lesson_reminders import start_lesson_reminder_scheduler, stop_lesson_reminder_scheduler
+from lesson_reminders import start_lesson_reminder_scheduler, stop_lesson_reminder_scheduler, close_http_client as close_lesson_reminder_http_client
 import email_service
 
 ROOT_DIR = Path(__file__).parent
@@ -275,6 +275,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     stop_lesson_reminder_scheduler()
+    await close_lesson_reminder_http_client()
 
 
 # ============================================================================

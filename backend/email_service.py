@@ -103,6 +103,89 @@ def render_referral_email(referrer_name: str, code: str, share_link: str) -> Tup
     return subject, body, text
 
 
+def render_lesson_reminder_email(
+    *,
+    student_name: Optional[str],
+    instructor_name: Optional[str],
+    kind: str,
+    weekday: str,
+    date_text: str,
+    time_text: str,
+    pickup_address: Optional[str] = None,
+) -> Tuple[str, str, str]:
+    """Return (subject, html_body, text_body) for a student's lesson reminder.
+
+    `kind` is 'h48' or 'h25'. Times must already be UK local time. A plain
+    service message about a lesson the student has booked — no marketing
+    content — so it needs no marketing consent, and the footer tells the
+    student who to contact instead. Every user-supplied string is escaped.
+    """
+    first = clean_display_name(student_name, fallback="").split(" ")[0]
+    instructor = clean_display_name(instructor_name, fallback="your instructor")
+    # Same cleaning as a name, but an address can legitimately be longer than
+    # clean_display_name's 60-char cap.
+    address = re.sub(r"\s+", " ", _CONTROL_AND_HEADER_CHARS.sub("", pickup_address or "")).strip()[:200]
+
+    if kind == "h25":
+        subject = f"Your driving lesson is tomorrow at {time_text}"
+        headline = f"Lesson tomorrow at {time_text}"
+        lead = f"Just a reminder that you have a driving lesson tomorrow with {instructor}."
+    else:
+        subject = f"Reminder: your driving lesson on {weekday} at {time_text}"
+        headline = f"Lesson on {weekday} at {time_text}"
+        lead = f"Just a reminder that you have a driving lesson coming up with {instructor}."
+
+    when = f"{weekday} {date_text} at {time_text}"
+    greeting = f"Hi {first}," if first else "Hi,"
+    esc = html.escape
+    esc_support = esc(EMAIL_SUPPORT_ADDRESS)
+
+    text_lines = [greeting, "", lead, "", f"When: {when}"]
+    if address:
+        text_lines.append(f"Pick-up: {address}")
+    text_lines += [
+        "",
+        f"If you need to change or cancel, reply to this email to reach {instructor}.",
+        "",
+        f"You're receiving this because {instructor} booked a driving lesson for you using ADI Pro.",
+    ]
+    text = "\n".join(text_lines) + "\n"
+
+    pickup_html = (
+        f'<p style="font-size:15px;line-height:1.55;margin:0 0 6px;"><strong>Pick-up:</strong> {esc(address)}</p>'
+        if address else ""
+    )
+    body = f"""\
+<!doctype html>
+<html lang="en-GB">
+<body style="margin:0;padding:24px;background:#f5f2ec;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;">
+    <tr><td style="padding:28px 28px 8px;">
+      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">ADI PRO</div>
+      <h1 style="font-size:20px;line-height:1.3;margin:10px 0 14px;">{esc(headline)}</h1>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(greeting)}</p>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(lead)}</p>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 6px;"><strong>When:</strong> {esc(when)}</p>
+      {pickup_html}
+      <p style="font-size:15px;line-height:1.55;margin:14px 0 20px;">If you need to change or cancel, just reply to this email to reach {esc(instructor)}.</p>
+    </td></tr>
+    <tr><td style="padding:16px 28px 24px;border-top:1px solid #e4ded2;">
+      <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">You're receiving this because {esc(instructor)} booked a driving lesson for you using ADI Pro. Questions about these emails: <a href="mailto:{esc_support}" style="color:#64748b;">{esc_support}</a>.</p>
+    </td></tr>
+  </table>
+</body>
+</html>
+"""
+    return subject, body, text
+
+
+def looks_like_email(value: Optional[str]) -> bool:
+    """Cheap sanity check on an instructor-typed address before we spend a
+    send on it. Deliberately loose — Resend does the real validation."""
+    v = (value or "").strip()
+    return bool(re.fullmatch(r"[^@\s<>\",;]+@[^@\s<>\",;]+\.[^@\s<>\",;]+", v)) and len(v) <= 254
+
+
 def build_payload(
     *, to: str, subject: str, html_body: str, text_body: str,
     from_display_name: str, reply_to: Optional[str] = None,

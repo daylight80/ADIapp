@@ -3026,6 +3026,10 @@ export type LessonReminderStatus = {
   sent_at: string;
   delivered_at: string | null;
   read_at: string | null;
+  /** How it went out (Migration 045). Email has no delivery/read receipts, so
+   *  an emailed reminder stays 'sent' for good — the UI must not present that
+   *  as "not yet delivered". Absent on a schema that hasn't got the column. */
+  channel?: 'push' | 'email';
 };
 
 /** Most recently sent reminder for a lesson (a lesson can have up to
@@ -3034,7 +3038,7 @@ export type LessonReminderStatus = {
 export async function getLatestReminderStatus(lessonId: string): Promise<LessonReminderStatus | null> {
   const { data, error } = await supabase
     .from('lesson_reminder_log')
-    .select('status,kind,sent_at,delivered_at,read_at')
+    .select('status,kind,sent_at,delivered_at,read_at,channel')
     .eq('lesson_id', lessonId)
     .order('sent_at', { ascending: false })
     .limit(1)

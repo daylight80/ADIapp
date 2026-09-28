@@ -32,6 +32,7 @@ a system actor.
 
 import os
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -39,7 +40,41 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+import email_service
+
 log = logging.getLogger("lesson_reminders")
+
+# One shared HTTP client for every call this module makes (28 Sept 2026).
+# These helpers used to each open a brand-new httpx.AsyncClient per call.
+# Building a client builds a fresh SSL context and loads the CA bundle each
+# time, and the scheduler does that ~3x every 5 minutes around the clock. On
+# Render that showed up as memory climbing in a dead-straight line (~31 MB/h,
+# ~0.9 MB per client) from ~75 MB after a restart to the 512 MB limit about
+# 24 h later, then an OOM kill — three in a row on 26-28 Sept, with almost no
+# real user traffic in between. Reusing one client keeps a single SSL context
+# and connection pool for the life of the process.
+_http_client: Optional[httpx.AsyncClient] = None
+
+
+@asynccontextmanager
+async def _client():
+    """Yield the shared client (created on first use). Drop-in replacement
+    for `async with httpx.AsyncClient(...)` — it deliberately does NOT close
+    the client on exit; that happens once, in close_http_client()."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=15.0)
+    yield _http_client
+
+
+async def close_http_client() -> None:
+    """Called from server.py's shutdown hook."""
+    global _http_client
+    if _http_client is not None:
+        try:
+            await _http_client.aclose()
+        finally:
+            _http_client = None
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -128,8 +163,8 @@ async def _find_due_lessons(
     params = {
         "select": (
             "id,start_time,end_time,status,pickup_address,topic,student_id,"
-            "students(id,auth_user_id,full_name),"
-            "instructors(id,full_name,driving_schools!instructors_school_id_fkey(tier))"
+            "students(id,auth_user_id,full_name,email),"
+            "instructors(id,full_name,email,driving_schools!instructors_school_id_fkey(tier))"
         ),
         "start_time": f"gte.{lo.isoformat()}",
         "and": f"(start_time.lte.{hi.isoformat()})",
@@ -137,7 +172,7 @@ async def _find_due_lessons(
         "order": "start_time.asc",
         "limit": "500",
     }
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with _client() as client:
         r = await client.get(f"{sb_url}/rest/v1/lessons", headers=_sb_headers(), params=params)
     if r.status_code >= 400:
         log.warning("[reminders] lesson query failed: %s %s", r.status_code, r.text[:200])
@@ -149,7 +184,7 @@ async def _already_sent(lesson_id: str, kind: str) -> bool:
     sb_url = _sb_url()
     if not sb_url:
         return False
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with _client() as client:
         r = await client.get(
             f"{sb_url}/rest/v1/lesson_reminder_log",
             headers=_sb_headers(),
@@ -167,28 +202,51 @@ async def _already_sent(lesson_id: str, kind: str) -> bool:
     return bool(r.json())
 
 
-async def _log_sent(lesson_id: str, kind: str, push_count: int, receipt_ids: Optional[List[str]] = None) -> None:
+async def _log_sent(
+    lesson_id: str,
+    kind: str,
+    push_count: int,
+    receipt_ids: Optional[List[str]] = None,
+    channel: str = "push",
+) -> bool:
+    """Record that a reminder was handled. Returns False if the write failed.
+
+    The (lesson_id, kind) unique key is what stops a reminder going out twice,
+    across channels too. If this write fails after an email has been sent, the
+    next tick would send that email again — hence the loud error below.
+    """
     sb_url = _sb_url()
     if not sb_url:
-        return
+        return False
     payload: Dict[str, Any] = {"lesson_id": lesson_id, "kind": kind, "push_count": push_count}
     # receipt_ids/status are additive (migration: add_reminder_read_receipt_tracking) —
     # only sent when present so this keeps working against an older schema too.
     if receipt_ids:
         payload["receipt_ids"] = receipt_ids
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        await client.post(
+    # channel is additive too (Migration 045); push rows leave it to the column
+    # default so push keeps working on a schema that hasn't got it yet.
+    if channel != "push":
+        payload["channel"] = channel
+    async with _client() as client:
+        r = await client.post(
             f"{sb_url}/rest/v1/lesson_reminder_log",
             headers={**_sb_headers(), "Prefer": "resolution=ignore-duplicates"},
             json=payload,
         )
+    if r.status_code >= 400:
+        log.error(
+            "[reminders] could not record %s reminder for lesson %s (%s) — it may be sent again next tick: %s %s",
+            kind, lesson_id, channel, r.status_code, r.text[:200],
+        )
+        return False
+    return True
 
 
 async def _push_tokens_for_user(auth_user_id: str) -> List[str]:
     sb_url = _sb_url()
     if not sb_url:
         return []
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with _client() as client:
         r = await client.get(
             f"{sb_url}/rest/v1/push_tokens",
             headers=_sb_headers(),
@@ -273,7 +331,7 @@ async def _send_push(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not messages:
         return {"accepted": 0, "receipt_ids": []}
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with _client() as client:
             r = await client.post(
                 EXPO_PUSH_URL,
                 json=messages,
@@ -315,7 +373,7 @@ async def check_reminder_receipts() -> Dict[str, Any]:
     oldest = (now - timedelta(hours=RECEIPT_MAX_AGE_HOURS)).isoformat()
     newest = (now - timedelta(minutes=RECEIPT_MIN_AGE_MIN)).isoformat()
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with _client() as client:
         r = await client.get(
             f"{sb_url}/rest/v1/lesson_reminder_log",
             headers=_sb_headers(),
@@ -346,7 +404,7 @@ async def check_reminder_receipts() -> Dict[str, Any]:
 
     receipts: Dict[str, Any] = {}
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with _client() as client:
             resp = await client.post(
                 EXPO_RECEIPTS_URL,
                 json={"ids": all_ids},
@@ -376,7 +434,7 @@ async def check_reminder_receipts() -> Dict[str, Any]:
             failed_ids.append(row["id"])
         # else: mixed pending/error with no "ok" yet — wait for next tick
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with _client() as client:
         if delivered_ids:
             await client.patch(
                 f"{sb_url}/rest/v1/lesson_reminder_log",
@@ -398,12 +456,138 @@ async def check_reminder_receipts() -> Dict[str, Any]:
     return result
 
 
+# Which channels each reminder tries, in order of preference. The first one
+# that actually delivers wins, so a student never gets the same reminder twice,
+# and each channel falls back to the other:
+#   48h  email first — the earliest heads-up, and it reaches students who never
+#        installed the app — then push.
+#   25h  push first (the "tomorrow" nudge, best on a phone), then email for
+#        students without the app.
+#   1h   push only — nobody reads an email an hour before a lesson.
+CHANNEL_ORDER = {
+    "h48": ("email", "push"),
+    "h25": ("push", "email"),
+    "h1": ("push",),
+}
+
+_warned_email_unconfigured = False
+
+
+def _instructor_reply_to(instructor: Dict[str, Any]) -> Optional[str]:
+    """Replies go to the instructor, so a student answering "can we move it?"
+    reaches a person. Omitted if the instructor has no usable address."""
+    addr = (instructor.get("email") or "").strip()
+    return addr if email_service.looks_like_email(addr) else None
+
+
+async def _send_email_reminder(lesson: Dict[str, Any], kind: str) -> bool:
+    """Email the reminder to the student. True only if Resend accepted it."""
+    student = lesson.get("students") or {}
+    instructor = lesson.get("instructors") or {}
+    to = (student.get("email") or "").strip()
+    try:
+        dt = _to_uk_time(lesson.get("start_time") or "")
+    except Exception:
+        # Without a valid start time we can't state one — better no email than a wrong one.
+        log.warning("[reminders] lesson %s has an unreadable start_time; not emailing", lesson.get("id"))
+        return False
+    subject, html_body, text_body = email_service.render_lesson_reminder_email(
+        student_name=student.get("full_name"),
+        instructor_name=instructor.get("full_name"),
+        kind=kind,
+        weekday=dt.strftime("%A"),
+        date_text=f"{dt.day} {dt.strftime('%B')}",
+        time_text=dt.strftime("%H:%M"),
+        pickup_address=lesson.get("pickup_address"),
+    )
+    payload = email_service.build_payload(
+        to=to,
+        subject=subject,
+        html_body=html_body,
+        text_body=text_body,
+        from_display_name=instructor.get("full_name") or "Your instructor",
+        reply_to=_instructor_reply_to(instructor),
+    )
+    try:
+        async with _client() as client:
+            await email_service.send_email(payload, client=client)
+    except email_service.EmailSendError as e:
+        log.warning("[reminders] email reminder for lesson %s failed: %s", lesson.get("id"), e)
+        return False
+    return True
+
+
+async def _send_push_reminder(
+    lesson: Dict[str, Any], kind: str, label: str, tokens: List[str]
+) -> Optional[Dict[str, Any]]:
+    """Push the reminder to every device token. Returns Expo's result, or None if nothing was accepted."""
+    msg = _build_message(lesson, kind, label)
+    messages = [
+        {"to": t, "title": msg["title"], "body": msg["body"], "sound": "default",
+         "data": {"lessonId": lesson["id"], "kind": kind}}
+        for t in tokens
+    ]
+    result = await _send_push(messages)
+    return result if result["accepted"] > 0 else None
+
+
+async def _deliver_reminder(lesson: Dict[str, Any], kind: str, label: str) -> str:
+    """Try each channel for this reminder in preference order; log the first
+    that delivers. Returns what happened:
+
+      'email' / 'push'  delivered on that channel (and logged)
+      'no_link'         no email and no app login — nobody to tell; NOT logged,
+                        so linking the app or adding an email later still works
+      'no_token'        has the app but no device token, no email — logged as
+                        "tried, no audience" so we stop re-checking every tick
+      'retry'           there was someone to tell but every attempt failed (e.g.
+                        Resend down); NOT logged, so the next tick tries again
+    """
+    global _warned_email_unconfigured
+    student = lesson.get("students") or {}
+    auth_user_id = student.get("auth_user_id")
+    # email_service.is_configured() gates it here so a missing RESEND_API_KEY
+    # quietly falls back to push instead of counting as a failed attempt.
+    has_address = email_service.looks_like_email(student.get("email"))
+    has_email = has_address and email_service.is_configured()
+    if has_address and not has_email and not _warned_email_unconfigured:
+        _warned_email_unconfigured = True
+        log.warning("[reminders] RESEND_API_KEY not set — email reminders are disabled, falling back to push")
+
+    tokens: Optional[List[str]] = None  # fetched lazily, only if push is actually tried
+    attempted = False
+    for channel in CHANNEL_ORDER.get(kind, ("push",)):
+        if channel == "email":
+            if not has_email:
+                continue
+            attempted = True
+            if await _send_email_reminder(lesson, kind):
+                await _log_sent(lesson["id"], kind, 0, channel="email")
+                return "email"
+        else:
+            if not auth_user_id:
+                continue
+            if tokens is None:
+                tokens = await _push_tokens_for_user(auth_user_id)
+            if not tokens:
+                continue
+            attempted = True
+            result = await _send_push_reminder(lesson, kind, label, tokens)
+            if result is not None:
+                await _log_sent(lesson["id"], kind, result["accepted"], result["receipt_ids"])
+                return "push"
+    if attempted:
+        return "retry"
+    if not auth_user_id:
+        return "no_link"
+    await _log_sent(lesson["id"], kind, 0)
+    return "no_token"
+
+
 async def _process_kind(kind: str, minutes: int, label: str) -> Dict[str, int]:
-    """Find due lessons for a given kind and dispatch pushes. Returns metrics."""
+    """Find due lessons for a given kind and send reminders. Returns metrics."""
     lessons = await _find_due_lessons(minutes, REMINDER_WINDOW_MIN)
-    sent = 0
-    skipped_no_token = 0
-    skipped_no_link = 0
+    counts = {"email": 0, "push": 0, "no_link": 0, "no_token": 0, "retry": 0}
     skipped_dup = 0
     skipped_tier = 0
     for lesson in lessons:
@@ -412,40 +596,20 @@ async def _process_kind(kind: str, minutes: int, label: str) -> Dict[str, int]:
         if not _is_paid_tier(tier):
             skipped_tier += 1
             continue
-        student = lesson.get("students") or {}
-        auth_user_id = student.get("auth_user_id")
-        if not auth_user_id:
-            skipped_no_link += 1
-            continue
         if await _already_sent(lesson["id"], kind):
             skipped_dup += 1
             continue
-        tokens = await _push_tokens_for_user(auth_user_id)
-        if not tokens:
-            skipped_no_token += 1
-            # Still log so we don't keep re-checking the same lesson every tick
-            # — although the row will mean "we tried, no audience"; this is
-            # acceptable because adding the app later won't backfill old
-            # reminders anyway.
-            await _log_sent(lesson["id"], kind, 0)
-            continue
-        msg = _build_message(lesson, kind, label)
-        messages = [
-            {"to": t, "title": msg["title"], "body": msg["body"], "sound": "default",
-             "data": {"lessonId": lesson["id"], "kind": kind}}
-            for t in tokens
-        ]
-        result = await _send_push(messages)
-        accepted, receipt_ids = result["accepted"], result["receipt_ids"]
-        if accepted > 0:
-            await _log_sent(lesson["id"], kind, accepted, receipt_ids)
-            sent += 1
+        outcome = await _deliver_reminder(lesson, kind, label)
+        counts[outcome] += 1
     return {
         "kind": kind,
         "candidates": len(lessons),
-        "sent": sent,
-        "skipped_no_link": skipped_no_link,
-        "skipped_no_token": skipped_no_token,
+        "sent": counts["email"] + counts["push"],
+        "sent_email": counts["email"],
+        "sent_push": counts["push"],
+        "skipped_no_link": counts["no_link"],
+        "skipped_no_token": counts["no_token"],
+        "retry": counts["retry"],
         "skipped_dup": skipped_dup,
         "skipped_tier": skipped_tier,
     }

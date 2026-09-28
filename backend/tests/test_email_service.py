@@ -93,3 +93,71 @@ def test_send_email_raises_on_resend_error(monkeypatch):
     monkeypatch.setenv("RESEND_API_KEY", "re_test")
     with pytest.raises(email_service.EmailSendError):
         asyncio.run(email_service.send_email({"to": []}, client=_client_returning(422, {})))
+
+
+# --- Lesson reminder emails (Sept 2026) --------------------------------------
+
+def _reminder(**over):
+    args = dict(
+        student_name="Jamie Carter", instructor_name="Alex Morgan", kind="h48",
+        weekday="Thursday", date_text="8 October", time_text="09:00",
+        pickup_address="12 High Street, Leeds",
+    )
+    args.update(over)
+    return email_service.render_lesson_reminder_email(**args)
+
+
+def test_reminder_48h_states_day_date_time_and_pickup():
+    subject, html_body, text_body = _reminder()
+    assert subject == "Reminder: your driving lesson on Thursday at 09:00"
+    for body in (html_body, text_body):
+        assert "Thursday 8 October at 09:00" in body
+        assert "12 High Street, Leeds" in body
+        assert "Alex Morgan" in body
+    assert text_body.startswith("Hi Jamie,")
+
+
+def test_reminder_25h_says_tomorrow():
+    subject, html_body, _ = _reminder(kind="h25")
+    assert subject == "Your driving lesson is tomorrow at 09:00"
+    assert "Lesson tomorrow at 09:00" in html_body
+
+
+def test_reminder_omits_pickup_line_when_no_address():
+    _, html_body, text_body = _reminder(pickup_address=None)
+    assert "Pick-up" not in html_body and "Pick-up" not in text_body
+
+
+def test_reminder_falls_back_when_names_missing():
+    subject, html_body, text_body = _reminder(student_name=None, instructor_name=None)
+    assert text_body.startswith("Hi,\n")
+    assert "your instructor" in html_body
+
+
+def test_reminder_escapes_user_supplied_text():
+    _, html_body, _ = _reminder(
+        student_name="<script>alert(1)</script>",
+        instructor_name="<b>Alex</b>",
+        pickup_address='"><img src=x onerror=alert(1)>',
+    )
+    assert "<script>" not in html_body
+    assert "<b>Alex</b>" not in html_body
+    assert "<img" not in html_body
+
+
+def test_reminder_has_no_marketing_content():
+    _, html_body, text_body = _reminder()
+    assert "http" not in text_body.lower()
+    assert "sign up" not in html_body.lower()
+
+
+@pytest.mark.parametrize("value,ok", [
+    ("student@example.com", True),
+    ("  student@example.com  ", True),
+    ("first.last+tag@sub.example.co.uk", True),
+    ("", False), (None, False), ("not-an-email", False), ("a@b", False),
+    ("a b@example.com", False), ("a@example.com, b@example.com", False),
+    ('evil@example.com>\r\nBcc: x@y.com', False), ("<a@example.com>", False),
+])
+def test_looks_like_email(value, ok):
+    assert email_service.looks_like_email(value) is ok

@@ -541,13 +541,22 @@ export default function StudentProfileV2Screen() {
                   <View
                     style={[
                       s.reminderDot,
-                      { backgroundColor: reminderStatus.status === 'read' ? '#10B981' : reminderStatus.status === 'delivered' ? '#F59E0B' : '#EF4444' },
+                      {
+                        backgroundColor:
+                          // An emailed reminder can never become delivered/read (no email
+                          // receipts), so 'sent' is its final, healthy state — blue, not the
+                          // red used for a push that hasn't been delivered yet.
+                          reminderStatus.channel === 'email' && reminderStatus.status !== 'failed' ? '#3B82F6'
+                          : reminderStatus.status === 'read' ? '#10B981'
+                          : reminderStatus.status === 'delivered' ? '#F59E0B'
+                          : '#EF4444',
+                      },
                     ]}
                   />
                   <Text style={s.reminderText}>
                     {reminderStatus.status === 'read' && 'Reminder read'}
                     {reminderStatus.status === 'delivered' && 'Reminder delivered — not yet read'}
-                    {reminderStatus.status === 'sent' && 'Reminder sent — not yet delivered'}
+                    {reminderStatus.status === 'sent' && (reminderStatus.channel === 'email' ? 'Reminder emailed' : 'Reminder sent — not yet delivered')}
                     {reminderStatus.status === 'failed' && 'Reminder failed to send'}
                     {' for '}
                     {new Date(`${nextLesson.date}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}

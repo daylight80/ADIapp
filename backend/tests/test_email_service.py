@@ -161,3 +161,76 @@ def test_reminder_has_no_marketing_content():
 ])
 def test_looks_like_email(value, ok):
     assert email_service.looks_like_email(value) is ok
+
+
+# --- Deadline reminder emails (Sept 2026) -------------------------------------
+
+def _deadline(**over):
+    args = dict(instructor_name="Alex Morgan", kind="mot", label=None, stage="d7",
+                days_left=5, due_date_text="Saturday 3 October 2026")
+    args.update(over)
+    return email_service.render_deadline_reminder_email(**args)
+
+
+def test_deadline_subjects_by_stage():
+    assert _deadline(stage="d30", days_left=20)[0] == "MOT due in 20 days (Saturday 3 October 2026)"
+    assert _deadline(stage="d7", days_left=5)[0] == "MOT due in 5 days (Saturday 3 October 2026)"
+    assert _deadline(stage="d1", days_left=1)[0] == "MOT is due tomorrow"
+    assert _deadline(stage="d1", days_left=0)[0] == "MOT is due today"
+    assert _deadline(stage="overdue", days_left=-3)[0] == "MOT was due on Saturday 3 October 2026"
+
+
+def test_deadline_overdue_says_how_long():
+    _, html_body, text_body = _deadline(stage="overdue", days_left=-3)
+    assert "3 days ago" in text_body and "MOT is overdue" in html_body
+    assert "1 day ago" in _deadline(stage="overdue", days_left=-1)[2]
+
+
+@pytest.mark.parametrize("kind,expected", [
+    ("adi_badge", "ADI badge renewal"), ("standards_check", "DVSA standards check"), ("mot", "MOT"),
+    ("insurance", "Car insurance"), ("road_tax", "Road tax"), ("dual_controls", "Dual-control service"),
+])
+def test_deadline_uses_the_standard_name_for_each_kind(kind, expected):
+    subject, _, text_body = _deadline(kind=kind)
+    assert expected in subject and expected in text_body
+
+
+def test_deadline_custom_item_uses_the_instructors_own_label():
+    subject, html_body, _ = _deadline(kind="other", label="First aid certificate")
+    assert "First aid certificate" in subject and "First aid certificate" in html_body
+
+
+def test_deadline_custom_label_cannot_inject_headers_or_html():
+    subject, html_body, _ = _deadline(kind="other", label='Bad\r\nBcc: x@y.com <script>alert(1)</script>')
+    assert "\r" not in subject and "\n" not in subject
+    assert "<script>" not in html_body and "<script>" not in subject
+
+
+def test_deadline_standards_check_tells_you_to_log_it_not_edit_a_date():
+    _, _, standards = _deadline(kind="standards_check")
+    _, _, mot = _deadline(kind="mot")
+    assert "My Standards Check" in standards and "Profile > Deadlines" not in standards
+    assert "Profile > Deadlines" in mot
+
+
+def test_deadline_button_only_when_app_domain_is_a_real_https_address(monkeypatch):
+    monkeypatch.setenv("APP_DOMAIN", "https://webapp.example.co.uk/")
+    _, html_body, text_body = _deadline()
+    assert "https://webapp.example.co.uk/deadlines-screen" in html_body and "https://webapp.example.co.uk/deadlines-screen" in text_body
+    for bad in ("", "http://localhost:3000", "webapp.example.co.uk"):
+        monkeypatch.setenv("APP_DOMAIN", bad)
+        assert "deadlines-screen" not in _deadline()[1]
+
+
+def test_deadline_greets_by_first_name_and_survives_a_missing_name():
+    assert _deadline()[2].startswith("Hi Alex,")
+    assert _deadline(instructor_name=None)[2].startswith("Hi,\n")
+
+
+def test_deadline_email_is_sent_from_adi_pro_itself():
+    p = email_service.build_payload(to="a@b.co", subject="s", html_body="h", text_body="t",
+                                    from_header=email_service.system_sender_header())
+    assert p["from"] == f'"ADI Pro" <{email_service.EMAIL_FROM_ADDRESS}>'
+    # the existing behaviour is untouched
+    q = email_service.build_payload(to="a@b.co", subject="s", html_body="h", text_body="t", from_display_name="Sam")
+    assert q["from"] == email_service.sender_header("Sam")

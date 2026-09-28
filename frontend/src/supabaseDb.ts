@@ -4,6 +4,7 @@
 // / `instructors` tables. RLS does the multi-tenant scoping automatically.
 
 import { supabase } from './supabaseClient';
+import type { DeadlineItem, EditableDeadlineKind } from './deadlines';
 
 // ---------------------------------------------------------------------------
 // Types — kept compatible with mockDb so we can swap screens incrementally
@@ -3014,6 +3015,72 @@ export async function addStandardsCheck(input: {
 
 export async function removeStandardsCheck(id: string): Promise<void> {
   const { error } = await supabase.from('adi_standards_checks').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ===========================================================================
+// Instructor deadlines (Migration 046) — ADI badge, MOT, insurance, road tax,
+// dual-control service, custom items, plus the standards check worked out from
+// the log above. Reminders are sent by backend/admin_reminders.py. RLS scopes
+// every query to the signed-in instructor, so nothing here filters by school.
+// ===========================================================================
+
+export type { DeadlineItem } from './deadlines';
+
+function isMissingDeadlinesRelation(msg: string): boolean {
+  return /instructor_deadline(s|_items)/i.test(msg) && /(does not exist|schema cache)/i.test(msg);
+}
+
+/** Every deadline for the signed-in instructor, including the derived
+ *  standards check, soonest first. */
+export async function listMyDeadlineItems(): Promise<DeadlineItem[]> {
+  const { data, error } = await supabase
+    .from('instructor_deadline_items')
+    .select('item_key,id,instructor_id,kind,label,due_date,notes,derived')
+    .order('due_date', { ascending: true });
+  if (error) {
+    if (isMissingDeadlinesRelation(error.message || '')) return [];
+    throw error;
+  }
+  return (data || []) as DeadlineItem[];
+}
+
+export async function addDeadline(input: {
+  instructorId: string;
+  kind: EditableDeadlineKind;
+  dueDate: string;
+  label?: string | null;
+  notes?: string | null;
+}): Promise<void> {
+  const { error } = await supabase.from('instructor_deadlines').insert({
+    instructor_id: input.instructorId,
+    kind: input.kind,
+    due_date: input.dueDate,
+    label: input.label?.trim() || null,
+    notes: input.notes?.trim() || null,
+  });
+  if (error) {
+    // The unique index allows one row per standard kind per instructor.
+    if ((error as any).code === '23505') throw new Error('You are already tracking that. Edit it instead of adding it again.');
+    throw error;
+  }
+}
+
+/** Change a deadline's date (the usual "I've renewed it" action), name or notes. */
+export async function updateDeadline(
+  id: string,
+  patch: { dueDate?: string; label?: string | null; notes?: string | null },
+): Promise<void> {
+  const update: Record<string, unknown> = {};
+  if (patch.dueDate !== undefined) update.due_date = patch.dueDate;
+  if (patch.label !== undefined) update.label = patch.label?.trim() || null;
+  if (patch.notes !== undefined) update.notes = patch.notes?.trim() || null;
+  const { error } = await supabase.from('instructor_deadlines').update(update).eq('id', id);
+  if (error) throw error;
+}
+
+export async function removeDeadline(id: string): Promise<void> {
+  const { error } = await supabase.from('instructor_deadlines').delete().eq('id', id);
   if (error) throw error;
 }
 

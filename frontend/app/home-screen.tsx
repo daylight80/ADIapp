@@ -17,6 +17,7 @@ import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { MessageButton } from '../src/MessageButton';
 import { ContactsImportBanner } from '../src/ContactsImportBanner';
 import { ReferralBanner } from '../src/ReferralBanner';
+import { DeadlinesBanner } from '../src/DeadlinesBanner';
 import { PaywallModal } from '../src/PaywallModal';
 import { Crown, ChevronRight, Users, CalendarDays, Receipt, Lock, Eye, EyeOff, LayoutDashboard } from 'lucide-react-native';
 import { usePendingSyncCount } from '../src/offlineSync';
@@ -200,6 +201,10 @@ export default function InstructorHomeV2Screen() {
           {/* Referral banner — self-styled (own margins), dismissible and
               remembers it via AsyncStorage. */}
           <ReferralBanner />
+
+          {/* Renewal deadlines (paid plans): only appears when something is
+              overdue or due within 30 days. */}
+          <DeadlinesBanner enabled={paid} />
 
           {/* Upgrade banner (Starter tier only) — real urgency, not
               cosmetic: escalates to a danger colour once the student

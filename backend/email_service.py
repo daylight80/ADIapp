@@ -186,12 +186,150 @@ def looks_like_email(value: Optional[str]) -> bool:
     return bool(re.fullmatch(r"[^@\s<>\",;]+@[^@\s<>\",;]+\.[^@\s<>\",;]+", v)) and len(v) <= 254
 
 
+def system_sender_header() -> str:
+    """Sender for messages ADI Pro sends about the recipient's own account
+    (deadline reminders), where "<someone> via ADI Pro" would read oddly."""
+    return f'"ADI Pro" <{EMAIL_FROM_ADDRESS}>'
+
+
+# What a deadline reminder is for. Kept next to the template, and deliberately
+# free of legal claims — just a short, safe nudge about what to do.
+DEADLINE_KIND_LABELS = {
+    "adi_badge": "ADI badge renewal",
+    "standards_check": "DVSA standards check",
+    "mot": "MOT",
+    "insurance": "Car insurance",
+    "road_tax": "Road tax",
+    "dual_controls": "Dual-control service",
+    "other": "Deadline",
+}
+DEADLINE_KIND_HINTS = {
+    "adi_badge": "Renew your ADI registration with the DVSA in good time.",
+    "standards_check": "DVSA re-checks every approved driving instructor at least once every 4 years.",
+    "mot": "Book your MOT so the car stays legal for lessons.",
+    "insurance": "Check your cover is renewed and suitable for driving tuition.",
+    "road_tax": "Make sure the vehicle is taxed before this date.",
+    "dual_controls": "Have your dual controls serviced and checked.",
+    "other": "",
+}
+
+
+def _clean_line(value: Optional[str], limit: int = 80) -> str:
+    """Single-line, header-safe version of user text (used in subjects)."""
+    return re.sub(r"\s+", " ", _CONTROL_AND_HEADER_CHARS.sub("", value or "")).strip()[:limit]
+
+
+def deadline_item_label(kind: str, label: Optional[str]) -> str:
+    """Display name for a deadline: the user's own label for custom ones."""
+    if kind == "other" or (label and label.strip()):
+        return _clean_line(label) or DEADLINE_KIND_LABELS.get(kind, "Deadline")
+    return DEADLINE_KIND_LABELS.get(kind, "Deadline")
+
+
+def _app_link(path: str) -> Optional[str]:
+    """Link into the web app, or None when APP_DOMAIN isn't set to a real
+    address (the dev default is localhost, which is useless in an email)."""
+    base = (os.environ.get("APP_DOMAIN") or "").strip().rstrip("/")
+    if not base.startswith("https://"):
+        return None
+    return f"{base}/{path.lstrip('/')}"
+
+
+def render_deadline_reminder_email(
+    *,
+    instructor_name: Optional[str],
+    kind: str,
+    label: Optional[str],
+    stage: str,
+    days_left: int,
+    due_date_text: str,
+) -> Tuple[str, str, str]:
+    """Return (subject, html_body, text_body) for an instructor's own deadline.
+
+    `stage` is 'd30', 'd7', 'd1' or 'overdue'; `days_left` is negative when
+    overdue; `due_date_text` is already formatted (e.g. "Thursday 8 October").
+    """
+    name = _clean_line(instructor_name, 60)
+    item = deadline_item_label(kind, label)
+    hint = DEADLINE_KIND_HINTS.get(kind, "")
+
+    if stage == "overdue":
+        overdue_by = abs(days_left)
+        subject = f"{item} was due on {due_date_text}"
+        headline = f"{item} is overdue"
+        lead = f"Your {item} was due on {due_date_text}" + (
+            f" — {overdue_by} day{'s' if overdue_by != 1 else ''} ago." if overdue_by else "."
+        )
+    elif days_left <= 0:
+        subject = f"{item} is due today"
+        headline = f"{item} is due today"
+        lead = f"Your {item} is due today ({due_date_text})."
+    elif days_left == 1:
+        subject = f"{item} is due tomorrow"
+        headline = f"{item} is due tomorrow"
+        lead = f"Your {item} is due tomorrow ({due_date_text})."
+    else:
+        subject = f"{item} due in {days_left} days ({due_date_text})"
+        headline = f"{item} due in {days_left} days"
+        lead = f"Your {item} is due in {days_left} days, on {due_date_text}."
+
+    greeting = f"Hi {name.split(' ')[0]}," if name else "Hi,"
+    link = _app_link("deadlines-screen")
+    esc = html.escape
+    support = esc(EMAIL_SUPPORT_ADDRESS)
+    if kind == "standards_check":
+        # This one's date is worked out from the checks the instructor has
+        # logged, so there is no date to edit — logging the new check is the fix.
+        renewed = "Had your check already? Log it in ADI Pro (Profile > My Standards Check) so we stop reminding you."
+    else:
+        renewed = "Already sorted it? Update the date in ADI Pro (Profile > Deadlines) so we stop reminding you."
+
+    text_lines = [greeting, "", lead]
+    if hint:
+        text_lines += ["", hint]
+    text_lines += ["", renewed]
+    if link:
+        text_lines += ["", f"Open your deadlines: {link}"]
+    text_lines += ["", "You're getting this because you track this deadline in ADI Pro."]
+    text = "\n".join(text_lines) + "\n"
+
+    hint_html = f'<p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(hint)}</p>' if hint else ""
+    button_html = (
+        f'<p style="margin:0 0 20px;"><a href="{esc(link, quote=True)}" style="display:inline-block;background:#ff6b00;'
+        f'color:#ffffff;text-decoration:none;font-weight:bold;font-size:15px;padding:12px 22px;border-radius:10px;">'
+        f'Open my deadlines</a></p>'
+    ) if link else ""
+    body = f"""\
+<!doctype html>
+<html lang="en-GB">
+<body style="margin:0;padding:24px;background:#f5f2ec;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;">
+    <tr><td style="padding:28px 28px 8px;">
+      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">ADI PRO</div>
+      <h1 style="font-size:20px;line-height:1.3;margin:10px 0 14px;">{esc(headline)}</h1>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(greeting)}</p>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(lead)}</p>
+      {hint_html}
+      {button_html}
+      <p style="font-size:13px;line-height:1.5;color:#64748b;margin:0 0 6px;">{esc(renewed)}</p>
+    </td></tr>
+    <tr><td style="padding:16px 28px 24px;border-top:1px solid #e4ded2;">
+      <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">You're getting this because you track this deadline in ADI Pro. Questions: <a href="mailto:{support}" style="color:#64748b;">{support}</a>.</p>
+    </td></tr>
+  </table>
+</body>
+</html>
+"""
+    return subject, body, text
+
+
 def build_payload(
     *, to: str, subject: str, html_body: str, text_body: str,
-    from_display_name: str, reply_to: Optional[str] = None,
+    from_display_name: str = "", reply_to: Optional[str] = None,
+    from_header: Optional[str] = None,
 ) -> dict:
     payload = {
-        "from": sender_header(from_display_name),
+        "from": from_header or sender_header(from_display_name),
         "to": [to],
         "subject": subject,
         "html": html_body,

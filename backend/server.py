@@ -142,13 +142,19 @@ TRAVEL_CACHE_TTL = 300  # 5 minutes
 # Hard cap on distinct entries (11 Sept 2026) — this cache previously only
 # checked TTL lazily on a *repeat* read of the same key, so an address pair
 # queried once and never again (a one-off lesson, a student who's since
-# left) stayed in memory for the rest of the process's uptime. Over weeks
-# without a restart that grew unbounded and was the direct cause of Render
-# repeatedly hitting its memory limit. Capping at 500 entries with simple
+# left) stayed in memory for the rest of the process's uptime, so in
+# principle it grew without bound. Capping at 500 entries with simple
 # LRU eviction bounds total memory regardless of how many distinct
 # origin/destination pairs get queried over the app's lifetime — each
 # entry is tiny (a few floats + a short status string), so 500 of them is
 # a trivial, fixed amount of memory.
+#
+# Correction (28 Sept 2026): this originally claimed the unbounded cache was
+# the direct cause of Render repeatedly hitting its memory limit. It was not.
+# Render's memory graph kept climbing in a straight ~31 MB/hour line even
+# with almost no traffic, and the OOM kills continued after this cap. The
+# real cause was the lesson-reminder scheduler opening a new httpx client
+# (and SSL context) on every call — see lesson_reminders._client().
 TRAVEL_CACHE_MAX_SIZE = 500
 
 

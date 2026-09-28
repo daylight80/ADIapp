@@ -9,16 +9,42 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Mail, CheckCircle2, KeyRound } from 'lucide-react-native';
-import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
+
+/**
+ * Restyled (28 Sept 2026) to match the sign-in screen it's reached from.
+ * This screen previously used the older shared `theme` (cool grey/white),
+ * which looked like a different app next to sign-in's warm-paper design —
+ * so the palette, fonts, field, button and error styles below are the
+ * sign-in screen's own, copied rather than imported because every screen in
+ * this redesign keeps its own local palette. No behaviour changed: same
+ * validation, same forgotPassword() call, same test IDs.
+ */
+const C = {
+  surface: '#F5F2EC',
+  border: '#E4DED2',
+  text: '#0F172A',
+  textMuted: '#8A8172',
+  textMuted2: '#64748B',
+  primary: '#00539F',
+  successBg: '#D1FAE5',
+  successBorder: '#10B981',
+  successText: '#047857',
+  errorBg: '#FEE2E2',
+  errorBorder: '#FECACA',
+  errorText: '#B91C1C',
+};
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
   const { forgotPassword } = useAuth();
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 768;
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,91 +69,100 @@ export default function ForgotPasswordScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={s.safe} edges={['top']}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
       >
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="btn-back">
-            <ArrowLeft size={22} color={theme.colors.text} />
+        <View style={[s.header, isTablet && { maxWidth: 520, alignSelf: 'center', width: '100%' }]}>
+          <TouchableOpacity onPress={() => router.back()} style={s.backBtn} testID="btn-back">
+            <ArrowLeft size={20} color={C.text} />
           </TouchableOpacity>
-          <Text style={styles.title}>Reset password</Text>
-          <View style={styles.iconBtn} />
+          <Text style={s.title}>Reset password</Text>
+          <View style={s.backBtn} />
         </View>
 
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <View style={styles.heroIcon}>
-            <KeyRound size={32} color={theme.colors.primary} />
-          </View>
-
+        <ScrollView
+          contentContainerStyle={[s.scroll, isTablet && { maxWidth: 520, alignSelf: 'center', width: '100%' }]}
+          keyboardShouldPersistTaps="handled"
+        >
           {!sent ? (
             <>
-              <Text style={styles.heading}>Forgotten your password?</Text>
-              <Text style={styles.body}>
+              <View style={s.heroIcon}>
+                <KeyRound size={30} color={C.primary} />
+              </View>
+              <Text style={s.heading}>Forgotten your password?</Text>
+              <Text style={s.body}>
                 No worries — pop in the email address you signed up with and we'll send you a secure link to set a new one.
               </Text>
 
-              <View style={styles.field}>
-                <Mail size={18} color={theme.colors.textMuted} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="you@example.co.uk"
-                  placeholderTextColor={theme.colors.textMuted}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoComplete="email"
-                  value={email}
-                  onChangeText={setEmail}
-                  testID="input-email"
-                />
+              <View style={{ gap: 6, marginTop: 26 }}>
+                <Text style={s.fieldLabel}>Email address</Text>
+                <View style={s.fieldWrap}>
+                  <Mail size={18} color={C.textMuted} />
+                  <TextInput
+                    style={s.fieldInput}
+                    placeholder="you@example.co.uk"
+                    placeholderTextColor={C.textMuted}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoComplete="email"
+                    value={email}
+                    onChangeText={setEmail}
+                    testID="input-email"
+                  />
+                </View>
               </View>
 
-              {error && <Text style={styles.error} testID="reset-error">{error}</Text>}
+              {!!error && (
+                <View style={s.errorCard}>
+                  <Text style={s.errorText} testID="reset-error">{error}</Text>
+                </View>
+              )}
 
               <TouchableOpacity
-                style={[styles.primaryBtn, (busy || !validEmail) && styles.btnDisabled]}
+                style={[s.cta, (busy || !validEmail) && { opacity: 0.5 }]}
                 onPress={handleSubmit}
                 disabled={busy || !validEmail}
                 testID="btn-send-reset"
               >
                 {busy
                   ? <ActivityIndicator color="#fff" />
-                  : <Text style={styles.primaryBtnText}>Send reset link</Text>}
+                  : <Text style={s.ctaText}>Send reset link</Text>}
               </TouchableOpacity>
 
-              <TouchableOpacity onPress={() => router.back()} style={styles.linkBtn} testID="link-back-to-signin">
-                <Text style={styles.linkText}>Back to sign in</Text>
+              <TouchableOpacity onPress={() => router.back()} style={s.linkBtn} testID="link-back-to-signin">
+                <Text style={s.linkText}>Back to sign in</Text>
               </TouchableOpacity>
             </>
           ) : (
             <>
-              <View style={styles.successIcon}>
-                <CheckCircle2 size={40} color={theme.colors.success} />
+              <View style={s.successIcon}>
+                <CheckCircle2 size={38} color={C.successText} />
               </View>
-              <Text style={styles.heading}>Check your inbox</Text>
-              <Text style={styles.body}>
-                We've sent a reset link to <Text style={{ fontWeight: '700', color: theme.colors.text }}>{email.trim()}</Text>.
+              <Text style={s.heading}>Check your inbox</Text>
+              <Text style={s.body}>
+                We've sent a reset link to <Text style={{ fontFamily: 'Barlow_700Bold', color: C.text }}>{email.trim()}</Text>.
                 Open it on this device to choose a new password. The link will expire in 1 hour.
               </Text>
-              <Text style={[styles.body, { marginTop: 12 }]}>
+              <Text style={[s.body, { marginTop: 12 }]}>
                 Can't find it? Have a peek in your spam folder, or double-check the address.
               </Text>
 
               <TouchableOpacity
-                style={styles.primaryBtn}
+                style={s.cta}
                 onPress={() => router.replace('/sign-up-login-screen')}
                 testID="btn-done"
               >
-                <Text style={styles.primaryBtnText}>Back to sign in</Text>
+                <Text style={s.ctaText}>Back to sign in</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.linkBtn}
+                style={s.linkBtn}
                 onPress={() => { setSent(false); setError(null); }}
                 testID="link-resend"
               >
-                <Text style={styles.linkText}>Send to a different email</Text>
+                <Text style={s.linkText}>Send to a different email</Text>
               </TouchableOpacity>
             </>
           )}
@@ -137,22 +172,46 @@ export default function ForgotPasswordScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: theme.colors.background },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12 },
-  iconBtn: { padding: 8, width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
-  title: { ...theme.font.h2 },
-  scroll: { padding: 24, paddingBottom: 48 },
-  heroIcon: { alignSelf: 'center', width: 76, height: 76, borderRadius: 38, backgroundColor: theme.colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginBottom: 24, marginTop: 12 },
-  successIcon: { alignSelf: 'center', width: 76, height: 76, borderRadius: 38, backgroundColor: theme.colors.successLight, alignItems: 'center', justifyContent: 'center', marginBottom: 24, marginTop: 4 },
-  heading: { fontSize: 22, fontWeight: '700', color: theme.colors.text, textAlign: 'center', marginBottom: 8 },
-  body: { fontSize: 15, lineHeight: 22, color: theme.colors.textMuted, textAlign: 'center' },
-  field: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, paddingHorizontal: 14, height: 52, marginTop: 24, gap: 10, backgroundColor: theme.colors.surface },
-  input: { flex: 1, fontSize: 16, color: theme.colors.text },
-  error: { color: theme.colors.danger, fontSize: 13, marginTop: 10, textAlign: 'center' },
-  primaryBtn: { backgroundColor: theme.colors.primary, height: 54, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 20 },
-  btnDisabled: { opacity: 0.5 },
-  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  linkBtn: { alignItems: 'center', padding: 14, marginTop: 4 },
-  linkText: { color: theme.colors.primary, fontWeight: '600', fontSize: 14 },
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: C.surface },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10 },
+  backBtn: {
+    width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+  },
+  title: { fontFamily: 'Barlow_700Bold', fontSize: 16, color: C.text },
+  scroll: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 48 },
+
+  heroIcon: {
+    alignSelf: 'center', width: 78, height: 78, borderRadius: 999, backgroundColor: '#fff',
+    borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center',
+    marginTop: 14, marginBottom: 22,
+  },
+  successIcon: {
+    alignSelf: 'center', width: 78, height: 78, borderRadius: 999, backgroundColor: C.successBg,
+    borderWidth: 1, borderColor: C.successBorder, alignItems: 'center', justifyContent: 'center',
+    marginTop: 14, marginBottom: 22,
+  },
+  heading: { fontFamily: 'Archivo_800ExtraBold', fontSize: 26, letterSpacing: -0.6, color: C.text, textAlign: 'center', marginBottom: 10 },
+  body: { fontFamily: 'Barlow_400Regular', fontSize: 15, lineHeight: 22, color: C.textMuted2, textAlign: 'center' },
+
+  fieldLabel: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1.5, textTransform: 'uppercase', color: C.textMuted },
+  fieldWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 54,
+    paddingHorizontal: 14, borderWidth: 1, borderColor: C.border,
+    borderRadius: 13, backgroundColor: '#fff',
+  },
+  fieldInput: { flex: 1, minWidth: 0, fontFamily: 'Barlow_500Medium', fontSize: 15, color: C.text },
+
+  errorCard: { marginTop: 14, backgroundColor: C.errorBg, borderWidth: 1, borderColor: C.errorBorder, borderRadius: 12, padding: 11 },
+  errorText: { fontFamily: 'Barlow_600SemiBold', fontSize: 13, lineHeight: 18.2, color: C.errorText },
+
+  cta: {
+    minHeight: 56, marginTop: 22, borderRadius: 14, backgroundColor: C.primary,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: C.primary, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.45, shadowRadius: 22, elevation: 6,
+  },
+  ctaText: { fontFamily: 'Barlow_700Bold', fontSize: 16.5, color: '#fff' },
+
+  linkBtn: { alignItems: 'center', paddingTop: 16, paddingBottom: 4 },
+  linkText: { fontFamily: 'Barlow_600SemiBold', fontSize: 14, color: C.primary },
 });

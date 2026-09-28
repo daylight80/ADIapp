@@ -339,7 +339,25 @@ export default function SignInV2Screen() {
           )}
 
           <Text style={s.legal}>
-            By continuing you agree to our Terms of Service and Privacy Policy.
+            By continuing you agree to our{' '}
+            <Text
+              style={s.legalLink}
+              onPress={() => router.push('/terms-of-service-screen' as any)}
+              accessibilityRole="link"
+              testID="v2-link-terms"
+            >
+              Terms of Service
+            </Text>
+            {' '}and{' '}
+            <Text
+              style={s.legalLink}
+              onPress={() => router.push('/privacy-policy-screen' as any)}
+              accessibilityRole="link"
+              testID="v2-link-privacy"
+            >
+              Privacy Policy
+            </Text>
+            .
           </Text>
 
           <View style={{ height: 34 }} />
@@ -400,4 +418,5 @@ const s = StyleSheet.create({
   forgotLink: { fontFamily: 'Barlow_600SemiBold', fontSize: 14, color: C.primary },
   registerNote: { fontFamily: 'Barlow_400Regular', fontSize: 12.5, lineHeight: 18, color: C.textMuted2, textAlign: 'center', fontStyle: 'italic', marginTop: 16 },
   legal: { fontFamily: 'Barlow_400Regular', fontSize: 12.5, lineHeight: 18.75, color: C.textMuted2, textAlign: 'center', marginTop: 24 },
+  legalLink: { fontFamily: 'Barlow_600SemiBold', color: C.primary, textDecorationLine: 'underline' },
 });

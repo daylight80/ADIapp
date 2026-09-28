@@ -14,11 +14,15 @@ const AUTH_ROUTE = 'sign-up-login-screen';
 // Routes that don't require an authenticated session. The forgot/reset
 // password screens must be reachable when the user is signed out, and the
 // reset screen also runs in a brief recovery-session state where we still
-// want to keep them on this page rather than bouncing to home.
+// want to keep them on this page rather than bouncing to home. Terms and
+// Privacy are linked from the register form, so they must open before anyone
+// has an account.
 const PUBLIC_ROUTES = new Set<string>([
   AUTH_ROUTE,
   'forgot-password-screen',
   'reset-password-screen',
+  'terms-of-service-screen',
+  'privacy-policy-screen',
 ]);
 
 function AuthGate() {

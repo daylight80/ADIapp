@@ -9,17 +9,41 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Lock, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react-native';
-import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { supabase } from '../src/supabaseClient';
+
+/**
+ * Restyled (28 Sept 2026) to match the sign-in and forgot-password screens,
+ * which this is the last step of (forgot -> emailed link -> here). It used the
+ * older shared `theme` (cool grey). Palette, fonts, field, button and message
+ * styles are the sign-in screen's own. No behaviour changed: the recovery
+ * token detection, 5 s timeout, validation, redirects and test IDs are as before.
+ */
+const C = {
+  surface: '#F5F2EC',
+  border: '#E4DED2',
+  text: '#0F172A',
+  textMuted: '#8A8172',
+  textMuted2: '#64748B',
+  primary: '#00539F',
+  successBg: '#D1FAE5',
+  successBorder: '#10B981',
+  successText: '#047857',
+  errorBg: '#FEE2E2',
+  errorBorder: '#FECACA',
+  errorText: '#B91C1C',
+};
 
 export default function ResetPasswordScreen() {
   const router = useRouter();
   const { updatePassword } = useAuth();
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 768;
 
   // Stage tracks whether Supabase has accepted the recovery token.
   // 'detecting' — waiting for supabase-js to consume the URL hash
@@ -100,114 +124,127 @@ export default function ResetPasswordScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={s.safe} edges={['top']}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
       >
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={[s.scroll, isTablet && { maxWidth: 520, alignSelf: 'center', width: '100%' }]}
+          keyboardShouldPersistTaps="handled"
+        >
           {stage === 'detecting' && (
             <View style={{ alignItems: 'center', paddingVertical: 80 }}>
-              <ActivityIndicator size="large" color={theme.colors.primary} />
-              <Text style={[styles.body, { marginTop: 16 }]}>Verifying your reset link…</Text>
+              <ActivityIndicator size="large" color={C.primary} />
+              <Text style={[s.body, { marginTop: 16 }]}>Verifying your reset link…</Text>
             </View>
           )}
 
           {stage === 'ready' && (
             <>
-              <View style={styles.heroIcon}>
-                <ShieldCheck size={32} color={theme.colors.primary} />
+              <View style={s.heroIcon}>
+                <ShieldCheck size={30} color={C.primary} />
               </View>
-              <Text style={styles.heading}>Choose a new password</Text>
-              <Text style={styles.body}>
+              <Text style={s.heading}>Choose a new password</Text>
+              <Text style={s.body}>
                 Pick something memorable but hard to guess. Minimum 8 characters.
               </Text>
 
-              <View style={styles.field}>
-                <Lock size={18} color={theme.colors.textMuted} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="New password"
-                  placeholderTextColor={theme.colors.textMuted}
-                  secureTextEntry
-                  autoComplete="password-new"
-                  value={pw1}
-                  onChangeText={setPw1}
-                  testID="input-new-password"
-                />
+              <View style={{ gap: 6, marginTop: 26 }}>
+                <Text style={s.fieldLabel}>New password</Text>
+                <View style={s.fieldWrap}>
+                  <Lock size={18} color={C.textMuted} />
+                  <TextInput
+                    style={s.fieldInput}
+                    placeholder="New password"
+                    placeholderTextColor={C.textMuted}
+                    secureTextEntry
+                    autoComplete="password-new"
+                    value={pw1}
+                    onChangeText={setPw1}
+                    testID="input-new-password"
+                  />
+                </View>
               </View>
 
-              <View style={styles.field}>
-                <Lock size={18} color={theme.colors.textMuted} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Confirm new password"
-                  placeholderTextColor={theme.colors.textMuted}
-                  secureTextEntry
-                  autoComplete="password-new"
-                  value={pw2}
-                  onChangeText={setPw2}
-                  testID="input-confirm-password"
-                />
+              <View style={{ gap: 6, marginTop: 14 }}>
+                <Text style={s.fieldLabel}>Confirm new password</Text>
+                <View style={s.fieldWrap}>
+                  <Lock size={18} color={C.textMuted} />
+                  <TextInput
+                    style={s.fieldInput}
+                    placeholder="Confirm new password"
+                    placeholderTextColor={C.textMuted}
+                    secureTextEntry
+                    autoComplete="password-new"
+                    value={pw2}
+                    onChangeText={setPw2}
+                    testID="input-confirm-password"
+                  />
+                </View>
               </View>
 
-              <View style={styles.hintRow}>
-                <Text style={[styles.hint, strongEnough ? styles.hintOk : null]}>
+              <View style={s.hintRow}>
+                <Text style={[s.hint, strongEnough ? s.hintOk : null]}>
                   {strongEnough ? '✓' : '○'} At least 8 characters
                 </Text>
-                <Text style={[styles.hint, pw2.length > 0 && matches ? styles.hintOk : null]}>
+                <Text style={[s.hint, pw2.length > 0 && matches ? s.hintOk : null]}>
                   {pw2.length > 0 && matches ? '✓' : '○'} Passwords match
                 </Text>
               </View>
 
-              {error && <Text style={styles.error} testID="reset-error">{error}</Text>}
+              {!!error && (
+                <View style={s.errorCard}>
+                  <Text style={s.errorText} testID="reset-error">{error}</Text>
+                </View>
+              )}
 
               <TouchableOpacity
-                style={[styles.primaryBtn, !canSubmit && styles.btnDisabled]}
+                style={[s.cta, !canSubmit && { opacity: 0.5 }]}
                 onPress={handleSave}
                 disabled={!canSubmit}
                 testID="btn-save-password"
               >
                 {busy
                   ? <ActivityIndicator color="#fff" />
-                  : <Text style={styles.primaryBtnText}>Update password</Text>}
+                  : <Text style={s.ctaText}>Update password</Text>}
               </TouchableOpacity>
             </>
           )}
 
           {stage === 'invalid' && (
             <>
-              <View style={styles.errorIcon}>
-                <AlertTriangle size={36} color={theme.colors.danger} />
+              <View style={s.errorIcon}>
+                <AlertTriangle size={34} color={C.errorText} />
               </View>
-              <Text style={styles.heading}>Link expired or invalid</Text>
-              <Text style={styles.body}>
+              <Text style={s.heading}>Link expired or invalid</Text>
+              <Text style={s.body}>
                 The reset link may have already been used, or it's older than an hour. Request a fresh one to continue.
               </Text>
               <TouchableOpacity
-                style={styles.primaryBtn}
+                style={s.cta}
                 onPress={() => router.replace('/forgot-password-screen')}
                 testID="btn-request-new"
               >
-                <Text style={styles.primaryBtnText}>Request a new link</Text>
+                <Text style={s.ctaText}>Request a new link</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.linkBtn}
+                style={s.linkBtn}
                 onPress={() => router.replace('/sign-up-login-screen')}
                 testID="link-signin"
               >
-                <Text style={styles.linkText}>Back to sign in</Text>
+                <Text style={s.linkText}>Back to sign in</Text>
               </TouchableOpacity>
             </>
           )}
 
           {stage === 'success' && (
             <>
-              <View style={styles.successIcon}>
-                <CheckCircle2 size={40} color={theme.colors.success} />
+              <View style={s.successIcon}>
+                <CheckCircle2 size={38} color={C.successText} />
               </View>
-              <Text style={styles.heading}>Password updated</Text>
-              <Text style={styles.body}>
+              <Text style={s.heading}>Password updated</Text>
+              <Text style={s.body}>
                 You'll be redirected to sign in with your new password in a moment.
               </Text>
             </>
@@ -218,23 +255,47 @@ export default function ResetPasswordScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: theme.colors.background },
-  scroll: { padding: 24, paddingBottom: 48, paddingTop: 32 },
-  heroIcon: { alignSelf: 'center', width: 76, height: 76, borderRadius: 38, backgroundColor: theme.colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
-  successIcon: { alignSelf: 'center', width: 76, height: 76, borderRadius: 38, backgroundColor: theme.colors.successLight, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
-  errorIcon: { alignSelf: 'center', width: 76, height: 76, borderRadius: 38, backgroundColor: theme.colors.dangerLight, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
-  heading: { fontSize: 22, fontWeight: '700', color: theme.colors.text, textAlign: 'center', marginBottom: 8 },
-  body: { fontSize: 15, lineHeight: 22, color: theme.colors.textMuted, textAlign: 'center' },
-  field: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, paddingHorizontal: 14, height: 52, marginTop: 14, gap: 10, backgroundColor: theme.colors.surface },
-  input: { flex: 1, fontSize: 16, color: theme.colors.text },
-  hintRow: { marginTop: 14, gap: 6 },
-  hint: { fontSize: 12, color: theme.colors.textMuted },
-  hintOk: { color: theme.colors.success, fontWeight: '600' },
-  error: { color: theme.colors.danger, fontSize: 13, marginTop: 10, textAlign: 'center' },
-  primaryBtn: { backgroundColor: theme.colors.primary, height: 54, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 20 },
-  btnDisabled: { opacity: 0.5 },
-  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  linkBtn: { alignItems: 'center', padding: 14, marginTop: 4 },
-  linkText: { color: theme.colors.primary, fontWeight: '600', fontSize: 14 },
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: C.surface },
+  scroll: { paddingHorizontal: 20, paddingTop: 32, paddingBottom: 48 },
+
+  heroIcon: {
+    alignSelf: 'center', width: 78, height: 78, borderRadius: 999, backgroundColor: '#fff',
+    borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', marginBottom: 22,
+  },
+  successIcon: {
+    alignSelf: 'center', width: 78, height: 78, borderRadius: 999, backgroundColor: C.successBg,
+    borderWidth: 1, borderColor: C.successBorder, alignItems: 'center', justifyContent: 'center', marginBottom: 22,
+  },
+  errorIcon: {
+    alignSelf: 'center', width: 78, height: 78, borderRadius: 999, backgroundColor: C.errorBg,
+    borderWidth: 1, borderColor: C.errorBorder, alignItems: 'center', justifyContent: 'center', marginBottom: 22,
+  },
+  heading: { fontFamily: 'Archivo_800ExtraBold', fontSize: 26, letterSpacing: -0.6, color: C.text, textAlign: 'center', marginBottom: 10 },
+  body: { fontFamily: 'Barlow_400Regular', fontSize: 15, lineHeight: 22, color: C.textMuted2, textAlign: 'center' },
+
+  fieldLabel: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1.5, textTransform: 'uppercase', color: C.textMuted },
+  fieldWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 54,
+    paddingHorizontal: 14, borderWidth: 1, borderColor: C.border,
+    borderRadius: 13, backgroundColor: '#fff',
+  },
+  fieldInput: { flex: 1, minWidth: 0, fontFamily: 'Barlow_500Medium', fontSize: 15, color: C.text },
+
+  hintRow: { marginTop: 16, gap: 6 },
+  hint: { fontFamily: 'Barlow_500Medium', fontSize: 12.5, color: C.textMuted2 },
+  hintOk: { fontFamily: 'Barlow_700Bold', color: C.successText },
+
+  errorCard: { marginTop: 14, backgroundColor: C.errorBg, borderWidth: 1, borderColor: C.errorBorder, borderRadius: 12, padding: 11 },
+  errorText: { fontFamily: 'Barlow_600SemiBold', fontSize: 13, lineHeight: 18.2, color: C.errorText },
+
+  cta: {
+    minHeight: 56, marginTop: 22, borderRadius: 14, backgroundColor: C.primary,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: C.primary, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.45, shadowRadius: 22, elevation: 6,
+  },
+  ctaText: { fontFamily: 'Barlow_700Bold', fontSize: 16.5, color: '#fff' },
+
+  linkBtn: { alignItems: 'center', paddingTop: 16, paddingBottom: 4 },
+  linkText: { fontFamily: 'Barlow_600SemiBold', fontSize: 14, color: C.primary },
 });

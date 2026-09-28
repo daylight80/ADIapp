@@ -667,6 +667,10 @@ def start_lesson_reminder_scheduler() -> None:
         coalesce=True,
         misfire_grace_time=300,
     )
+    # Instructor deadline reminders share this scheduler. Imported here, not at
+    # the top of the file, because admin_reminders imports this module.
+    import admin_reminders
+    admin_reminders.register_jobs(_scheduler)
     _scheduler.start()
     log.info(
         "[reminders] scheduler started — ticks every %s min (offsets: 48h, 25h, 1h, window ±%s min); "

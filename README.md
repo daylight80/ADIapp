@@ -42,6 +42,9 @@ design_guidelines.json   Design tokens (colors, etc.) used throughout the app
 - Wallet and Stripe-powered invoicing (ADI Pro and Franchise tiers)
 - Referral and transactional email via Resend (referral invites, signup confirmation,
   password reset)
+- Deadline tracking for instructors (ADI badge, MOT, insurance, road tax, dual-control
+  service, plus the DVSA standards check worked out from your logged checks), with email
+  and push reminders 30, 7 and 1 days before and once if overdue — paid plans only
 - Owner/franchise dashboards for schools with multiple instructors
 
 ## Development

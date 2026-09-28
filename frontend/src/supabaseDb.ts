@@ -3084,6 +3084,37 @@ export async function removeDeadline(id: string): Promise<void> {
   if (error) throw error;
 }
 
+// ===========================================================================
+// Setup checklist signals (28 Sept 2026) — two small lookups the new-instructor
+// checklist needs that nothing else exposed. See setupChecklist.ts.
+// ===========================================================================
+
+/** When the signed-in instructor's account was created (ISO), or null. */
+export async function getMyInstructorCreatedAt(): Promise<string | null> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const uid = sessionData.session?.user.id;
+  if (!uid) return null;
+  const { data, error } = await supabase
+    .from('instructors')
+    .select('created_at')
+    .eq('auth_user_id', uid)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as { created_at?: string } | null)?.created_at ?? null;
+}
+
+/** True if this instructor has at least one lesson, of any status. Filters by
+ *  instructor explicitly (RLS alone would let a school owner see the whole
+ *  school's lessons, which would wrongly tick "book your first lesson"). */
+export async function hasAnyLesson(instructorId: string): Promise<boolean> {
+  const { count, error } = await supabase
+    .from('lessons')
+    .select('id', { count: 'exact', head: true })
+    .eq('instructor_id', instructorId);
+  if (error) throw error;
+  return (count ?? 0) > 0;
+}
+
 // Lesson reminder read-receipt status (9 Sept 2026) — per Grant directly,
 // referencing a competitor app's traffic-light system (MyDrive Time).
 // Scoped to lesson reminders, per Grant's direct answer.

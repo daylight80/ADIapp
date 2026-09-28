@@ -18,6 +18,7 @@ import { MessageButton } from '../src/MessageButton';
 import { ContactsImportBanner } from '../src/ContactsImportBanner';
 import { ReferralBanner } from '../src/ReferralBanner';
 import { DeadlinesBanner } from '../src/DeadlinesBanner';
+import { SetupChecklistCard } from '../src/SetupChecklistCard';
 import { PaywallModal } from '../src/PaywallModal';
 import { Crown, ChevronRight, Users, CalendarDays, Receipt, Lock, Eye, EyeOff, LayoutDashboard } from 'lucide-react-native';
 import { usePendingSyncCount } from '../src/offlineSync';
@@ -132,6 +133,9 @@ export default function InstructorHomeV2Screen() {
   // leave an awkward, unbalanced gap rather than a clean 2-button row.
   const [receiptsPaywallOpen, setReceiptsPaywallOpen] = useState(false);
   const [isEarningsHidden, setIsEarningsHidden] = useState(true);
+  // Setup checklist for new instructors (28 Sept 2026). null = still deciding,
+  // so the referral banner below waits rather than flashing and being removed.
+  const [checklistShowing, setChecklistShowing] = useState<boolean | null>(null);
 
   const sorted = useMemo(
     () => [...todayLessons].sort((a, b) => toMin(a.start_time) - toMin(b.start_time)),
@@ -192,6 +196,10 @@ export default function InstructorHomeV2Screen() {
             </TouchableOpacity>
           </View>
 
+          {/* Getting-started checklist — new accounts only (first 30 days),
+              each step ticks itself from real data. */}
+          <SetupChecklistCard students={students} onShowingChange={setChecklistShowing} />
+
           {/* Contacts import nudge — auto-hides server-side once dismissed
               or once the instructor has 3+ students. */}
           <View style={{ marginHorizontal: 20, marginTop: 12 }}>
@@ -200,7 +208,9 @@ export default function InstructorHomeV2Screen() {
 
           {/* Referral banner — self-styled (own margins), dismissible and
               remembers it via AsyncStorage. */}
-          <ReferralBanner />
+          {/* Held back while the setup checklist is showing (or still deciding),
+              so a new instructor isn't buried in prompts. */}
+          {checklistShowing === false && <ReferralBanner />}
 
           {/* Renewal deadlines (paid plans): only appears when something is
               overdue or due within 30 days. */}

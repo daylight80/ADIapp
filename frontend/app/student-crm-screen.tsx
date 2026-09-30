@@ -9,7 +9,8 @@ import { PaywallModal } from '../src/PaywallModal';
 import { useAuth } from '../src/AuthContext';
 import { useStudents, createStudent } from '../src/useSupabaseData';
 import { listStudentBalances, listHoursBalanceForStudents, type StudentStatus, studentAppUsageWarning } from '../src/supabaseDb';
-import { canAddStudent, explainLimitError, tierById, isPaidTier, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
+import { canAddStudent, explainLimitError, tierById, isPaidTier, isProTier, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
+import { walletDisplay, isLowCredit } from '../src/walletDisplay';
 import { copyToClipboard, openSmsComposer } from '../src/tools';
 import { fireInstantNotification } from '../src/notifications';
 import { api } from '../src/api';
@@ -91,6 +92,7 @@ export default function StudentsV2Screen() {
   // no longer exists. ----
   const { user } = useAuth();
   const pro = isPaidTier(user?.tier);
+  const managesWallet = isProTier(user?.tier);
   const [methodPickerOpen, setMethodPickerOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [contactsImportOpen, setContactsImportOpen] = useState(false);
@@ -229,12 +231,10 @@ export default function StudentsV2Screen() {
     return () => { cancelled = true; };
   }, [students]);
 
-  // "Low credit" is a judgment call, not something the data defines for
-  // us — less than one typical lesson's worth of prepaid hours remaining,
-  // while still genuinely having some balance (0 or untracked isn't
-  // "low", it's just "not using the prepaid-hours system").
-  const LOW_CREDIT_THRESHOLD_HOURS = 2;
-
+  // "Low credit" (see isLowCredit in walletDisplay.ts) is a judgment call,
+  // not something the data defines for us: some prepaid hours left, but
+  // under two. 0 or untracked isn't "low", it's just "not using the
+  // prepaid-hours system".
   const filtered = useMemo(() => {
     return students.filter((s) => {
       const q = search.toLowerCase();
@@ -242,8 +242,7 @@ export default function StudentsV2Screen() {
       const matchF = filter === 'All' || s.status === filter;
       const matchArrears = !arrearsActive || (balances[s.id] ?? 0) > 0;
       const matchNoBooking = !noBookingActive || !s.next_lesson;
-      const hb = hoursBalances[s.id] ?? 0;
-      const matchLowCredit = !lowCreditActive || (hb > 0 && hb < LOW_CREDIT_THRESHOLD_HOURS);
+      const matchLowCredit = !lowCreditActive || isLowCredit(hoursBalances[s.id]);
       return matchQ && matchF && matchArrears && matchNoBooking && matchLowCredit;
     });
   }, [students, search, filter, arrearsActive, balances, noBookingActive, lowCreditActive, hoursBalances]);
@@ -254,10 +253,7 @@ export default function StudentsV2Screen() {
   // existing pattern.
   const glanceStats = useMemo(() => {
     const noBooking = students.filter((s) => !s.next_lesson).length;
-    const lowCredit = students.filter((s) => {
-      const hb = hoursBalances[s.id] ?? 0;
-      return hb > 0 && hb < LOW_CREDIT_THRESHOLD_HOURS;
-    }).length;
+    const lowCredit = students.filter((s) => isLowCredit(hoursBalances[s.id])).length;
     const inArrears = students.filter((s) => (balances[s.id] ?? 0) > 0).length;
     return { noBooking, lowCredit, inArrears };
   }, [students, hoursBalances, balances]);
@@ -405,7 +401,7 @@ export default function StudentsV2Screen() {
               const status = STATUS_STYLE[st.status] || STATUS_STYLE.New;
               const isOpen = expandedId === st.id;
               const owed = balances[st.id] ?? 0;
-              const hours = hoursBalances[st.id] ?? 0;
+              const wallet = walletDisplay(hoursBalances[st.id], managesWallet);
               return (
                 <View key={st.id} style={[s.card, isOpen && s.cardOpen]} testID={`v2-student-${st.id}`}>
                   <TouchableOpacity
@@ -432,6 +428,15 @@ export default function StudentsV2Screen() {
                         {st.lessons_count} lesson{st.lessons_count === 1 ? '' : 's'}
                         {st.progress != null ? ` · ${st.progress}% ready` : ''}
                       </Text>
+                      {wallet && (
+                        <Text
+                          style={[s.walletLine, wallet.tone === 'ok' && s.walletOk, wallet.tone === 'low' && s.walletLow]}
+                          numberOfLines={1}
+                          testID={`v2-student-wallet-${st.id}`}
+                        >
+                          {wallet.text}
+                        </Text>
+                      )}
                     </View>
 
                     <View style={{ alignItems: 'flex-end', gap: 4 }}>
@@ -440,8 +445,6 @@ export default function StudentsV2Screen() {
                       </Text>
                       {owed > 0 ? (
                         <Text style={s.owedBadge}>£{owed.toFixed(2)} due</Text>
-                      ) : hours > 0 ? (
-                        <Text style={s.hoursBadge}>{hours.toFixed(1)}h left</Text>
                       ) : null}
                     </View>
                   </TouchableOpacity>
@@ -462,6 +465,13 @@ export default function StudentsV2Screen() {
                           testID={`v2-book-${st.id}`}
                         >
                           <Text style={s.actionText}>Book</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={s.action}
+                          onPress={() => router.push({ pathname: '/wallet-screen', params: { studentId: st.id } } as any)}
+                          testID={`v2-wallet-${st.id}`}
+                        >
+                          <Text style={s.actionText}>Wallet</Text>
                         </TouchableOpacity>
                       </View>
 
@@ -643,7 +653,9 @@ const s = StyleSheet.create({
   meta: { fontFamily: 'Barlow_500Medium', fontSize: 12.5, color: C.textMuted2 },
   statusBadge: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 0.9, textTransform: 'uppercase', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, overflow: 'hidden' },
   owedBadge: { fontFamily: 'Barlow_700Bold', fontSize: 11.5, color: '#C2410C', backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 5, overflow: 'hidden' },
-  hoursBadge: { fontFamily: 'Barlow_700Bold', fontSize: 11.5, color: '#047857', backgroundColor: '#D1FAE5', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 5, overflow: 'hidden' },
+  walletLine: { fontFamily: 'Barlow_600SemiBold', fontSize: 12, color: C.faint },
+  walletOk: { fontFamily: 'Barlow_700Bold', color: '#047857' },
+  walletLow: { fontFamily: 'Barlow_700Bold', color: '#B45309' },
 
   actionRow: { flexDirection: 'row', gap: 7, paddingTop: 11, borderTopWidth: 1, borderTopColor: C.divider },
   action: { flex: 1, minHeight: 42, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border, borderRadius: 11, backgroundColor: '#fff' },

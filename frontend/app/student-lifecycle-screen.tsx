@@ -11,6 +11,7 @@ import { buildInvoiceHtml, generateAndShareInvoicePdf } from '../src/invoice';
 import {
   useStudent, patchStudent, passStudent, useLessonsForStudent, useCompetencies,
   useTestOutcomesForStudent, useMockTestAttempts, setStudentStatusAsync, removeStudentViaApi, bump,
+  useBlockBookings,
 } from '../src/useSupabaseData';
 import {
   getPendingDeletionRequestForStudent, type GdprDeletionRequest, getMySchoolProfile,
@@ -18,7 +19,8 @@ import {
   listMySyllabuses, applySyllabusToStudent, type InstructorSyllabus,
   getLatestReminderStatus, type LessonReminderStatus, getInstructorProfile,
 } from '../src/supabaseDb';
-import { isPaidTier, tierById } from '../src/tiers';
+import { isPaidTier, isProTier, tierById } from '../src/tiers';
+import { formatHours, isLowCredit } from '../src/walletDisplay';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { openSmsComposer } from '../src/tools';
 import { colorForLessonType } from '../src/diary/lessonTypes';
@@ -149,6 +151,15 @@ export default function StudentProfileV2Screen() {
 
   const { lessons: sbLessons } = useLessonsForStudent(student?.id);
   const lessons = useMemo(() => sbLessons || [], [sbLessons]);
+
+  // Prepaid balance for the wallet tile: hours paid for, minus hours used,
+  // across all of this student's block bookings.
+  const { bookings: walletBookings } = useBlockBookings(student?.id);
+  const prepaidHours = useMemo(
+    () => walletBookings.reduce((sum, b) => sum + (b.hours_paid - b.hours_used), 0),
+    [walletBookings],
+  );
+  const managesWallet = isProTier(user?.tier);
 
   // Traffic-light reminder read-receipt (9 Sept 2026), per Grant directly,
   // referencing a competitor app's student-profile screen (MyDrive Time)
@@ -637,6 +648,18 @@ export default function StudentProfileV2Screen() {
                 <View style={s.statTile}><Text style={s.statValue}>{completedCount}</Text><Text style={s.statLabel}>Lessons</Text></View>
                 <View style={s.statTile}><Text style={s.statValue}>{totalHours.toFixed(1)}h</Text><Text style={s.statLabel}>Hours</Text></View>
                 <View style={s.statTile}><Text style={s.statValue}>£{student.hourly_rate || 0}</Text><Text style={s.statLabel}>Rate</Text></View>
+                {(managesWallet || prepaidHours > 0) && (
+                  <TouchableOpacity
+                    style={[s.statTile, isLowCredit(prepaidHours) && s.statTileLow]}
+                    onPress={() => router.push({ pathname: '/wallet-screen', params: { studentId: student.id } } as any)}
+                    testID="v2-wallet-tile"
+                  >
+                    <Text style={[s.statValue, prepaidHours > 0 && { color: isLowCredit(prepaidHours) ? '#B45309' : '#047857' }]}>
+                      {prepaidHours > 0 ? `${formatHours(prepaidHours)}h` : '0h'}
+                    </Text>
+                    <Text style={s.statLabel}>Prepaid</Text>
+                  </TouchableOpacity>
+                )}
               </View>
 
               <View style={s.card}>
@@ -1123,6 +1146,7 @@ const s = StyleSheet.create({
   detailValue: { flex: 1, textAlign: 'right', fontFamily: 'Barlow_600SemiBold', fontSize: 13.5, color: C.text },
 
   statTile: { flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 12, gap: 1 },
+  statTileLow: { borderColor: '#F59E0B', backgroundColor: '#FFFBEB' },
   statValue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 22, letterSpacing: -0.4, color: C.text },
   statLabel: { fontFamily: 'Barlow_600SemiBold', fontSize: 11.5, color: C.textMuted },
 

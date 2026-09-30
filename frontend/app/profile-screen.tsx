@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LogOut, Mail, Phone, MapPin, Award, Calendar, CalendarClock, Crown, ShieldCheck, Wallet, Copy, IdCard, Car, Navigation as NavIcon, Users, FileSpreadsheet, Download, Trash2, BookOpen, Fingerprint } from 'lucide-react-native';
+import { LogOut, Mail, Phone, MapPin, Award, Calendar, CalendarClock, Crown, ShieldCheck, Wallet, Copy, IdCard, Car, Navigation as NavIcon, Users, FileSpreadsheet, Download, Trash2, BookOpen, Fingerprint, Gift } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { mockDb, instructorProfile } from '../src/mockDb';
@@ -122,6 +122,8 @@ export default function ProfileScreen() {
   const [contactsImportOpen, setContactsImportOpen] = useState(false);
   // Deadlines is a paid feature; Starter instructors get the upgrade prompt.
   const [deadlinesPaywallOpen, setDeadlinesPaywallOpen] = useState(false);
+  // Gift vouchers are a paid feature too; Starter instructors get the upgrade prompt.
+  const [vouchersPaywallOpen, setVouchersPaywallOpen] = useState(false);
   const onPickNavApp = async (app: NavApp) => {
     const prev = navApp;
     setNavApp(app); // optimistic
@@ -332,6 +334,17 @@ export default function ProfileScreen() {
         {role === 'instructor' && (
           <TouchableOpacity
             style={styles.linkRow}
+            onPress={() => (pro ? router.push('/vouchers-screen' as any) : setVouchersPaywallOpen(true))}
+            testID="link-vouchers"
+          >
+            <Gift size={18} color={theme.colors.accent} />
+            <Text style={styles.linkRowText}>Gift vouchers</Text>
+          </TouchableOpacity>
+        )}
+
+        {role === 'instructor' && (
+          <TouchableOpacity
+            style={styles.linkRow}
             onPress={() => router.push('/packages-screen' as any)}
             testID="link-packages"
           >
@@ -461,6 +474,12 @@ export default function ProfileScreen() {
         visible={deadlinesPaywallOpen}
         onClose={() => setDeadlinesPaywallOpen(false)}
         reason="Never miss a renewal. Track your ADI badge, MOT, insurance, road tax and dual-control service, with email and notification reminders before each one."
+      />
+
+      <PaywallModal
+        visible={vouchersPaywallOpen}
+        onClose={() => setVouchersPaywallOpen(false)}
+        reason="Sell prepaid lessons as gifts. Make a branded PDF gift voucher for any number of hours, with your logo, a unique code and an expiry date."
       />
       </KeyboardAvoidingView>
     </SafeAreaView>

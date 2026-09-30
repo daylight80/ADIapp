@@ -2,14 +2,7 @@ import { Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Student, Lesson } from './supabaseDb';
-
-function escape(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
+import { escapeHtml as escape } from './htmlEscape';
 
 export function buildInvoiceHtml(opts: {
   invoiceNo: string;
@@ -114,7 +107,19 @@ export function buildInvoiceHtml(opts: {
 </body></html>`;
 }
 
-export async function generateAndShareInvoicePdf(html: string, filename: string): Promise<{ ok: boolean; error?: string }> {
+/** A4 in points, for documents (like vouchers) that are laid out as a full page. */
+export const A4_POINTS = { width: 595, height: 842 };
+
+/**
+ * Turns generated HTML into a PDF and opens the share sheet (or, on the web, a
+ * print preview in a new tab). `what` only words the error messages.
+ */
+export async function generateAndSharePdf(
+  html: string,
+  filename: string,
+  what = 'document',
+  size?: { width: number; height: number },
+): Promise<{ ok: boolean; error?: string }> {
   try {
     if (Platform.OS === 'web') {
       // Open print preview in new tab on web
@@ -125,15 +130,19 @@ export async function generateAndShareInvoicePdf(html: string, filename: string)
         setTimeout(() => win.print(), 500);
         return { ok: true };
       }
-      return { ok: false, error: 'Browser blocked the invoice window' };
+      return { ok: false, error: `Browser blocked the ${what} window` };
     }
-    const { uri } = await Print.printToFileAsync({ html });
+    const { uri } = await Print.printToFileAsync(size ? { html, ...size } : { html });
     const canShare = await Sharing.isAvailableAsync();
     if (canShare) {
       await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: filename, UTI: 'com.adobe.pdf' });
     }
     return { ok: true };
   } catch (e: any) {
-    return { ok: false, error: e?.message || 'Failed to generate invoice' };
+    return { ok: false, error: e?.message || `Failed to generate ${what}` };
   }
+}
+
+export function generateAndShareInvoicePdf(html: string, filename: string): Promise<{ ok: boolean; error?: string }> {
+  return generateAndSharePdf(html, filename, 'invoice');
 }

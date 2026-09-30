@@ -30,6 +30,38 @@ export const LIFECYCLE_STATUSES: LifecycleStatus[] = [
   'Waitlist',
 ];
 
+export type StatusMove = { to: LifecycleStatus; label: string };
+
+/**
+ * The "moving along" buttons offered on a student's profile. A New student
+ * also becomes Active on their own once a lesson is completed (Migration 048);
+ * these let the instructor do it, or mark Test Ready, without waiting.
+ * Inactive and Waitlist have their own Reactivate button, and Passed is final.
+ */
+export function manualStatusMoves(from: string | null | undefined): StatusMove[] {
+  switch (from) {
+    case 'New':
+      return [{ to: 'Active', label: 'Mark active' }, { to: 'Test Ready', label: 'Mark test ready' }];
+    case 'Active':
+      return [{ to: 'Test Ready', label: 'Mark test ready' }];
+    case 'Test Ready':
+      return [{ to: 'Active', label: 'Back to active' }];
+    default:
+      return [];
+  }
+}
+
+/** The confirmation line shown after a status change. */
+export function statusChangeMessage(name: string, from: string, to: LifecycleStatus): string {
+  if (to === 'Inactive') return `${name} marked as inactive.`;
+  if (to === 'Waitlist') return `${name} moved to the waiting list.`;
+  if (to === 'Test Ready') return `${name} marked as test ready.`;
+  if (to === 'Active') {
+    return from === 'Inactive' || from === 'Waitlist' ? `${name} reactivated.` : `${name} marked as active.`;
+  }
+  return `${name} is now ${to}.`;
+}
+
 /** PATCH /api/v2/students/:id/status — returns the new status server-confirmed. */
 export async function updateStudentStatus(
   studentId: string,

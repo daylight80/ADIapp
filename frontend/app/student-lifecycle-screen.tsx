@@ -21,6 +21,7 @@ import {
 } from '../src/supabaseDb';
 import { isPaidTier, isProTier, tierById } from '../src/tiers';
 import { formatHours, isLowCredit } from '../src/walletDisplay';
+import { manualStatusMoves, statusChangeMessage, type LifecycleStatus } from '../src/studentLifecycle';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { openSmsComposer } from '../src/tools';
 import { colorForLessonType } from '../src/diary/lessonTypes';
@@ -143,7 +144,7 @@ export default function StudentProfileV2Screen() {
 
   const [testOutcomeOpen, setTestOutcomeOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [snack, setSnack] = useState<{ message: string; undoTo: 'Active' | 'Inactive' | 'Waitlist' | null } | null>(null);
+  const [snack, setSnack] = useState<{ message: string; undoTo: LifecycleStatus | null } | null>(null);
   const snackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { student: sbStudent, loading: studentLoading } = useStudent(id);
@@ -345,20 +346,23 @@ export default function StudentProfileV2Screen() {
     return { criteria, met, total: criteria.length, pct: Math.round((met / criteria.length) * 100) };
   }, [lessons, mockAttempts, testOutcomes, levelByKey]);
 
-  const showSnack = (message: string, undoTo: 'Active' | 'Inactive' | 'Waitlist' | null) => {
+  const showSnack = (message: string, undoTo: LifecycleStatus | null) => {
     if (snackTimeoutRef.current) clearTimeout(snackTimeoutRef.current);
     setSnack({ message, undoTo });
     snackTimeoutRef.current = setTimeout(() => setSnack(null), 5000);
   };
 
-  const runStatusChange = async (next: 'Active' | 'Inactive' | 'Waitlist', previous?: string) => {
+  const runStatusChange = async (next: LifecycleStatus, previous?: string, isUndo = false) => {
     if (!student) return;
     try {
       await setStudentStatusAsync(student.id, next);
-      if (previous && next !== 'Active') {
-        showSnack(next === 'Inactive' ? `${student.name} marked as inactive.` : `${student.name} moved to the waiting list.`, previous as any);
-      } else if (next === 'Active') {
-        showSnack(`${student.name} reactivated.`, null);
+      if (isUndo) {
+        showSnack('Change undone.', null);
+      } else if (previous) {
+        // Coming back from Inactive/Waitlist is a plain "reactivated" with no
+        // undo, as before; every other change offers an undo to where they were.
+        const reactivating = next === 'Active' && (previous === 'Inactive' || previous === 'Waitlist');
+        showSnack(statusChangeMessage(student.name, previous, next), reactivating ? null : (previous as LifecycleStatus));
       }
     } catch (e: any) {
       Alert.alert('Update failed', e?.message || 'Could not update status');
@@ -370,7 +374,7 @@ export default function StudentProfileV2Screen() {
     const target = snack.undoTo;
     setSnack(null);
     if (snackTimeoutRef.current) clearTimeout(snackTimeoutRef.current);
-    runStatusChange(target);
+    runStatusChange(target, undefined, true);
   };
 
   const openAmend = () => {
@@ -764,8 +768,28 @@ export default function StudentProfileV2Screen() {
                   <Text style={s.sectionLabel}>Lifecycle status</Text>
                   <Text style={[s.statusBadge, { backgroundColor: status.bg, color: status.fg }]}>{student.status}</Text>
                 </View>
-                <Text style={s.lifecycleHint}>Pause a student without losing their records, or move them onto the waiting list until a slot becomes available.</Text>
-                <View style={{ flexDirection: 'row', gap: 7, marginTop: 11 }}>
+                <Text style={s.lifecycleHint}>
+                  {student.status === 'New'
+                    ? 'New students become Active on their own once their first lesson is completed. You can also move them along yourself. '
+                    : 'Move a student along as they progress. '}
+                  Pause a student without losing their records, or move them onto the waiting list until a slot becomes available.
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 11 }}>
+                  {manualStatusMoves(student.status).map((m) => (
+                    <TouchableOpacity
+                      key={m.to}
+                      style={[
+                        s.lifecycleBtn,
+                        m.to === 'Test Ready'
+                          ? { backgroundColor: '#FFF7ED', borderColor: '#C2410C' }
+                          : { backgroundColor: '#D1FAE5', borderColor: '#10B981' },
+                      ]}
+                      onPress={() => runStatusChange(m.to, student.status)}
+                      testID={`v2-move-${m.to.replace(/\s+/g, '-').toLowerCase()}`}
+                    >
+                      <Text style={[s.lifecycleBtnText, { color: m.to === 'Test Ready' ? '#C2410C' : '#047857' }]}>{m.label}</Text>
+                    </TouchableOpacity>
+                  ))}
                   {student.status !== 'Inactive' && student.status !== 'Passed' && (
                     <TouchableOpacity style={s.lifecycleBtn} onPress={() => runStatusChange('Inactive', student.status)} testID="v2-deactivate">
                       <Text style={s.lifecycleBtnText}>Deactivate</Text>

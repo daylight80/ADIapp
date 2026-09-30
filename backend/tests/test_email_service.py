@@ -101,7 +101,7 @@ def _reminder(**over):
     args = dict(
         student_name="Jamie Carter", instructor_name="Alex Morgan", kind="h48",
         weekday="Thursday", date_text="8 October", time_text="09:00",
-        pickup_address="12 High Street, Leeds",
+        pickup_address="12 High Street, Leeds", instructor_phone="07700 900123",
     )
     args.update(over)
     return email_service.render_lesson_reminder_email(**args)
@@ -149,6 +149,20 @@ def test_reminder_has_no_marketing_content():
     _, html_body, text_body = _reminder()
     assert "http" not in text_body.lower()
     assert "sign up" not in html_body.lower()
+
+
+def test_reminder_tells_student_to_call_the_instructor_with_their_number():
+    _, html_body, text_body = _reminder()
+    for body in (html_body, text_body):
+        assert "please call Alex Morgan on 07700 900123" in body
+        assert "reply to this email" not in body.lower()
+    assert "adipro@drivingschoolsolutions.co.uk" in text_body
+
+
+def test_reminder_falls_back_to_contact_line_when_no_phone():
+    _, html_body, text_body = _reminder(instructor_phone=None)
+    assert "please contact Alex Morgan." in text_body
+    assert "please contact Alex Morgan." in html_body
 
 
 @pytest.mark.parametrize("value,ok", [

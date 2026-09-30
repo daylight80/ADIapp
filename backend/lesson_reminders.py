@@ -164,7 +164,7 @@ async def _find_due_lessons(
         "select": (
             "id,start_time,end_time,status,pickup_address,topic,student_id,"
             "students(id,auth_user_id,full_name,email),"
-            "instructors(id,full_name,email,driving_schools!instructors_school_id_fkey(tier))"
+            "instructors(id,full_name,mobile_number,driving_schools!instructors_school_id_fkey(tier))"
         ),
         "start_time": f"gte.{lo.isoformat()}",
         "and": f"(start_time.lte.{hi.isoformat()})",
@@ -473,13 +473,6 @@ CHANNEL_ORDER = {
 _warned_email_unconfigured = False
 
 
-def _instructor_reply_to(instructor: Dict[str, Any]) -> Optional[str]:
-    """Replies go to the instructor, so a student answering "can we move it?"
-    reaches a person. Omitted if the instructor has no usable address."""
-    addr = (instructor.get("email") or "").strip()
-    return addr if email_service.looks_like_email(addr) else None
-
-
 async def _send_email_reminder(lesson: Dict[str, Any], kind: str) -> bool:
     """Email the reminder to the student. True only if Resend accepted it."""
     student = lesson.get("students") or {}
@@ -499,6 +492,7 @@ async def _send_email_reminder(lesson: Dict[str, Any], kind: str) -> bool:
         date_text=f"{dt.day} {dt.strftime('%B')}",
         time_text=dt.strftime("%H:%M"),
         pickup_address=lesson.get("pickup_address"),
+        instructor_phone=instructor.get("mobile_number"),
     )
     payload = email_service.build_payload(
         to=to,
@@ -506,7 +500,6 @@ async def _send_email_reminder(lesson: Dict[str, Any], kind: str) -> bool:
         html_body=html_body,
         text_body=text_body,
         from_display_name=instructor.get("full_name") or "Your instructor",
-        reply_to=_instructor_reply_to(instructor),
     )
     try:
         async with _client() as client:

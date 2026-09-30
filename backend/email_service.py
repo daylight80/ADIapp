@@ -25,6 +25,10 @@ EMAIL_FROM_ADDRESS = os.environ.get("EMAIL_FROM_ADDRESS", "hello@adipro.drivings
 # Shown in the footer of referral emails as the opt-out route (PECR: the
 # recipient must be able to say "stop"). Must be a mailbox that is actually read.
 EMAIL_SUPPORT_ADDRESS = os.environ.get("EMAIL_SUPPORT_ADDRESS", "hello@drivingschoolsolutions.co.uk")
+# Shown in lesson reminder footers specifically — students don't reply to
+# these (instructors have no monitored mailbox), so it's the one contact
+# route offered instead.
+LESSON_REMINDER_SUPPORT_ADDRESS = os.environ.get("LESSON_REMINDER_SUPPORT_ADDRESS", "adipro@drivingschoolsolutions.co.uk")
 
 
 class EmailNotConfigured(Exception):
@@ -112,19 +116,23 @@ def render_lesson_reminder_email(
     date_text: str,
     time_text: str,
     pickup_address: Optional[str] = None,
+    instructor_phone: Optional[str] = None,
 ) -> Tuple[str, str, str]:
     """Return (subject, html_body, text_body) for a student's lesson reminder.
 
     `kind` is 'h48' or 'h25'. Times must already be UK local time. A plain
     service message about a lesson the student has booked — no marketing
     content — so it needs no marketing consent, and the footer tells the
-    student who to contact instead. Every user-supplied string is escaped.
+    student who to contact instead. Instructors don't have a monitored
+    mailbox, so the change/cancel line points the student to a phone call
+    rather than a reply. Every user-supplied string is escaped.
     """
     first = clean_display_name(student_name, fallback="").split(" ")[0]
     instructor = clean_display_name(instructor_name, fallback="your instructor")
     # Same cleaning as a name, but an address can legitimately be longer than
     # clean_display_name's 60-char cap.
     address = re.sub(r"\s+", " ", _CONTROL_AND_HEADER_CHARS.sub("", pickup_address or "")).strip()[:200]
+    phone = re.sub(r"\s+", " ", _CONTROL_AND_HEADER_CHARS.sub("", instructor_phone or "")).strip()[:30]
 
     if kind == "h25":
         subject = f"Your driving lesson is tomorrow at {time_text}"
@@ -140,14 +148,20 @@ def render_lesson_reminder_email(
     esc = html.escape
     esc_support = esc(EMAIL_SUPPORT_ADDRESS)
 
+    if phone:
+        contact_line = f"If you need to change or cancel your lesson, please call {instructor} on {phone}."
+    else:
+        contact_line = f"If you need to change or cancel your lesson, please contact {instructor}."
+
     text_lines = [greeting, "", lead, "", f"When: {when}"]
     if address:
         text_lines.append(f"Pick-up: {address}")
     text_lines += [
         "",
-        f"If you need to change or cancel, reply to this email to reach {instructor}.",
+        contact_line,
         "",
-        f"You're receiving this because {instructor} booked a driving lesson for you using ADI Pro.",
+        f"You're receiving this reminder email because {instructor} booked a driving lesson for you using "
+        f"ADI Pro. Questions about these emails: {LESSON_REMINDER_SUPPORT_ADDRESS}.",
     ]
     text = "\n".join(text_lines) + "\n"
 
@@ -155,6 +169,12 @@ def render_lesson_reminder_email(
         f'<p style="font-size:15px;line-height:1.55;margin:0 0 6px;"><strong>Pick-up:</strong> {esc(address)}</p>'
         if address else ""
     )
+    contact_html = (
+        f"If you need to change or cancel your lesson, please call {esc(instructor)} on {esc(phone)}."
+        if phone else
+        f"If you need to change or cancel your lesson, please contact {esc(instructor)}."
+    )
+    esc_lesson_support = esc(LESSON_REMINDER_SUPPORT_ADDRESS)
     body = f"""\
 <!doctype html>
 <html lang="en-GB">
@@ -167,10 +187,10 @@ def render_lesson_reminder_email(
       <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(lead)}</p>
       <p style="font-size:15px;line-height:1.55;margin:0 0 6px;"><strong>When:</strong> {esc(when)}</p>
       {pickup_html}
-      <p style="font-size:15px;line-height:1.55;margin:14px 0 20px;">If you need to change or cancel, just reply to this email to reach {esc(instructor)}.</p>
+      <p style="font-size:15px;line-height:1.55;margin:14px 0 20px;">{contact_html}</p>
     </td></tr>
     <tr><td style="padding:16px 28px 24px;border-top:1px solid #e4ded2;">
-      <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">You're receiving this because {esc(instructor)} booked a driving lesson for you using ADI Pro. Questions about these emails: <a href="mailto:{esc_support}" style="color:#64748b;">{esc_support}</a>.</p>
+      <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">You're receiving this reminder email because {esc(instructor)} booked a driving lesson for you using ADI Pro. Questions about these emails: <a href="mailto:{esc_lesson_support}" style="color:#64748b;">{esc_lesson_support}</a>.</p>
     </td></tr>
   </table>
 </body>

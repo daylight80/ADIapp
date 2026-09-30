@@ -17,13 +17,13 @@ import lesson_reminders as lr  # noqa: E402
 
 
 def make_lesson(*, email="student@example.com", auth_user_id="auth-1", tier="pro",
-                instructor_email="alex@example.com", start="2026-10-08T08:00:00+00:00"):
+                instructor_phone="07700 900123", start="2026-10-08T08:00:00+00:00"):
     return {
         "id": "lesson-1",
         "start_time": start,
         "pickup_address": "12 High Street",
         "students": {"id": "s1", "full_name": "Jamie Carter", "email": email, "auth_user_id": auth_user_id},
-        "instructors": {"id": "i1", "full_name": "Alex Morgan", "email": instructor_email,
+        "instructors": {"id": "i1", "full_name": "Alex Morgan", "mobile_number": instructor_phone,
                         "driving_schools": {"tier": tier}},
     }
 
@@ -228,23 +228,24 @@ def _capture_send(monkeypatch, *, fail=False):
     return sent
 
 
-def test_email_payload_has_uk_time_reply_to_and_instructor_sender(monkeypatch):
+def test_email_payload_has_uk_time_phone_contact_and_instructor_sender(monkeypatch):
     sent = _capture_send(monkeypatch)
     ok = asyncio.run(lr._send_email_reminder(make_lesson(), "h48"))
     assert ok is True
     p = sent[0]
     assert p["to"] == ["student@example.com"]
-    assert p["reply_to"] == "alex@example.com"
+    assert "reply_to" not in p
     assert "Alex Morgan via ADI Pro" in p["from"]
+    assert "07700 900123" in p["text"]
     # 08:00 UTC on 8 Oct 2026 is 09:00 BST — the UK-time fix must apply to email too
     assert "09:00" in p["subject"] and "08:00" not in p["subject"]
     assert "Thursday 8 October at 09:00" in p["text"]
 
 
-def test_email_payload_omits_reply_to_when_instructor_has_no_email(monkeypatch):
+def test_email_payload_falls_back_when_instructor_has_no_phone(monkeypatch):
     sent = _capture_send(monkeypatch)
-    asyncio.run(lr._send_email_reminder(make_lesson(instructor_email=None), "h48"))
-    assert "reply_to" not in sent[0]
+    asyncio.run(lr._send_email_reminder(make_lesson(instructor_phone=None), "h48"))
+    assert "please contact Alex Morgan" in sent[0]["text"]
 
 
 def test_email_send_error_returns_false_instead_of_raising(monkeypatch):
@@ -256,14 +257,6 @@ def test_unreadable_start_time_sends_nothing(monkeypatch):
     sent = _capture_send(monkeypatch)
     assert asyncio.run(lr._send_email_reminder(make_lesson(start="garbage"), "h48")) is False
     assert sent == []
-
-
-@pytest.mark.parametrize("addr,expected", [
-    ("alex@example.com", "alex@example.com"), (" alex@example.com ", "alex@example.com"),
-    (None, None), ("", None), ("nope", None),
-])
-def test_instructor_reply_to(addr, expected):
-    assert lr._instructor_reply_to({"email": addr}) == expected
 
 
 def test_channel_order_matches_the_agreed_rules():

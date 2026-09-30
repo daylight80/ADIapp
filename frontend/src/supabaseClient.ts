@@ -101,12 +101,20 @@ if (SUPABASE_URL === FALLBACK_SUPABASE_URL || SUPABASE_ANON_KEY === FALLBACK_SUP
   console.warn('[supabase] EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY is missing or invalid even after sanitizing — using hardcoded fallback values. Raw URL value seen: ' + JSON.stringify(process.env.EXPO_PUBLIC_SUPABASE_URL));
 }
 
+// Must be set explicitly: supabase-js 2.106.0 forwards an unset value to the
+// auth client as `undefined`, which overrides the library's own 5s default and
+// makes every request wait forever if the browser session lock is ever held
+// (another tab, or an interrupted refresh). That left Home spinning and the
+// Add Lesson student picker empty until a full reload.
+export const AUTH_LOCK_ACQUIRE_TIMEOUT_MS = 5000;
+
 export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: Platform.OS === 'web',
+    lockAcquireTimeout: AUTH_LOCK_ACQUIRE_TIMEOUT_MS,
   },
   // Realtime isn't used in Wave-2 yet — keep events minimal so the SDK doesn't
   // try to open extra websockets during SSR.

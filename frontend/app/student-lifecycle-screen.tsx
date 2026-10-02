@@ -147,7 +147,7 @@ export default function StudentProfileV2Screen() {
   const [snack, setSnack] = useState<{ message: string; undoTo: LifecycleStatus | null } | null>(null);
   const snackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { student: sbStudent, loading: studentLoading } = useStudent(id);
+  const { student: sbStudent, loading: studentLoading, error: studentError, refresh: refreshStudent } = useStudent(id);
   const student = sbStudent;
 
   const { lessons: sbLessons } = useLessonsForStudent(student?.id);
@@ -482,6 +482,24 @@ export default function StudentProfileV2Screen() {
     );
   }
   if (!student) {
+    // Distinguishes a genuine fetch failure/timeout (useStudent()'s new
+    // error state, 2 Oct 2026) from the student record genuinely not
+    // existing — without this check, both looked identical: a bare
+    // "Student not found" that reads as a data problem, not a
+    // transient one with an obvious next step (just try again).
+    if (studentError) {
+      return (
+        <SafeAreaView style={s.safe} edges={['top']}>
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 10 }}>
+            <Text style={s.emptyTitle}>Couldn&apos;t load this student</Text>
+            <Text style={{ color: C.textMuted, textAlign: 'center' }}>{studentError}</Text>
+            <TouchableOpacity onPress={refreshStudent} testID="v2-student-retry">
+              <Text style={{ color: C.primary, fontFamily: 'Barlow_700Bold', fontSize: 14 }}>Try again</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      );
+    }
     return (
       <SafeAreaView style={s.safe} edges={['top']}>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>

@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import * as db from './supabaseDb';
 import { supabase } from './supabaseClient';
+import { withTimeout } from './withTimeout';
 
 /**
  * UUID v4 regex used to guard Supabase queries against mockDb sentinel IDs
@@ -45,6 +46,22 @@ function useVersion(): number {
 // Hooks — Students
 // ---------------------------------------------------------------------------
 
+// Timeout guard (2 Oct 2026) — reported directly: the Students screen
+// got stuck on its loading spinner indefinitely, recovered instantly by
+// a manual pull-to-refresh. That shape — works fine on a fresh retry,
+// but the original attempt never resolves at all — is the same
+// signature as the biometric-unlock hang fixed earlier (see
+// withTimeout.ts): a promise that can genuinely never settle, with no
+// timeout, leaves the UI with no recovery path of its own. The
+// underlying Supabase client call has no built-in timeout, so a single
+// stalled request (a network blip, a momentary backend hiccup) could
+// leave loading stuck at true forever. A sentinel so the timeout path
+// can set a real error message rather than just silently showing an
+// empty list indistinguishable from "this instructor genuinely has no
+// students yet".
+const STUDENTS_FETCH_TIMEOUT_MS = 15000;
+const TIMED_OUT = Symbol('timed-out');
+
 export function useStudents() {
   const version = useVersion();
   const [students, setStudents] = useState<db.Student[]>([]);
@@ -55,8 +72,12 @@ export function useStudents() {
     setLoading(true);
     setError(null);
     try {
-      const rows = await db.listStudents();
-      setStudents(rows);
+      const result = await withTimeout(db.listStudents(), STUDENTS_FETCH_TIMEOUT_MS, TIMED_OUT as any);
+      if (result === (TIMED_OUT as any)) {
+        setError('Taking longer than expected — check your connection and pull to refresh.');
+      } else {
+        setStudents(result);
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to load students');
     } finally {
@@ -82,7 +103,13 @@ export function useStudent(id: string | undefined) {
     setLoading(true);
     setError(null);
     try {
-      setStudent(await db.getStudent(id));
+      // Same timeout guard as useStudents() above, same reasoning.
+      const result = await withTimeout(db.getStudent(id), STUDENTS_FETCH_TIMEOUT_MS, TIMED_OUT as any);
+      if (result === (TIMED_OUT as any)) {
+        setError('Taking longer than expected — check your connection and pull to refresh.');
+      } else {
+        setStudent(result);
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to load student');
     } finally {

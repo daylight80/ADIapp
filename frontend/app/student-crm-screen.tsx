@@ -69,7 +69,7 @@ function initialsOf(name: string): string {
 export default function StudentsV2Screen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ filter?: string }>();
-  const { students, loading, refresh } = useStudents();
+  const { students, loading, error, refresh } = useStudents();
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterChip>('All');
@@ -390,6 +390,19 @@ export default function StudentsV2Screen() {
       >
         {loading && students.length === 0 ? (
           <ActivityIndicator color={C.primary} style={{ marginTop: 40 }} />
+        ) : error && students.length === 0 ? (
+          // Surfaces useStudents()'s new timeout/error state (2 Oct
+          // 2026) — without this, a timed-out fetch would resolve
+          // loading to false and silently fall through to the generic
+          // "No students match" empty state below, which wrongly
+          // implies an active search filter rather than a failed fetch.
+          <View style={{ paddingVertical: 44, alignItems: 'center', gap: 10 }}>
+            <Text style={s.emptyTitle}>Couldn&apos;t load students</Text>
+            <Text style={s.emptySub}>{error}</Text>
+            <TouchableOpacity onPress={refresh} testID="v2-students-retry">
+              <Text style={{ color: C.primary, fontFamily: 'Barlow_700Bold', fontSize: 14 }}>Try again</Text>
+            </TouchableOpacity>
+          </View>
         ) : filtered.length === 0 ? (
           <View style={{ paddingVertical: 44, alignItems: 'center', gap: 6 }}>
             <Text style={s.emptyTitle}>No students match</Text>

@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import * as db from './supabaseDb';
 import { supabase } from './supabaseClient';
+import { raceTimeout, loadErrorMessage } from './withTimeout';
 
 /**
  * UUID v4 regex used to guard Supabase queries against mockDb sentinel IDs
@@ -45,6 +46,22 @@ function useVersion(): number {
 // Hooks — Students
 // ---------------------------------------------------------------------------
 
+// Timeout guard (2 Oct 2026) — reported directly: the Students screen
+// got stuck on its loading spinner indefinitely, recovered instantly by
+// a manual pull-to-refresh. That shape — works fine on a fresh retry,
+// but the original attempt never resolves at all — is the same
+// signature as the biometric-unlock hang fixed earlier (see
+// withTimeout.ts): a promise that can genuinely never settle, with no
+// timeout, leaves the UI with no recovery path of its own. The
+// underlying Supabase client call has no built-in timeout, so a single
+// stalled request (a network blip, a momentary backend hiccup) could
+// leave loading stuck at true forever. A sentinel so the timeout path
+// can set a real error message rather than just silently showing an
+// empty list indistinguishable from "this instructor genuinely has no
+// students yet".
+// Shared by the student and lesson loaders below.
+const FETCH_TIMEOUT_MS = 15000;
+
 export function useStudents() {
   const version = useVersion();
   const [students, setStudents] = useState<db.Student[]>([]);
@@ -55,10 +72,9 @@ export function useStudents() {
     setLoading(true);
     setError(null);
     try {
-      const rows = await db.listStudents();
-      setStudents(rows);
+      setStudents(await raceTimeout(db.listStudents(), FETCH_TIMEOUT_MS));
     } catch (e: any) {
-      setError(e?.message || 'Failed to load students');
+      setError(loadErrorMessage(e, 'Failed to load students'));
     } finally {
       setLoading(false);
     }
@@ -82,9 +98,9 @@ export function useStudent(id: string | undefined) {
     setLoading(true);
     setError(null);
     try {
-      setStudent(await db.getStudent(id));
+      setStudent(await raceTimeout(db.getStudent(id), FETCH_TIMEOUT_MS));
     } catch (e: any) {
-      setError(e?.message || 'Failed to load student');
+      setError(loadErrorMessage(e, 'Failed to load student'));
     } finally {
       setLoading(false);
     }
@@ -217,66 +233,63 @@ export function useLessonsForStudent(studentId: string | undefined) {
   return { lessons, loading, refresh };
 }
 
-export function useLessonsForWeek(weekStart: Date) {
+/**
+ * Loads lessons between two dates, for the diary and Home.
+ *
+ * - Staleness guard (20 Sept 2026): found when the month view flickered to a
+ *   wrong lesson count and reverted. A fast double-tap fires this again before
+ *   the previous fetch resolves, and an EARLIER response could overwrite a
+ *   LATER one, so each run ignores its result once it has been superseded.
+ * - Honest failures (2 Oct 2026): this used to turn every failure into an empty
+ *   list, so a stalled or failed load read as "Nothing booked" in the diary. It
+ *   now gives up after FETCH_TIMEOUT_MS, keeps the real reason in `error`, and
+ *   `refresh` retries. The lesson list is still emptied on failure so a stale
+ *   week is never shown under the wrong dates.
+ */
+function useLessonWindow(fetchLessons: () => Promise<db.Lesson[]>, key: string) {
   const version = useVersion();
-  const key = weekStart.toISOString().slice(0, 10);
   const [lessons, setLessons] = useState<db.Lesson[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    // Staleness guard (20 Sept 2026) — found while diagnosing the diary's
-    // month view flickering to a wrong lesson count and reverting: rapid
-    // navigation (a fast double-tap, or simply firing this effect again
-    // before the previous fetch has resolved) could let an EARLIER
-    // request's response arrive and overwrite a LATER one's, since
-    // nothing here checked whether its own fetch was still the most
-    // recent one in flight before calling setLessons. Same pattern
-    // applied to useLessonsForMonth below, which is where this was
-    // actually caught on screen.
     let cancelled = false;
+    setLoading(true);
+    setError(null);
+    raceTimeout(fetchLessons(), FETCH_TIMEOUT_MS)
+      .then((rows) => { if (!cancelled) setLessons(rows); })
+      .catch((e) => {
+        if (cancelled) return;
+        setLessons([]);
+        setError(loadErrorMessage(e, 'Could not load your lessons.'));
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+    // fetchLessons is rebuilt every render; `key` already identifies the window.
+  }, [key, version, attempt]);
+
+  const refresh = useCallback(() => setAttempt((n) => n + 1), []);
+  return { lessons, loading, error, refresh };
+}
+
+export function useLessonsForWeek(weekStart: Date) {
+  const key = weekStart.toISOString().slice(0, 10);
+  return useLessonWindow(() => {
     const from = new Date(weekStart);
     from.setHours(0, 0, 0, 0);
     const to = new Date(from);
     to.setDate(to.getDate() + 7);
-    setLoading(true);
-    db.listLessonsBetween(from.toISOString(), to.toISOString())
-      .then((rows) => { if (!cancelled) setLessons(rows); })
-      .catch(() => { if (!cancelled) setLessons([]); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [key, version]);
-
-  return { lessons, loading };
+    return db.listLessonsBetween(from.toISOString(), to.toISOString());
+  }, key);
 }
 
 // Same shape as useLessonsForWeek, but for a full 42-day (6-row) month
 // grid — gridStart/gridEnd already account for padding days from the
 // adjacent months, computed by the caller via startOfMonthGrid/endOfMonthGrid.
 export function useLessonsForMonth(gridStart: Date, gridEnd: Date) {
-  const version = useVersion();
   const key = `${gridStart.toISOString().slice(0, 10)}_${gridEnd.toISOString().slice(0, 10)}`;
-  const [lessons, setLessons] = useState<db.Lesson[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    // Staleness guard (20 Sept 2026) — this is the one actually caught on
-    // screen: tapping the month view's next/prev arrow fired this effect
-    // for the new month, but a slightly slower-resolving response from
-    // the PREVIOUS month's own fetch (still in flight from the render
-    // just before) arrived after it and overwrote it — briefly showing
-    // the new month's lesson count, then snapping back to the old
-    // month's, all while the header had already moved on. See the
-    // matching note on useLessonsForWeek above.
-    let cancelled = false;
-    setLoading(true);
-    db.listLessonsBetween(gridStart.toISOString(), gridEnd.toISOString())
-      .then((rows) => { if (!cancelled) setLessons(rows); })
-      .catch(() => { if (!cancelled) setLessons([]); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [key, version]);
-
-  return { lessons, loading };
+  return useLessonWindow(() => db.listLessonsBetween(gridStart.toISOString(), gridEnd.toISOString()), key);
 }
 
 // ---------------------------------------------------------------------------
@@ -811,27 +824,10 @@ export function useInstructorEarnings() {
 
 /** Today's lessons only, from real data. */
 export function useTodayLessons() {
-  const version = useVersion();
-  const [lessons, setLessons] = useState<db.Lesson[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const start = new Date(); start.setHours(0, 0, 0, 0);
-        const end = new Date(start); end.setDate(end.getDate() + 1);
-        const rows = await db.listLessonsBetween(start.toISOString(), end.toISOString());
-        if (!cancelled) setLessons(rows);
-      } catch {
-        if (!cancelled) setLessons([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [version]);
-
-  return { lessons, loading };
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const end = new Date(start); end.setDate(end.getDate() + 1);
+  return useLessonWindow(
+    () => db.listLessonsBetween(start.toISOString(), end.toISOString()),
+    `today_${start.toISOString().slice(0, 10)}`,
+  );
 }

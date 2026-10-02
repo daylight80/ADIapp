@@ -138,7 +138,7 @@ export default function LessonDiaryV2Screen() {
   } | null>(null);
 
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
-  const { lessons } = useLessonsForWeek(weekStart);
+  const { lessons, error: weekError, refresh: refreshWeek } = useLessonsForWeek(weekStart);
   // Same weekStart window as lessons — covers Day and Week views. Month
   // view doesn't render these yet (a reasonable next step, not this pass).
   const { blocks: availBlocks } = useAvailabilityBlocks(weekStart, addDays(weekStart, 7));
@@ -163,7 +163,10 @@ export default function LessonDiaryV2Screen() {
 
   const monthGridStart = useMemo(() => startOfMonthGrid(selectedDate), [selectedDate]);
   const monthGridEnd = useMemo(() => endOfMonthGrid(selectedDate), [selectedDate]);
-  const { lessons: monthLessons } = useLessonsForMonth(monthGridStart, monthGridEnd);
+  const { lessons: monthLessons, error: monthError, refresh: refreshMonth } = useLessonsForMonth(monthGridStart, monthGridEnd);
+  // Which load matters depends on the view. A failed load must not read as an empty diary.
+  const loadError = viewMode === 'month' ? monthError : weekError;
+  const retryLoad = viewMode === 'month' ? refreshMonth : refreshWeek;
   const { students } = useStudents();
   const hourlyRate = 38; // reference rate for the "billable" summary figure only
 
@@ -407,9 +410,23 @@ export default function LessonDiaryV2Screen() {
               ? `${durLabel(weekMinutes)} booked`
               : viewMode === 'month'
                 ? `${monthLessons.length} lesson${monthLessons.length === 1 ? '' : 's'}`
-                : dayList.length ? `${dayList.length} lessons · ${durLabel(totalMinutesFor(selectedDayIdx))}` : 'Nothing booked'}
+                : loadError ? "Couldn't load" : dayList.length ? `${dayList.length} lessons · ${durLabel(totalMinutesFor(selectedDayIdx))}` : 'Nothing booked'}
           </Text>
         </View>
+
+        {!!loadError && (
+          <View
+            style={{ marginHorizontal: 20, marginTop: 10, padding: 12, borderRadius: 13, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', flexDirection: 'row', alignItems: 'center', gap: 10 }}
+            testID="v2-diary-load-error"
+          >
+            <Text style={{ flex: 1, color: '#B91C1C', fontSize: 13, fontFamily: 'Barlow_600SemiBold' }}>
+              Couldn&apos;t load your lessons. {loadError}
+            </Text>
+            <TouchableOpacity onPress={retryLoad} testID="v2-diary-load-retry">
+              <Text style={{ color: '#B91C1C', fontFamily: 'Barlow_700Bold', fontSize: 13, textDecorationLine: 'underline' }}>Try again</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }} scrollEnabled={!dragScrollLocked}>
           {viewMode === 'month' ? (

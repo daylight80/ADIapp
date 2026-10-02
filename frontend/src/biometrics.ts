@@ -1,5 +1,6 @@
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
+import { withTimeout } from './withTimeout';
 
 /**
  * Biometric app-unlock (3 Sept 2026), per Grant directly. Opt-in, once a
@@ -40,15 +41,6 @@ const BIOMETRIC_ENABLED_KEY = 'biometric_unlock_enabled';
 // outside, and Grant's own stated design ("fall back to the password
 // screen, not stuck retrying with no way out") already rules out either
 // one being allowed to hang forever with no escape.
-function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(fallback), ms);
-    promise.then(
-      (value) => { clearTimeout(timer); resolve(value); },
-      () => { clearTimeout(timer); resolve(fallback); },
-    );
-  });
-}
 
 export async function isBiometricAvailable(): Promise<boolean> {
   try {

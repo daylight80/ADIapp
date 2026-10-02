@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, PoundSterling, Clock, Plus, Receipt, Lock } from 'lucide-react-native';
+import { ArrowLeft, PoundSterling, Clock, Plus, Minus, Receipt, Lock } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { isProTier } from '../src/tiers';
@@ -12,11 +12,16 @@ import {
   purchaseBlock,
   useStudentByEmail,
   useStudentByAuthId,
+  useStudent,
   useLessonsForStudent,
 } from '../src/useSupabaseData';
 import { Card, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
-import { listLessonPackages, LessonPackage } from '../src/supabaseDb';
+import {
+  PAYMENT_METHODS, MIN_ADD_HOURS, MAX_ADD_HOURS, stepAddHours, topUpAmount, describeTopUp,
+  topUpConfirmation, canAddHours, type PaymentMethod,
+} from '../src/walletTopUp';
+import { formatHoursLabel } from '../src/voucher';
 
 export default function WalletScreen() {
   const router = useRouter();
@@ -59,15 +64,21 @@ export default function WalletScreen() {
   const pro = isProTier(user?.tier);
   const [walletPaywallOpen, setWalletPaywallOpen] = useState(false);
 
-  const student = supabaseStudent
-    ? { id: supabaseStudent.id, name: supabaseStudent.name, hourly_rate: supabaseStudent.hourly_rate ?? 38 }
-    : { id: studentId || '', name: user?.name || 'Learner', hourly_rate: 38 };
+  // When an instructor opens a student's wallet, load THAT student. This used to
+  // show the instructor's own name and a hardcoded rate, because only the
+  // student's own sign-in was ever looked up. Adding hours needs the real
+  // student's name and rate (the amount is hours x their rate).
+  const { student: managedStudent } = useStudent(isPassedSupabaseUuid ? passedId : undefined);
+  const resolvedStudent = isPassedSupabaseUuid ? managedStudent : supabaseStudent;
+  const student = resolvedStudent
+    ? { id: resolvedStudent.id, name: resolvedStudent.name, hourly_rate: resolvedStudent.hourly_rate as number | null }
+    : { id: studentId || '', name: user?.name || 'Learner', hourly_rate: null as number | null };
 
   // -----------------------------------------------------------------------
   // Live data from Supabase.
   // -----------------------------------------------------------------------
   const { bookings, loading: bookingsLoading } = useBlockBookings(studentId);
-  const { lessons: sbLessons } = useLessonsForStudent(supabaseStudent ? studentId : undefined);
+  const { lessons: sbLessons } = useLessonsForStudent(resolvedStudent ? studentId : undefined);
   const lessons = useMemo(() => (sbLessons || []).filter((l) => l.amount_paid), [sbLessons]);
 
   // Wallet balance is derived client-side from the bookings array.
@@ -79,39 +90,33 @@ export default function WalletScreen() {
 
   const [buyOpen, setBuyOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<'bank_transfer' | 'card' | 'cash' | null>(null);
-  const [packages, setPackages] = useState<LessonPackage[]>([]);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
+  const [hoursToAdd, setHoursToAdd] = useState(MIN_ADD_HOURS);
+  const amountToRecord = topUpAmount(hoursToAdd, student.hourly_rate);
 
-  useEffect(() => {
-    let active = true;
-    listLessonPackages({ activeOnly: true })
-      .then((rows) => { if (active) setPackages(rows.filter((p) => p.price != null)); })
-      .catch(() => { if (active) setPackages([]); });
-    return () => { active = false; };
-  }, []);
+  const closeSheet = () => { setBuyOpen(false); setPaymentMethod(null); setHoursToAdd(MIN_ADD_HOURS); };
 
-  const buy = async (hours: number, amount: number) => {
+  const addHours = async () => {
     if (!studentId) {
-      // Genuinely reachable if a real student link is somehow still
-      // missing (see noRealLinkFound above) — not just a type-checker
-      // technicality. Caught during a full project-wide tsc sweep after
-      // removing this screen's old mockFallbackId, which had silently
-      // been absorbing this same missing-value case before.
       Alert.alert('No student found', 'This wallet isn\u2019t linked to a real student yet.');
       return;
     }
     if (!paymentMethod) {
-      Alert.alert('Choose a payment method', 'Pick Bank Transfer, Card, or Cash to record this purchase.');
+      Alert.alert('Choose a payment method', 'Pick Bank Transfer, Card, or Cash to record how they paid.');
+      return;
+    }
+    if (student.hourly_rate == null) {
+      Alert.alert('Student not loaded', 'Please wait a moment for the student\u2019s details to load, then try again.');
       return;
     }
     setBusy(true);
     try {
-      await purchaseBlock({ student_id: studentId, hours_paid: hours, amount, payment_method: paymentMethod });
-      setBuyOpen(false);
-      setPaymentMethod(null);
-      Alert.alert('Block booked', `${hours} hours added for £${amount} (${paymentMethodLabel(paymentMethod)}). A VAT receipt is available below.`);
+      await purchaseBlock({ student_id: studentId, hours_paid: hoursToAdd, amount: amountToRecord, payment_method: paymentMethod });
+      const message = topUpConfirmation(student.name, hoursToAdd, amountToRecord, paymentMethod);
+      closeSheet();
+      Alert.alert('Hours added', message);
     } catch (e: any) {
-      Alert.alert('Purchase failed', e?.message || 'Could not add the block booking.');
+      Alert.alert('Could not add hours', e?.message || 'Could not add the hours.');
     } finally {
       setBusy(false);
     }
@@ -121,9 +126,9 @@ export default function WalletScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 }}>
-          <Text style={{ ...theme.font.h2, textAlign: 'center' }}>We couldn't find your student profile</Text>
+          <Text style={{ ...theme.font.h2, textAlign: 'center' }}>We couldn&apos;t find your student profile</Text>
           <Text style={{ color: theme.colors.textMuted, textAlign: 'center' }}>
-            Your account isn't linked to a student record yet. Please contact your instructor.
+            Your account isn&apos;t linked to a student record yet. Please contact your instructor.
           </Text>
         </View>
       </SafeAreaView>
@@ -136,7 +141,12 @@ export default function WalletScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="btn-back">
           <ArrowLeft size={22} color={theme.colors.text} />
         </TouchableOpacity>
-        <Text style={styles.title}>Payment Wallet</Text>
+        <View style={{ alignItems: 'center' }}>
+          <Text style={styles.title}>Payment Wallet</Text>
+          {isInstructorManaging && !!resolvedStudent && (
+            <Text style={{ fontSize: 12.5, color: theme.colors.textMuted, marginTop: 1 }} testID="wallet-student-name">{student.name}</Text>
+          )}
+        </View>
         <View style={styles.iconBtn} />
       </View>
 
@@ -156,28 +166,30 @@ export default function WalletScreen() {
           </View>
         </Card>
 
-        <TouchableOpacity
-          style={[styles.buyBtn, isInstructorManaging && !pro && { backgroundColor: theme.colors.textMuted }]}
-          onPress={() => (isInstructorManaging && !pro) ? setWalletPaywallOpen(true) : setBuyOpen(true)}
-          testID="btn-buy-block"
-        >
-          {isInstructorManaging && !pro ? <Lock size={16} color="#fff" /> : <Plus size={18} color="#fff" />}
-          <Text style={styles.buyBtnText}>Buy block booking</Text>
-        </TouchableOpacity>
+        {isInstructorManaging && (
+          <TouchableOpacity
+            style={[styles.buyBtn, !pro && { backgroundColor: theme.colors.textMuted }]}
+            onPress={() => (!pro ? setWalletPaywallOpen(true) : setBuyOpen(true))}
+            testID="btn-add-hours"
+          >
+            {!pro ? <Lock size={16} color="#fff" /> : <Plus size={18} color="#fff" />}
+            <Text style={styles.buyBtnText}>Add hours</Text>
+          </TouchableOpacity>
+        )}
 
-        <Text style={styles.section}>Block bookings</Text>
+        <Text style={styles.section}>Prepaid hours</Text>
         {bookingsLoading ? (
           <Card><ActivityIndicator size="small" color={theme.colors.primary} /></Card>
         ) : bookings.length === 0 ? (
-          <Card><Text style={styles.empty}>No block bookings yet.</Text></Card>
+          <Card><Text style={styles.empty}>No hours added yet.</Text></Card>
         ) : (
           bookings.map((b) => (
             <Card key={b.id} testID={`booking-${b.id}`}>
               <View style={styles.row}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.bookHours}>{b.hours_paid}h block</Text>
+                  <Text style={styles.bookHours}>{formatHoursLabel(b.hours_paid)} added</Text>
                   <Text style={styles.bookMeta}>
-                    Purchased {new Date(b.purchased_at).toLocaleDateString('en-GB')} · {(b.hours_paid - b.hours_used).toFixed(1)}h left
+                    Added {new Date(b.purchased_at).toLocaleDateString('en-GB')} · {(b.hours_paid - b.hours_used).toFixed(1)}h left
                   </Text>
                 </View>
                 <Badge label={`£${b.amount}`} bg={theme.colors.primaryLight} color={theme.colors.primary} />
@@ -208,16 +220,39 @@ export default function WalletScreen() {
         <View style={{ height: 32 }} />
       </ScrollView>
 
-      <BottomSheet visible={buyOpen} onClose={() => { setBuyOpen(false); setPaymentMethod(null); }} title="Buy a block booking" testID="sheet-buy-block">
-        <Text style={styles.hint}>Save money by purchasing lessons in advance. Includes a VAT receipt.</Text>
+      <BottomSheet visible={buyOpen} onClose={closeSheet} title={`Add time for ${student.name}`} testID="sheet-add-hours">
+        <Text style={styles.pmLabel}>Add time</Text>
+        <View style={styles.stepperRow}>
+          <TouchableOpacity
+            style={[styles.stepBtn, hoursToAdd <= MIN_ADD_HOURS && { opacity: 0.35 }]}
+            onPress={() => setHoursToAdd((h) => stepAddHours(h, -1))}
+            disabled={hoursToAdd <= MIN_ADD_HOURS || busy}
+            accessibilityLabel="One hour less"
+            testID="btn-hours-minus"
+          >
+            <Minus size={20} color={theme.colors.primary} />
+          </TouchableOpacity>
+          <View style={{ alignItems: 'center', minWidth: 110 }}>
+            <Text style={styles.stepValue} testID="hours-to-add">{hoursToAdd}</Text>
+            <Text style={styles.stepUnit}>{hoursToAdd === 1 ? 'hour' : 'hours'}</Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.stepBtn, hoursToAdd >= MAX_ADD_HOURS && { opacity: 0.35 }]}
+            onPress={() => setHoursToAdd((h) => stepAddHours(h, 1))}
+            disabled={hoursToAdd >= MAX_ADD_HOURS || busy}
+            accessibilityLabel="One hour more"
+            testID="btn-hours-plus"
+          >
+            <Plus size={20} color={theme.colors.primary} />
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.pmHelp} testID="top-up-summary">
+          {student.hourly_rate == null ? 'Loading the student\u2019s rate\u2026' : describeTopUp(hoursToAdd, student.hourly_rate)}
+        </Text>
 
         <Text style={styles.pmLabel}>Payment method</Text>
         <View style={styles.pmRow}>
-          {([
-            { key: 'bank_transfer', label: 'Bank Transfer' },
-            { key: 'card',          label: 'Card' },
-            { key: 'cash',          label: 'Cash' },
-          ] as const).map((m) => (
+          {PAYMENT_METHODS.map((m) => (
             <TouchableOpacity
               key={m.key}
               style={[styles.pmChip, paymentMethod === m.key && styles.pmChipActive]}
@@ -231,44 +266,16 @@ export default function WalletScreen() {
           ))}
         </View>
 
-        {packages.length === 0 ? (
-          <Card style={{ alignItems: 'center', paddingVertical: 18 }}>
-            <Text style={{ fontSize: 13, color: theme.colors.textMuted, textAlign: 'center' }}>
-              Your instructor hasn't published any priced packages yet. Please contact them to top up your hours.
-            </Text>
-          </Card>
-        ) : (
-          packages.map((opt) => (
-            <TouchableOpacity
-              key={opt.id}
-              style={[styles.blockCard, (busy || !paymentMethod) && { opacity: 0.45 }]}
-              onPress={() => !busy && paymentMethod && buy(opt.hours, opt.price as number)}
-              disabled={busy || !paymentMethod}
-              testID={`block-${opt.id}`}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={styles.blockHours}>
-                  {opt.name}{opt.topic_tag ? ` · ${opt.topic_tag}` : ''}
-                </Text>
-                <Text style={styles.blockSaving}>
-                  {opt.hours} hr{opt.hours === 1 ? '' : 's'} · £{((opt.price as number) / opt.hours).toFixed(2)}/hr
-                </Text>
-                {opt.description ? (
-                  <Text style={[styles.blockSaving, { marginTop: 2 }]} numberOfLines={2}>{opt.description}</Text>
-                ) : null}
-              </View>
-              <Text style={styles.blockPrice}>£{(opt.price as number).toFixed(2)}</Text>
-            </TouchableOpacity>
-          ))
-        )}
-        {!paymentMethod && (
-          <Text style={styles.pmHelp}>Pick a payment method above to enable purchase.</Text>
-        )}
-        {busy && (
-          <View style={{ alignItems: 'center', marginTop: 12 }}>
-            <ActivityIndicator color={theme.colors.primary} />
-          </View>
-        )}
+        {!paymentMethod && <Text style={styles.pmHelp}>Choose how they paid to continue.</Text>}
+
+        <TouchableOpacity
+          style={[styles.confirmBtn, (busy || !canAddHours(studentId, paymentMethod) || student.hourly_rate == null) && { opacity: 0.45 }]}
+          onPress={addHours}
+          disabled={busy || !canAddHours(studentId, paymentMethod) || student.hourly_rate == null}
+          testID="btn-confirm-add-hours"
+        >
+          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.confirmBtnText}>Add {formatHoursLabel(hoursToAdd)}</Text>}
+        </TouchableOpacity>
       </BottomSheet>
 
       <PaywallModal
@@ -300,11 +307,12 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   bookHours: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
   bookMeta: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
-  hint: { color: theme.colors.textMuted, marginBottom: 12 },
-  blockCard: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, padding: 14, marginBottom: 10 },
-  blockHours: { fontSize: 16, fontWeight: '700', color: theme.colors.text },
-  blockSaving: { fontSize: 12, color: theme.colors.success, marginTop: 2 },
-  blockPrice: { fontSize: 18, fontWeight: '800', color: theme.colors.primary },
+  stepperRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 18, marginVertical: 8 },
+  stepBtn: { width: 52, height: 52, borderRadius: 26, borderWidth: 1.5, borderColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface },
+  stepValue: { fontSize: 44, fontWeight: '800', color: theme.colors.primary, lineHeight: 50 },
+  stepUnit: { fontSize: 13, color: theme.colors.textMuted, fontWeight: '600' },
+  confirmBtn: { backgroundColor: theme.colors.accent, height: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 14 },
+  confirmBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   pmLabel: { fontSize: 13, fontWeight: '700', color: theme.colors.text, marginBottom: 6, marginTop: 4 },
   pmRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   pmChip: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface },
@@ -312,7 +320,3 @@ const styles = StyleSheet.create({
   pmChipText: { fontSize: 13, color: theme.colors.text },
   pmHelp: { fontSize: 12, color: theme.colors.textMuted, textAlign: 'center', marginTop: 6 },
 });
-
-function paymentMethodLabel(m: 'bank_transfer' | 'card' | 'cash'): string {
-  return m === 'bank_transfer' ? 'Bank Transfer' : m === 'card' ? 'Card' : 'Cash';
-}

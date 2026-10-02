@@ -99,7 +99,7 @@ export default function InstructorHomeV2Screen() {
   const [selId, setSelId] = useState<string | null>(null);
   const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
 
-  const { lessons: todayLessons, loading: lessonsLoading } = useTodayLessons();
+  const { lessons: todayLessons, loading: lessonsLoading, error: lessonsError, refresh: refreshLessons } = useTodayLessons();
   const { students } = useStudents();
   const { mtdEarned, mtdUnpaid, mtdLessonCount, byMonth } = useInstructorEarnings();
   const { rows: testOutcomes } = useInstructorTestOutcomes();
@@ -345,6 +345,16 @@ export default function InstructorHomeV2Screen() {
           {lessonsLoading ? (
             <View style={[s.hero, { alignItems: 'center', paddingVertical: 40 }]}>
               <ActivityIndicator color="#fff" />
+            </View>
+          ) : lessonsError ? (
+            // A failed or stalled load is shown as such. It used to fall through
+            // to "No lessons today", which reads as a genuinely empty day.
+            <View style={[s.hero, { alignItems: 'center', paddingVertical: 28, paddingHorizontal: 20, gap: 8 }]} testID="v2-home-lessons-error">
+              <Text style={[s.heroStudent, { textAlign: 'center' }]}>Couldn&apos;t load today&apos;s lessons</Text>
+              <Text style={{ color: 'rgba(255,255,255,.8)', textAlign: 'center', fontSize: 13 }}>{lessonsError}</Text>
+              <TouchableOpacity onPress={refreshLessons} testID="v2-home-lessons-retry">
+                <Text style={{ color: '#fff', fontFamily: 'Barlow_700Bold', fontSize: 14, textDecorationLine: 'underline' }}>Try again</Text>
+              </TouchableOpacity>
             </View>
           ) : sel ? (
             <View style={s.hero}>

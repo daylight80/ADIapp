@@ -4,22 +4,18 @@ import { useRouter, usePathname } from 'expo-router';
 import { theme } from './theme';
 import { Home, CalendarDays, Users, BookOpen, FileCheck, User, LogOut } from 'lucide-react-native';
 import { useAuth } from './AuthContext';
+import { INSTRUCTOR_TAB_SPECS, STUDENT_TAB_SPECS, type TabSpec } from './navTabs';
 
 type Tab = { key: string; label: string; icon: any; route: string };
 
-const INSTRUCTOR_TABS: Tab[] = [
-  { key: 'home', label: 'Home', icon: Home, route: '/home-screen' },
-  { key: 'diary', label: 'Diary', icon: CalendarDays, route: '/lesson-diary-screen' },
-  { key: 'students', label: 'Students', icon: Users, route: '/student-crm-screen' },
-  { key: 'logout', label: 'Logout', icon: LogOut, route: '' },
-];
-
-const STUDENT_TABS: Tab[] = [
-  { key: 'learning', label: 'My Learning', icon: BookOpen, route: '/student-home-screen' },
-  { key: 'mock', label: 'Mock Test', icon: FileCheck, route: '/dl25-mock-test-screen' },
-  { key: 'profile', label: 'Profile', icon: User, route: '/profile-screen' },
-  { key: 'logout', label: 'Logout', icon: LogOut, route: '' },
-];
+// Icons by tab key; the tabs themselves (labels and routes) live in navTabs.ts.
+const TAB_ICONS: Record<string, any> = {
+  home: Home, diary: CalendarDays, students: Users, profile: User, logout: LogOut,
+  learning: BookOpen, mock: FileCheck,
+};
+const withIcons = (specs: TabSpec[]): Tab[] => specs.map((t) => ({ ...t, icon: TAB_ICONS[t.key] }));
+const INSTRUCTOR_TABS: Tab[] = withIcons(INSTRUCTOR_TAB_SPECS);
+const STUDENT_TABS: Tab[] = withIcons(STUDENT_TAB_SPECS);
 
 export function BottomNav({ role }: { role: 'instructor' | 'student' }) {
   const router = useRouter();

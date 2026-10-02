@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -14,12 +14,13 @@ import {
   useStudentByAuthId,
   useStudent,
   useLessonsForStudent,
+  bump,
 } from '../src/useSupabaseData';
 import { Card, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import {
   PAYMENT_METHODS, MIN_ADD_HOURS, MAX_ADD_HOURS, stepAddHours, topUpAmount, describeTopUp,
-  topUpConfirmation, canAddHours, type PaymentMethod,
+  topUpConfirmation, canAddHours, runTopUp, newAttemptId, type PaymentMethod,
 } from '../src/walletTopUp';
 import { formatHoursLabel } from '../src/voucher';
 
@@ -92,9 +93,15 @@ export default function WalletScreen() {
   const [busy, setBusy] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
   const [hoursToAdd, setHoursToAdd] = useState(MIN_ADD_HOURS);
+  // One id per top-up attempt, reused if the instructor retries after a stall, so a
+  // first try that did land can't be added a second time. Changing the hours or the
+  // payment method makes it a different top-up, so the id is dropped.
+  const attemptId = useRef<string | null>(null);
+  const [sheetError, setSheetError] = useState<string | null>(null);
+  const resetAttempt = () => { attemptId.current = null; setSheetError(null); };
   const amountToRecord = topUpAmount(hoursToAdd, student.hourly_rate);
 
-  const closeSheet = () => { setBuyOpen(false); setPaymentMethod(null); setHoursToAdd(MIN_ADD_HOURS); };
+  const closeSheet = () => { setBuyOpen(false); setPaymentMethod(null); setHoursToAdd(MIN_ADD_HOURS); resetAttempt(); };
 
   const addHours = async () => {
     if (!studentId) {
@@ -109,14 +116,29 @@ export default function WalletScreen() {
       Alert.alert('Student not loaded', 'Please wait a moment for the student\u2019s details to load, then try again.');
       return;
     }
+    setSheetError(null);
     setBusy(true);
+    if (!attemptId.current) attemptId.current = newAttemptId();
+    const id = attemptId.current;
     try {
-      await purchaseBlock({ student_id: studentId, hours_paid: hoursToAdd, amount: amountToRecord, payment_method: paymentMethod });
-      const message = topUpConfirmation(student.name, hoursToAdd, amountToRecord, paymentMethod);
-      closeSheet();
-      Alert.alert('Hours added', message);
-    } catch (e: any) {
-      Alert.alert('Could not add hours', e?.message || 'Could not add the hours.');
+      // Gives up after 15 seconds instead of spinning forever. A save that times out may
+      // still land, which is why the attempt id (above) makes a retry safe.
+      const result = await runTopUp(() =>
+        purchaseBlock({ id, student_id: studentId, hours_paid: hoursToAdd, amount: amountToRecord, payment_method: paymentMethod }),
+      );
+      if (result.status === 'saved') {
+        const message = topUpConfirmation(student.name, hoursToAdd, amountToRecord, paymentMethod);
+        closeSheet();
+        Alert.alert('Hours added', message);
+      } else if (result.status === 'already') {
+        // The earlier try had landed after all: nothing more to add.
+        bump();
+        closeSheet();
+        Alert.alert('Hours added', result.message);
+      } else {
+        if (result.status === 'timeout') bump(); // refresh the list so a late save shows up
+        setSheetError(result.message);
+      }
     } finally {
       setBusy(false);
     }
@@ -225,7 +247,7 @@ export default function WalletScreen() {
         <View style={styles.stepperRow}>
           <TouchableOpacity
             style={[styles.stepBtn, hoursToAdd <= MIN_ADD_HOURS && { opacity: 0.35 }]}
-            onPress={() => setHoursToAdd((h) => stepAddHours(h, -1))}
+            onPress={() => { resetAttempt(); setHoursToAdd((h) => stepAddHours(h, -1)); }}
             disabled={hoursToAdd <= MIN_ADD_HOURS || busy}
             accessibilityLabel="One hour less"
             testID="btn-hours-minus"
@@ -238,7 +260,7 @@ export default function WalletScreen() {
           </View>
           <TouchableOpacity
             style={[styles.stepBtn, hoursToAdd >= MAX_ADD_HOURS && { opacity: 0.35 }]}
-            onPress={() => setHoursToAdd((h) => stepAddHours(h, 1))}
+            onPress={() => { resetAttempt(); setHoursToAdd((h) => stepAddHours(h, 1)); }}
             disabled={hoursToAdd >= MAX_ADD_HOURS || busy}
             accessibilityLabel="One hour more"
             testID="btn-hours-plus"
@@ -256,7 +278,7 @@ export default function WalletScreen() {
             <TouchableOpacity
               key={m.key}
               style={[styles.pmChip, paymentMethod === m.key && styles.pmChipActive]}
-              onPress={() => setPaymentMethod(paymentMethod === m.key ? null : m.key)}
+              onPress={() => { resetAttempt(); setPaymentMethod(paymentMethod === m.key ? null : m.key); }}
               testID={`pm-${m.key}`}
             >
               <Text style={[styles.pmChipText, paymentMethod === m.key && { color: '#fff', fontWeight: '700' }]}>
@@ -267,6 +289,7 @@ export default function WalletScreen() {
         </View>
 
         {!paymentMethod && <Text style={styles.pmHelp}>Choose how they paid to continue.</Text>}
+        {!!sheetError && <Text style={styles.sheetError} testID="top-up-error">{sheetError}</Text>}
 
         <TouchableOpacity
           style={[styles.confirmBtn, (busy || !canAddHours(studentId, paymentMethod) || student.hourly_rate == null) && { opacity: 0.45 }]}
@@ -311,6 +334,7 @@ const styles = StyleSheet.create({
   stepBtn: { width: 52, height: 52, borderRadius: 26, borderWidth: 1.5, borderColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface },
   stepValue: { fontSize: 44, fontWeight: '800', color: theme.colors.primary, lineHeight: 50 },
   stepUnit: { fontSize: 13, color: theme.colors.textMuted, fontWeight: '600' },
+  sheetError: { color: theme.colors.danger, fontSize: 13, fontWeight: '600', textAlign: 'center', marginTop: 10, lineHeight: 18 },
   confirmBtn: { backgroundColor: theme.colors.accent, height: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 14 },
   confirmBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   pmLabel: { fontSize: 13, fontWeight: '700', color: theme.colors.text, marginBottom: 6, marginTop: 4 },

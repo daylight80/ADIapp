@@ -97,3 +97,127 @@ describe('payment methods', () => {
     expect(paymentMethodLabel('cash')).toBe('Cash');
   });
 });
+
+import { WALLET_SAVE_TIMEOUT_MS, TOP_UP_SLOW_MESSAGE, classifyTopUpError, newAttemptId } from '../walletTopUp';
+import { TimeoutError } from '../withTimeout';
+
+describe('saving safely', () => {
+  it('gives up after 15 seconds', () => {
+    expect(WALLET_SAVE_TIMEOUT_MS).toBe(15000);
+  });
+
+  it('a stall is a timeout, with a message that says it won\'t add the hours twice', () => {
+    const f = classifyTopUpError(new TimeoutError(15000));
+    expect(f.kind).toBe('timeout');
+    expect(f.message).toBe(TOP_UP_SLOW_MESSAGE);
+    expect(f.message).toMatch(/won't add them twice/);
+  });
+
+  it('a duplicate (the first try had landed) is recognised by code or by wording', () => {
+    expect(classifyTopUpError({ code: '23505', message: 'x' }).kind).toBe('duplicate');
+    expect(classifyTopUpError(new Error('duplicate key value violates unique constraint "block_bookings_pkey"')).kind).toBe('duplicate');
+    expect(classifyTopUpError({ code: '23505' }).message).toBe('Those hours were already added.');
+  });
+
+  it('any other failure keeps its own message and is never mistaken for a timeout or duplicate', () => {
+    const f = classifyTopUpError(new Error('new row violates row-level security policy'));
+    expect(f).toEqual({ kind: 'other', message: 'new row violates row-level security policy' });
+    expect(classifyTopUpError({ code: '42501', message: 'permission denied' }).kind).toBe('other');
+  });
+
+  it('falls back to a plain message when there is nothing usable', () => {
+    for (const bad of [undefined, null, {}, new Error('   ')]) {
+      const f = classifyTopUpError(bad);
+      expect(f.kind).toBe('other');
+      expect(f.message).toBe('Could not add the hours. Please try again.');
+    }
+  });
+
+  it('newAttemptId makes well-formed v4 UUIDs that differ each time', () => {
+    const ids = Array.from({ length: 50 }, () => newAttemptId());
+    for (const id of ids) expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(new Set(ids).size).toBe(50);
+  });
+
+  it('newAttemptId still works where the platform has no crypto.randomUUID', () => {
+    const real = (globalThis as any).crypto;
+    Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true });
+    try {
+      expect(newAttemptId()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    } finally {
+      Object.defineProperty(globalThis, 'crypto', { value: real, configurable: true });
+    }
+  });
+});
+
+import { runTopUp } from '../walletTopUp';
+
+describe('runTopUp (the save, end to end)', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  // A pretend server that stores each id once and refuses a repeat, like the real
+  // database's primary key does.
+  function fakeServer() {
+    const stored = new Set<string>();
+    const dup = () => Object.assign(new Error('duplicate key value violates unique constraint "block_bookings_pkey"'), { code: '23505' });
+    return {
+      stored,
+      saveNow: (id: string) => (stored.has(id) ? Promise.reject(dup()) : (stored.add(id), Promise.resolve({ id }))),
+      saveSlow: (id: string, ms: number) => new Promise((res, rej) => setTimeout(() => (stored.has(id) ? rej(dup()) : (stored.add(id), res({ id }))), ms)),
+    };
+  }
+
+  it('a normal save is saved', async () => {
+    const srv = fakeServer();
+    await expect(runTopUp(() => srv.saveNow('a'))).resolves.toEqual({ status: 'saved' });
+    expect(srv.stored.size).toBe(1);
+  });
+
+  it('a real failure is reported with its own message', async () => {
+    const r = await runTopUp(() => Promise.reject(new Error('new row violates row-level security policy')));
+    expect(r).toEqual({ status: 'failed', message: 'new row violates row-level security policy' });
+  });
+
+  it('a stalled save times out at 15 seconds instead of hanging forever', async () => {
+    const result = runTopUp(() => new Promise(() => {}));
+    await jest.advanceTimersByTimeAsync(14999);
+    let settled = false;
+    result.then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(await result).toEqual({ status: 'timeout', message: TOP_UP_SLOW_MESSAGE });
+  });
+
+  it('a save that stalls, lands late, and is then retried with the same id is NOT added twice', async () => {
+    const srv = fakeServer();
+    const first = runTopUp(() => srv.saveSlow('attempt-1', 20000));   // slower than the 15s limit
+    await jest.advanceTimersByTimeAsync(15000);
+    expect((await first).status).toBe('timeout');
+    expect(srv.stored.size).toBe(0);                                  // not landed yet at the moment of giving up
+
+    await jest.advanceTimersByTimeAsync(5000);                         // ...but it lands afterwards
+    expect(srv.stored.has('attempt-1')).toBe(true);
+
+    const retry = await runTopUp(() => srv.saveNow('attempt-1'));      // the instructor taps Add again
+    expect(retry).toEqual({ status: 'already', message: 'Those hours were already added.' });
+    expect(srv.stored.size).toBe(1);                                   // still exactly one booking
+  });
+
+  it('a retry where the first try never landed does save', async () => {
+    const srv = fakeServer();
+    const first = runTopUp(() => new Promise(() => {}));
+    await jest.advanceTimersByTimeAsync(15000);
+    expect((await first).status).toBe('timeout');
+    await expect(runTopUp(() => srv.saveNow('attempt-1'))).resolves.toEqual({ status: 'saved' });
+    expect(srv.stored.size).toBe(1);
+  });
+
+  it('a different attempt id (hours or method changed) is a separate top-up', async () => {
+    const srv = fakeServer();
+    await runTopUp(() => srv.saveNow('attempt-1'));
+    await expect(runTopUp(() => srv.saveNow('attempt-2'))).resolves.toEqual({ status: 'saved' });
+    expect(srv.stored.size).toBe(2);
+  });
+});

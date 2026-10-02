@@ -1616,6 +1616,8 @@ export async function listBlockBookings(studentId: string): Promise<BlockBooking
 }
 
 export async function addBlockBooking(input: {
+  /** Optional caller-chosen id. A retry of the same attempt reuses it, so if the first try did land the retry is refused as a duplicate instead of adding the hours twice. */
+  id?: string;
   student_id: string;
   hours_paid: number;
   amount: number;

@@ -4,65 +4,42 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Check, ShieldCheck } from 'lucide-react-native';
 import { theme } from '../src/theme';
-import { instructorProfile } from '../src/mockDb';
 import { useAuth } from '../src/AuthContext';
 import { Card } from '../src/ui';
-import { getInstructorProfile, getSchoolPupilAgreementText, signPupilAgreement } from '../src/supabaseDb';
+import { getMyPupilAgreementText, signPupilAgreementAsStudent } from '../src/supabaseDb';
+import { useStudentByAuthId, bump } from '../src/useSupabaseData';
+import { agreementStatus } from '../src/pupilAgreement';
 
+/**
+ * Pupil Agreement — signed by the student from their own dashboard (before
+ * Migration 051 it recorded the signature on the instructor's row, which made
+ * the instructor sign an agreement meant for their pupils). The instructor sees
+ * the result on the student's profile.
+ */
 export default function OnboardingTcScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { student, loading: loadingProfile } = useStudentByAuthId(user?.id);
   const [accepted, setAccepted] = useState(false);
   const [signature, setSignature] = useState(user?.name || '');
-  const [saved, setSaved] = useState(!!instructorProfile.tc_signed_at);
-  const [signedAt, setSignedAt] = useState<string | null>(instructorProfile.tc_signed_at);
-  const [signedName, setSignedName] = useState<string>(instructorProfile.tc_signature_name);
-  const [loadingProfile, setLoadingProfile] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [useMockFallback, setUseMockFallback] = useState(false);
-  // Instructor-editable T&Cs (2 Sept 2026) — per-school, freeform, set by
-  // the school owner on school-profile-screen.tsx. Null/empty means the
-  // school hasn't set their own text, so the original fixed sections
-  // below are shown instead — a sensible default, not a broken state.
-  const [customAgreementText, setCustomAgreementText] = useState<string | null>(null);
+  const [justSigned, setJustSigned] = useState<{ at: string; name: string } | null>(null);
 
+  // The school's own wording, if its owner wrote any; otherwise the standard
+  // terms below. A failed lookup just means the standard terms are shown.
+  const [customAgreementText, setCustomAgreementText] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const profile = await getInstructorProfile();
-        if (cancelled) return;
-        if (profile) {
-          setUseMockFallback(false);
-          if (profile.tc_signed_at) {
-            setSaved(true);
-            setSignedAt(profile.tc_signed_at);
-            setSignedName(profile.tc_signature_name || '');
-          }
-          if (profile.school_id) {
-            try {
-              const text = await getSchoolPupilAgreementText(profile.school_id);
-              if (!cancelled) setCustomAgreementText(text);
-            } catch {
-              // Falls back to the default fixed text below — not fatal.
-            }
-          }
-        } else {
-          // Not signed in as an instructor with a linked row (e.g. offline
-          // demo/preview) — fall back to the in-memory mock so the screen
-          // still works, but this signature will NOT be persisted.
-          setUseMockFallback(true);
-        }
-      } catch {
-        if (!cancelled) setUseMockFallback(true);
-      } finally {
-        if (!cancelled) setLoadingProfile(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    getMyPupilAgreementText()
+      .then((t) => { if (!cancelled) setCustomAgreementText(t); })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, []);
+
+  const recorded = agreementStatus(student);
+  const saved = recorded.signed || !!justSigned;
+  const signedAt = justSigned?.at ?? recorded.signedAt;
+  const signedName = justSigned?.name ?? recorded.signedBy ?? '';
 
   const save = async () => {
     if (!accepted) {
@@ -73,23 +50,11 @@ export default function OnboardingTcScreen() {
       Alert.alert('Type your full name as a signature');
       return;
     }
-    if (useMockFallback) {
-      // Offline/no-instructor-row fallback — kept only so this screen still
-      // demos without a backend; this signature is NOT saved anywhere durable.
-      instructorProfile.tc_signed_at = new Date().toISOString();
-      instructorProfile.tc_signature_name = signature.trim();
-      setSignedAt(instructorProfile.tc_signed_at);
-      setSignedName(instructorProfile.tc_signature_name);
-      setSaved(true);
-      setTimeout(() => router.back(), 1800);
-      return;
-    }
     setSaving(true);
     try {
-      const result = await signPupilAgreement(signature);
-      setSignedAt(result.tc_signed_at);
-      setSignedName(result.tc_signature_name);
-      setSaved(true);
+      const result = await signPupilAgreementAsStudent(signature);
+      setJustSigned({ at: result.tc_signed_at, name: result.tc_signature_name });
+      bump();
       setTimeout(() => router.back(), 1800);
     } catch (e: any) {
       Alert.alert('Could not save your signature', e?.message || 'Please try again.');
@@ -189,7 +154,7 @@ export default function OnboardingTcScreen() {
         <TouchableOpacity
           style={[styles.submitBtn, (!accepted || signature.length < 3 || saving || loadingProfile) && styles.submitDisabled]}
           onPress={save}
-          disabled={!accepted || signature.length < 3 || saving || loadingProfile}
+          disabled={!accepted || signature.length < 3 || saving || loadingProfile || saved}
           testID="btn-sign-tc"
         >
           {saving ? (

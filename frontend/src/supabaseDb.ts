@@ -48,6 +48,9 @@ export type Student = {
   // above) or an account that's never actually been opened since this
   // column started being written.
   last_active_at?: string | null;
+  // Pupil Agreement, signed by the student (Migration 051).
+  tc_signed_at?: string | null;
+  tc_signature_name?: string | null;
 };
 
 // Shared across the Students screen and Phase 3's Select Students picker
@@ -93,6 +96,8 @@ const fromRow = (r: any): Student => ({
   notes_updated_by_name: r.notes_updated_by_name ?? null,
   auth_user_id: r.auth_user_id ?? null,
   last_active_at: r.last_active_at ?? null,
+  tc_signed_at: r.tc_signed_at ?? null,
+  tc_signature_name: r.tc_signature_name ?? null,
 });
 
 // ---------------------------------------------------------------------------
@@ -471,29 +476,25 @@ export function buildInstructorInviteLink(instructor: InvitedInstructor, appOrig
   return `${appOrigin}/?invite=${payload}`;
 }
 
-// Persists the Pupil Agreement signature (name + server-generated timestamp)
-// on the signed-in instructor's row. This is a compliance/consent record, so
-// it must land in the database, not just in local component state.
-export async function signPupilAgreement(signatureName: string): Promise<{ tc_signed_at: string; tc_signature_name: string }> {
+// Records the signed-in student's Pupil Agreement signature. This is a
+// compliance/consent record, so it is written by the database (a SECURITY
+// DEFINER function that only touches the caller's own row, once) and the
+// timestamp comes from the server, not the phone's clock.
+export async function signPupilAgreementAsStudent(signatureName: string): Promise<{ tc_signed_at: string; tc_signature_name: string }> {
   const trimmed = signatureName.trim();
   if (trimmed.length < 3) {
     throw new Error('Signature must be at least 3 characters.');
   }
-  const { data: sessionData } = await supabase.auth.getSession();
-  const uid = sessionData.session?.user.id;
-  if (!uid) throw new Error('Not signed in');
-  const signedAt = new Date().toISOString();
-  const { error } = await supabase
-    .from('instructors')
-    .update({ tc_signed_at: signedAt, tc_signature_name: trimmed })
-    .eq('auth_user_id', uid);
+  const { data, error } = await supabase.rpc('sign_pupil_agreement_as_student', { p_signature: trimmed });
   if (error) {
-    if (/tc_signed_at|tc_signature_name/i.test(error.message || '')) {
-      throw new Error('Please apply Migration 023 first (tc_signed_at / tc_signature_name columns).');
+    if (/sign_pupil_agreement_as_student/i.test(error.message || '') && /could not find|does not exist/i.test(error.message || '')) {
+      throw new Error('Please apply Migration 051 first (student Pupil Agreement).');
     }
     throw error;
   }
-  return { tc_signed_at: signedAt, tc_signature_name: trimmed };
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.tc_signed_at) throw new Error('Could not record your signature. Please try again.');
+  return { tc_signed_at: row.tc_signed_at, tc_signature_name: row.tc_signature_name };
 }
 
 export async function updateInstructorPreferredNavApp(app: NavApp): Promise<void> {
@@ -1947,14 +1948,13 @@ export async function updateMySchoolProfile(patch: Partial<{
 // getMySchoolProfile() above, which is owner-only. Added 2 Sept 2026 so a
 // regular (non-owner) instructor signing onboarding-tc-screen sees their
 // school's actual terms, not just the owner.
-export async function getSchoolPupilAgreementText(schoolId: string): Promise<string | null> {
-  const { data, error } = await supabase
-    .from('driving_schools')
-    .select('pupil_agreement_text')
-    .eq('id', schoolId)
-    .maybeSingle();
+// The signed-in student's school's own Pupil Agreement wording, or null when the
+// school has not written any (the app then shows its standard terms). A function
+// rather than a table read because students cannot read driving_schools (Migration 052).
+export async function getMyPupilAgreementText(): Promise<string | null> {
+  const { data, error } = await supabase.rpc('my_pupil_agreement_text');
   if (error) throw error;
-  return data?.pupil_agreement_text ?? null;
+  return (data as string | null) || null;
 }
 
 export async function uploadSchoolLogo(schoolId: string, base64: string, mimeType: string): Promise<string> {

@@ -10,6 +10,7 @@ import {
   useBadges, useReflectiveLogs, useMockTestAttempts, createReflectiveLog,
 } from '../src/useSupabaseData';
 import { DVSA_SYLLABUS } from '../src/supabaseDb';
+import { agreementStatus } from '../src/pupilAgreement';
 import { nextUpcomingLesson, describeLessonWhen, mostRecentCompletedLesson } from '../src/nextLesson';
 
 /**
@@ -200,6 +201,19 @@ export default function StudentAppV2Screen() {
             </View>
             <View style={s.avatar}><Text style={s.avatarText}>{initialsOf(student.name || 'S')}</Text></View>
           </View>
+
+          {!agreementStatus(student).signed && (
+            <TouchableOpacity
+              style={s.agreementCard}
+              onPress={() => router.push('/onboarding-tc-screen' as any)}
+              activeOpacity={0.8}
+              testID="v2-student-agreement-card"
+            >
+              <Text style={s.agreementTitle}>Sign your Pupil Agreement</Text>
+              <Text style={s.agreementSub}>Your instructor needs this before your lessons. It takes a minute.</Text>
+              <Text style={s.agreementCta}>Review and sign →</Text>
+            </TouchableOpacity>
+          )}
 
           <View style={s.nextLessonCard} testID="v2-student-next-lesson">
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -537,6 +551,10 @@ const s = StyleSheet.create({
   readyNudgeWrap: { marginTop: 15, paddingTop: 13, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,.22)' },
   readyNudge: { fontFamily: 'Barlow_500Medium', fontSize: 13, lineHeight: 18.5, color: 'rgba(255,255,255,.8)' },
 
+  agreementCard: { marginHorizontal: 20, marginTop: 14, backgroundColor: C.warmBg, borderColor: C.warmBorder, borderWidth: 1, borderRadius: 14, padding: 14 },
+  agreementTitle: { fontFamily: 'Barlow_700Bold', fontSize: 15, color: C.warmText },
+  agreementSub: { fontSize: 13, color: C.textMuted2, marginTop: 3, lineHeight: 18 },
+  agreementCta: { fontFamily: 'Barlow_700Bold', fontSize: 13, color: C.accent, marginTop: 8 },
   nextLessonCard: { marginHorizontal: 20, marginTop: 14, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 18, padding: 16 },
   nextLessonBadge: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: '#fff', backgroundColor: C.accent, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, overflow: 'hidden' },
   nextLessonWhen: { fontFamily: 'Archivo_800ExtraBold', fontSize: 22, letterSpacing: -0.4, color: C.text, marginTop: 6 },

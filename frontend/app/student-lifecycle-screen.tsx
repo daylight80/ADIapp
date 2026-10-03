@@ -21,6 +21,7 @@ import {
 } from '../src/supabaseDb';
 import { isPaidTier, isProTier, tierById } from '../src/tiers';
 import { formatHours, isLowCredit } from '../src/walletDisplay';
+import { instructorAgreementLine, agreementStatus } from '../src/pupilAgreement';
 import { manualStatusMoves, statusChangeMessage, type LifecycleStatus } from '../src/studentLifecycle';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { openSmsComposer } from '../src/tools';
@@ -779,6 +780,23 @@ export default function StudentProfileV2Screen() {
                     ))}
                   </View>
                 )}
+              </View>
+
+              <View style={s.card} testID="v2-agreement-card">
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={s.sectionLabel}>Pupil Agreement</Text>
+                  <Text
+                    style={[s.statusBadge, agreementStatus(student).signed
+                      ? { backgroundColor: '#D1FAE5', color: '#047857' }
+                      : { backgroundColor: '#FEF3C7', color: '#B45309' }]}
+                    testID="v2-agreement-badge"
+                  >
+                    {agreementStatus(student).signed ? 'Agreed' : 'Not signed'}
+                  </Text>
+                </View>
+                <Text style={s.lifecycleHint} testID="v2-agreement-line">
+                  {instructorAgreementLine(student, student.name.split(' ')[0])}
+                </Text>
               </View>
 
               <View style={s.card}>

@@ -24,6 +24,7 @@ import { mockDb } from './mockDb';
 import { Lesson, Student, listWaitingList, type WaitingListEntry, studentAppUsageWarning } from './supabaseDb';
 import { patchLesson } from './useSupabaseData';
 import { useStudent, useStudents, useVehicles, useInstructorProfile } from './useSupabaseData';
+import { navButtonLabel, resolveNavApp } from './navApp';
 import { countUpcomingInSeries, cancelSeriesFromDate } from './useSupabaseData';
 import { useAuth } from './AuthContext';
 import { isPaidTier, tierById } from './tiers';
@@ -565,23 +566,11 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
                     </View>
                   </View>
                 )}
-                <View style={styles.navRow}>
-                  <NavBtn
-                    label="Google"
-                    onPress={() => openNavigation('google', pickupAddress)}
-                    testID="nav-google"
-                  />
-                  <NavBtn
-                    label="Waze"
-                    onPress={() => openNavigation('waze', pickupAddress)}
-                    testID="nav-waze"
-                  />
-                  <NavBtn
-                    label="Apple"
-                    onPress={() => openNavigation('apple', pickupAddress)}
-                    testID="nav-apple"
-                  />
-                </View>
+                <NavBtn
+                  label={navButtonLabel(myProfile?.preferred_nav_app)}
+                  onPress={() => openNavigation(resolveNavApp(myProfile?.preferred_nav_app), pickupAddress)}
+                  testID="nav-preferred"
+                />
 
                 {/* I'm Here */}
                 <TouchableOpacity style={styles.imHereBtn} onPress={onArrived} testID="btn-im-here">
@@ -1286,8 +1275,7 @@ const styles = StyleSheet.create({
   etaCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.colors.primaryLight, borderRadius: 10, padding: 12, marginBottom: 10 },
   etaPrimary: { color: theme.colors.primary, fontWeight: '700', fontSize: 14 },
   etaSecondary: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
-  navRow: { flexDirection: 'row', gap: 8 },
-  navBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: theme.colors.primary, borderRadius: 10, paddingVertical: 12 },
+  navBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: theme.colors.primary, borderRadius: 10, paddingVertical: 12 },
   navBtnText: { color: theme.colors.primary, fontWeight: '700', fontSize: 13 },
   imHereBtn: { marginTop: 12, backgroundColor: theme.colors.accent, height: 50, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   imHereText: { color: '#fff', fontWeight: '700' },

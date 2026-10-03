@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { INSTRUCTOR_TAB_SPECS, STUDENT_TAB_SPECS, type TabSpec } from '../navTabs';
+import { INSTRUCTOR_TAB_SPECS, STUDENT_TAB_SPECS, isTabActive, type TabSpec } from '../navTabs';
 
 const appDir = path.join(__dirname, '..', '..', 'app');
 const routes = (tabs: TabSpec[]) => tabs.map((t) => t.route).filter(Boolean);
@@ -42,5 +42,25 @@ describe.each([
       const file = path.join(appDir, `${route.slice(1)}.tsx`);
       expect({ route, exists: fs.existsSync(file) }).toEqual({ route, exists: true });
     }
+  });
+});
+
+describe('isTabActive', () => {
+  const tab = (key: string) => INSTRUCTOR_TAB_SPECS.find((t) => t.key === key)!;
+
+  it('highlights only the tab for the screen being viewed', () => {
+    const current = INSTRUCTOR_TAB_SPECS.filter((t) => isTabActive(t, '/lesson-diary-screen')).map((t) => t.key);
+    expect(current).toEqual(['diary']);
+  });
+
+  it('does not keep Students highlighted on other screens', () => {
+    expect(isTabActive(tab('students'), '/home-screen')).toBe(false);
+    expect(isTabActive(tab('students'), '/student-crm-screen')).toBe(true);
+  });
+
+  it('never highlights Logout, and highlights nothing on an unrelated screen', () => {
+    expect(isTabActive(tab('logout'), '')).toBe(false);
+    expect(INSTRUCTOR_TAB_SPECS.some((t) => isTabActive(t, '/wallet-screen'))).toBe(false);
+    expect(INSTRUCTOR_TAB_SPECS.some((t) => isTabActive(t, undefined))).toBe(false);
   });
 });

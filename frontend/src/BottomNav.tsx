@@ -4,7 +4,7 @@ import { useRouter, usePathname } from 'expo-router';
 import { theme } from './theme';
 import { Home, CalendarDays, Users, BookOpen, FileCheck, User, LogOut } from 'lucide-react-native';
 import { useAuth } from './AuthContext';
-import { INSTRUCTOR_TAB_SPECS, STUDENT_TAB_SPECS, type TabSpec } from './navTabs';
+import { INSTRUCTOR_TAB_SPECS, STUDENT_TAB_SPECS, isTabActive, type TabSpec } from './navTabs';
 
 type Tab = { key: string; label: string; icon: any; route: string };
 
@@ -40,9 +40,8 @@ export function BottomNav({ role }: { role: 'instructor' | 'student' }) {
   return (
     <View style={styles.container} testID={`bottom-nav-${role}`}>
       {tabs.map((t) => {
-        const active = t.key !== 'logout' && pathname === t.route;
+        const active = isTabActive(t, pathname);
         const Icon = t.icon;
-        const isStudentsCta = role === 'instructor' && t.key === 'students';
         return (
           <TouchableOpacity
             key={t.key}
@@ -53,24 +52,14 @@ export function BottomNav({ role }: { role: 'instructor' | 'student' }) {
           >
             <Icon
               size={22}
-              color={
-                isStudentsCta
-                  ? theme.colors.accent
-                  : active
-                  ? theme.colors.primary
-                  : theme.colors.textMuted
-              }
+              color={active ? theme.colors.accent : theme.colors.textMuted}
             />
             <Text
               style={[
                 styles.label,
                 {
-                  color: isStudentsCta
-                    ? theme.colors.accent
-                    : active
-                    ? theme.colors.primary
-                    : theme.colors.textMuted,
-                  fontWeight: active || isStudentsCta ? '700' : '500',
+                  color: active ? theme.colors.accent : theme.colors.textMuted,
+                  fontWeight: active ? '700' : '500',
                 },
               ]}
             >

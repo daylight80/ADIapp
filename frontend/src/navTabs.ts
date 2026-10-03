@@ -22,3 +22,8 @@ export const STUDENT_TAB_SPECS: TabSpec[] = [
   { key: 'profile', label: 'Profile', route: '/profile-screen' },
   { key: 'logout', label: 'Logout', route: '' },
 ];
+
+/** A tab is "current" when the screen being viewed is its own screen. Logout never is. */
+export function isTabActive(tab: TabSpec, pathname: string | null | undefined): boolean {
+  return tab.key !== 'logout' && tab.route !== '' && pathname === tab.route;
+}

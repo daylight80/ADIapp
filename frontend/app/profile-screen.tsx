@@ -9,6 +9,7 @@ import { Card, Badge, StatusBadge } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
 import { useRouter } from 'expo-router';
 import { isPaidTier } from '../src/tiers';
+import { myDetailsRoute } from '../src/detailsRoute';
 import { PaywallModal } from '../src/PaywallModal';
 import { copyToClipboard } from '../src/tools';
 import { useInstructorProfile, updatePreferredNavApp } from '../src/useSupabaseData';
@@ -268,11 +269,11 @@ export default function ProfileScreen() {
         {role === 'instructor' && (
           <TouchableOpacity
             style={styles.linkRow}
-            onPress={() => router.push('/instructor-profile-screen')}
+            onPress={() => router.push(myDetailsRoute(user?.tier) as any)}
             testID="link-instructor-profile"
           >
             <IdCard size={18} color={theme.colors.primary} />
-            <Text style={styles.linkRowText}>My instructor profile</Text>
+            <Text style={styles.linkRowText}>My details</Text>
           </TouchableOpacity>
         )}
 

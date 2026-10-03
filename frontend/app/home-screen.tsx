@@ -12,6 +12,7 @@ import {
 } from '../src/useSupabaseData';
 import { computeTestKpis, getMySchoolProfile } from '../src/supabaseDb';
 import { colorForLessonType } from '../src/diary/lessonTypes';
+import { myDetailsRoute } from '../src/detailsRoute';
 import { isPaidTier, isFranchiseTier, canOpenSchoolDashboard, tierById, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { MessageButton } from '../src/MessageButton';
@@ -167,8 +168,8 @@ export default function InstructorHomeV2Screen() {
           <View style={s.header}>
             <TouchableOpacity
               style={{ flex: 1 }}
-              activeOpacity={isFranchiseTier(user?.tier) ? 1 : 0.7}
-              onPress={() => { if (!isFranchiseTier(user?.tier)) router.push('/my-details-screen'); }}
+              activeOpacity={0.7}
+              onPress={() => router.push(myDetailsRoute(user?.tier) as any)}
               testID="v2-home-my-details-link"
             >
               <Text style={s.eyebrow}>
@@ -182,7 +183,7 @@ export default function InstructorHomeV2Screen() {
                     self-service. Per Grant's explicit instruction, Franchise
                     stays exactly as it is — no chevron, no tap action, same
                     header as before this change. */}
-                {!isFranchiseTier(user?.tier) && <ChevronRight size={16} color={C.textMuted} />}
+                <ChevronRight size={16} color={C.textMuted} />
               </View>
             </TouchableOpacity>
             <TouchableOpacity

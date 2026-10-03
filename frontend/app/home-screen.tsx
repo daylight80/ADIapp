@@ -12,7 +12,6 @@ import {
 } from '../src/useSupabaseData';
 import { computeTestKpis, getMySchoolProfile } from '../src/supabaseDb';
 import { colorForLessonType } from '../src/diary/lessonTypes';
-import { myDetailsRoute } from '../src/detailsRoute';
 import { isPaidTier, isFranchiseTier, canOpenSchoolDashboard, tierById, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { MessageButton } from '../src/MessageButton';
@@ -169,7 +168,7 @@ export default function InstructorHomeV2Screen() {
             <TouchableOpacity
               style={{ flex: 1 }}
               activeOpacity={0.7}
-              onPress={() => router.push(myDetailsRoute(user?.tier) as any)}
+              onPress={() => router.push('/profile-screen' as any)}
               testID="v2-home-my-details-link"
             >
               <Text style={s.eyebrow}>
@@ -177,12 +176,7 @@ export default function InstructorHomeV2Screen() {
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <Text style={s.greeting} numberOfLines={1}>{user?.name || 'Instructor'}</Text>
-                {/* "My Details" affordance (11 Sept 2026), per Grant directly
-                    — solo tiers only (Starter/Growth/Pro). A solo instructor
-                    is always their own school owner, so this is genuinely
-                    self-service. Per Grant's explicit instruction, Franchise
-                    stays exactly as it is — no chevron, no tap action, same
-                    header as before this change. */}
+                {/* Tapping your name opens Profile, where your details live. */}
                 <ChevronRight size={16} color={C.textMuted} />
               </View>
             </TouchableOpacity>

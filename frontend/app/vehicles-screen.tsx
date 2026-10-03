@@ -226,7 +226,6 @@ export default function VehiclesScreen() {
 
             <View style={styles.metaRow}>
               <Badge label={v.transmission} bg={theme.colors.primaryLight} color={theme.colors.primary} />
-              {v.is_right_hand_drive && <Badge label="RHD" bg="#E0E7FF" color="#3730A3" />}
             </View>
 
             <View style={styles.actionRow}>

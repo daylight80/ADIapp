@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Alert, KeyboardAvoidingView, Platform, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, IdCard, Phone, Mail, MapPin, Car, Fingerprint, Star, Building2, ChevronRight } from 'lucide-react-native';
+import { ArrowLeft, IdCard, Phone, Mail, MapPin, Fingerprint, Star, Building2, ChevronRight } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
 import { getInstructorProfile, updateMyInstructorProfile } from '../src/supabaseDb';
@@ -20,8 +20,11 @@ import { useAuth } from '../src/AuthContext';
  * doesn't replace, the existing view-only instructor-profile-screen.tsx,
  * which non-owner Franchise instructors keep using unchanged.
  *
- * The vehicle fields (make/model/registration/colour) reuse the
- * instructors table's own car_make/car_model/number_plate columns rather
+ * Vehicles are not edited here (removed 3 Oct 2026, per Grant directly):
+ * they are added and managed on vehicles-screen. The older make/model/
+ * registration/colour columns on the instructors table are left untouched
+ * (updateMyInstructorProfile only writes the fields it is given). Originally
+ * these fields reused the instructors table's own car_make/car_model/number_plate columns rather
  * than the separate, school-wide vehicles fleet table — those columns
  * already existed, captured once at invite time via inviteInstructor(),
  * but were never actually shown or editable anywhere in the app until
@@ -39,10 +42,6 @@ export default function MyDetailsScreen() {
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
-  const [carMake, setCarMake] = useState('');
-  const [carModel, setCarModel] = useState('');
-  const [numberPlate, setNumberPlate] = useState('');
-  const [carColour, setCarColour] = useState('');
   const [googleReviewUrl, setGoogleReviewUrl] = useState('');
 
   // Biometric login toggle (11 Sept 2026), per Grant directly — added to
@@ -79,10 +78,6 @@ export default function MyDetailsScreen() {
       setMobile(profile.mobile_number || '');
       setEmail(profile.email || '');
       setAddress(profile.address || '');
-      setCarMake(profile.car_make || '');
-      setCarModel(profile.car_model || '');
-      setNumberPlate(profile.number_plate || '');
-      setCarColour(profile.car_colour || '');
       setGoogleReviewUrl(profile.google_review_url || '');
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -109,10 +104,6 @@ export default function MyDetailsScreen() {
         mobile_number: mobile,
         email,
         address,
-        car_make: carMake,
-        car_model: carModel,
-        number_plate: numberPlate,
-        car_colour: carColour,
         google_review_url: reviewUrl,
       });
       // updateMyInstructorProfile() here is the raw supabaseDb write, not
@@ -200,14 +191,6 @@ export default function MyDetailsScreen() {
                 <Field icon={<Phone size={16} color={theme.colors.textMuted} />} label="Mobile number" value={mobile} onChangeText={setMobile} keyboardType="phone-pad" testID="input-mobile" />
                 <Field icon={<Mail size={16} color={theme.colors.textMuted} />} label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" testID="input-email" />
                 <Field icon={<MapPin size={16} color={theme.colors.textMuted} />} label="Address" value={address} onChangeText={setAddress} testID="input-address" />
-              </Card>
-
-              <Card style={{ gap: 14 }}>
-                <Text style={styles.cardTitle}>My vehicle</Text>
-                <Field icon={<Car size={16} color={theme.colors.textMuted} />} label="Make" value={carMake} onChangeText={setCarMake} testID="input-car-make" />
-                <Field icon={<Car size={16} color={theme.colors.textMuted} />} label="Model" value={carModel} onChangeText={setCarModel} testID="input-car-model" />
-                <Field icon={<Car size={16} color={theme.colors.textMuted} />} label="Registration number" value={numberPlate} onChangeText={setNumberPlate} autoCapitalize="characters" testID="input-number-plate" />
-                <Field icon={<Car size={16} color={theme.colors.textMuted} />} label="Colour" value={carColour} onChangeText={setCarColour} testID="input-car-colour" />
               </Card>
 
               {/* Google review link (21 Sept 2026), per Grant directly —

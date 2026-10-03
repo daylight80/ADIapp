@@ -75,7 +75,7 @@ export function stepIdsForTier(tier: string | null | undefined): ChecklistStepId
 const COPY: Record<ChecklistStepId, { title: string; hint: string; route: string }> = {
   details: {
     title: 'Complete your details',
-    hint: 'Add your ADI number, mobile and car registration.',
+    hint: 'Add your ADI number and mobile number.',
     route: '/my-details-screen',
   },
   first_student: {
@@ -107,7 +107,7 @@ const COPY: Record<ChecklistStepId, { title: string; hint: string; route: string
 
 function isDone(id: ChecklistStepId, s: ChecklistSignals): boolean {
   switch (id) {
-    case 'details': return filled(s.adiNumber) && filled(s.mobileNumber) && filled(s.numberPlate);
+    case 'details': return filled(s.adiNumber) && filled(s.mobileNumber);
     case 'first_student': return s.studentCount >= 1;
     case 'first_lesson': return s.hasLesson;
     case 'invite_student': return s.anyStudentOnApp;

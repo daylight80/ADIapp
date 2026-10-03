@@ -507,7 +507,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
               {(() => {
                 const plate = user?.tier === 'franchise'
                   ? vehicles.find((v) => v.id === lesson.vehicle_id)?.registration_plate
-                  : myProfile?.number_plate;
+                  : (vehicles.find((v) => v.is_default) ?? vehicles[0])?.registration_plate || myProfile?.number_plate;
                 return plate
                   ? <Badge label={plate} bg={theme.colors.lockedBg} color={theme.colors.text} />
                   : <Badge label="No vehicle assigned" bg={theme.colors.lockedBg} color={theme.colors.textMuted} />;

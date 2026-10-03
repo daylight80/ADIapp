@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { DateField } from '../src/DateTimeFields';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Plus, Trash2, AlertTriangle } from 'lucide-react-native';
@@ -64,7 +65,7 @@ export default function StandardsCheckScreen() {
     if (!user?.instructor_id) return;
     const dateOk = /^\d{4}-\d{2}-\d{2}$/.test(checkDate.trim());
     if (!dateOk) {
-      Alert.alert('Invalid date', 'Enter the check date as YYYY-MM-DD, e.g. 2026-08-19.');
+      Alert.alert('Invalid date', 'Choose the date of the check from the calendar.');
       return;
     }
     const score = Number(overallScore.trim());
@@ -163,15 +164,8 @@ export default function StandardsCheckScreen() {
             <Card style={{ gap: 10 }} testID="card-add-check">
               <Text style={styles.cardTitle}>Log a Standards Check</Text>
 
-              <Text style={styles.label}>Date (YYYY-MM-DD)</Text>
-              <TextInput
-                style={styles.input}
-                value={checkDate}
-                onChangeText={setCheckDate}
-                placeholder="2026-08-19"
-                placeholderTextColor={theme.colors.textMuted}
-                testID="input-check-date"
-              />
+              <Text style={styles.label}>Date of check</Text>
+              <DateField value={checkDate} onChange={setCheckDate} placeholder="Choose a date" testID="input-check-date" />
 
               <Text style={styles.label}>Overall score (0–51)</Text>
               <TextInput

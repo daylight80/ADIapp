@@ -8,6 +8,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { ArrowLeft, Plus, Trash2, AlertTriangle, CalendarClock, Award } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
+import { DateField } from '../src/DateTimeFields';
 import { useAuth } from '../src/AuthContext';
 import { isPaidTier } from '../src/tiers';
 import {
@@ -112,7 +113,7 @@ export default function DeadlinesScreen() {
     const activeKind = isEdit ? (form.item.kind as EditableDeadlineKind) : kind;
     if (!activeKind) { setFormError('Choose what this deadline is for.'); return; }
     if (!isValidDateInput(dueDate)) {
-      setFormError('Enter the date as YYYY-MM-DD, for example 2026-11-30.');
+      setFormError('Choose the due date from the calendar.');
       return;
     }
     if (activeKind === 'other' && !label.trim()) {
@@ -159,7 +160,7 @@ export default function DeadlinesScreen() {
 
   const datePreview = (() => {
     if (!dueDate.trim()) return null;
-    if (!isValidDateInput(dueDate)) return { ok: false, text: 'That is not a valid date yet (YYYY-MM-DD).' };
+    if (!isValidDateInput(dueDate)) return { ok: false, text: 'That is not a valid date yet.' };
     const d = daysUntil(dueDate.trim());
     return { ok: true, text: `${formatDueDate(dueDate.trim())}${d === null ? '' : `  ·  ${describeDays(d)}`}` };
   })();
@@ -243,16 +244,8 @@ export default function DeadlinesScreen() {
                 </>
               )}
 
-              <Text style={styles.label}>{isEdit ? 'New due date (YYYY-MM-DD)' : 'Due date (YYYY-MM-DD)'}</Text>
-              <TextInput
-                style={styles.input}
-                value={dueDate}
-                onChangeText={setDueDate}
-                placeholder="2026-11-30"
-                placeholderTextColor={theme.colors.textMuted}
-                autoCapitalize="none"
-                testID="input-deadline-date"
-              />
+              <Text style={styles.label}>{isEdit ? 'New due date' : 'Due date'}</Text>
+              <DateField value={dueDate} onChange={setDueDate} placeholder="Choose a date" testID="input-deadline-date" />
               {isEdit && (
                 <Text style={styles.helper}>
                   Currently {formatDueDate(form.item.due_date)}. Enter the new date once you've renewed it.

@@ -9,7 +9,7 @@ import { Card, Badge, StatusBadge } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
 import { useRouter } from 'expo-router';
 import { isPaidTier } from '../src/tiers';
-import { myDetailsRoute } from '../src/detailsRoute';
+import { InstructorDetailsSection } from '../src/InstructorDetailsSection';
 import { studentAgreementLabel } from '../src/pupilAgreement';
 import { PaywallModal } from '../src/PaywallModal';
 import { copyToClipboard } from '../src/tools';
@@ -178,6 +178,8 @@ export default function ProfileScreen() {
           </View>
         </Card>
 
+        {role === 'instructor' && <InstructorDetailsSection tier={user?.tier} />}
+
         {student && (
           <>
             <Card style={{ gap: 10 }}>
@@ -268,16 +270,6 @@ export default function ProfileScreen() {
           </Card>
         )}
 
-        {role === 'instructor' && (
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => router.push(myDetailsRoute(user?.tier) as any)}
-            testID="link-instructor-profile"
-          >
-            <IdCard size={18} color={theme.colors.primary} />
-            <Text style={styles.linkRowText}>My details</Text>
-          </TouchableOpacity>
-        )}
 
         {role === 'instructor' && (
           <TouchableOpacity

@@ -82,7 +82,7 @@ describe('buildChecklist: each step ticks from real data', () => {
   it('sends each step to a screen that exists in this app', () => {
     const routes = Object.fromEntries(buildChecklist(EMPTY, 'pro').map((s) => [s.id, s.route]));
     expect(routes).toEqual({
-      details: '/my-details-screen',
+      details: '/profile-screen',
       first_student: '/student-crm-screen',
       first_lesson: '/lesson-diary-screen',
       invite_student: '/student-crm-screen',

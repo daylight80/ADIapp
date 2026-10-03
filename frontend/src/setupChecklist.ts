@@ -76,7 +76,7 @@ const COPY: Record<ChecklistStepId, { title: string; hint: string; route: string
   details: {
     title: 'Complete your details',
     hint: 'Add your ADI number and mobile number.',
-    route: '/my-details-screen',
+    route: '/profile-screen',
   },
   first_student: {
     title: 'Add your first student',

@@ -234,8 +234,8 @@ export default function StudentProfileV2Screen() {
       const isFranchise = user?.tier === 'franchise';
       Alert.alert(
         'No review link set',
-        `You haven't added a Google review link yet. Set one in ${isFranchise ? 'School Profile' : 'My Details'} first, then come back to send this.`,
-        [{ text: 'Not now', style: 'cancel' }, { text: `Go to ${isFranchise ? 'School Profile' : 'My Details'}`, onPress: () => router.push((isFranchise ? '/school-profile-screen' : '/my-details-screen') as any) }],
+        `You haven't added a Google review link yet. Set one in ${isFranchise ? 'School Profile' : 'Profile'} first, then come back to send this.`,
+        [{ text: 'Not now', style: 'cancel' }, { text: `Go to ${isFranchise ? 'School Profile' : 'Profile'}`, onPress: () => router.push((isFranchise ? '/school-profile-screen' : '/profile-screen') as any) }],
       );
       return;
     }

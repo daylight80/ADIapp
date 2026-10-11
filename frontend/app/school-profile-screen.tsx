@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { ArrowLeft, Building2, Camera, FileText, CloudUpload } from 'lucide-react-native';
+import { OWN_TERMS_CHECKLIST } from '../src/agreementTerms';
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
 import { getMySchoolProfile, updateMySchoolProfile, uploadSchoolLogo, type SchoolProfile } from '../src/supabaseDb';
@@ -262,8 +263,9 @@ export default function SchoolProfileScreen() {
               <Text style={styles.sectionHeaderText}>Pupil agreement</Text>
             </View>
             <Text style={styles.hint}>
-              Shown to every instructor at your school when they sign the pupil agreement — cancellations,
-              payment terms, whatever you want your own terms to say. Leave blank to use the standard default.
+              Shown to your pupils when they sign the Pupil Agreement. Leave blank to use the standard wording, which already
+              covers everything below. Your instructor's contact details and the pupil's lesson price are always added
+              automatically.
             </Text>
             <TextInput
               style={styles.textArea}
@@ -276,6 +278,17 @@ export default function SchoolProfileScreen() {
               textAlignVertical="top"
               testID="input-pupil-agreement"
             />
+            <View style={styles.checklist} testID="agreement-checklist">
+              <Text style={styles.checklistTitle}>
+                The new DVSA code of practice says your terms of business must also cover:
+              </Text>
+              {OWN_TERMS_CHECKLIST.map((item) => (
+                <Text key={item} style={styles.checklistItem}>{`• ${item}`}</Text>
+              ))}
+              <Text style={styles.checklistNote}>
+                Not in force yet (expected between late 2026 and early 2027). Pupils should have these terms in writing before lessons start.
+              </Text>
+            </View>
           </Card>
 
           <TouchableOpacity
@@ -304,6 +317,10 @@ export default function SchoolProfileScreen() {
 }
 
 const styles = StyleSheet.create({
+  checklist: { marginTop: 10, padding: 12, borderRadius: 10, backgroundColor: theme.colors.background, borderWidth: 1, borderColor: theme.colors.border, gap: 4 },
+  checklistTitle: { fontSize: 13, fontWeight: '700', color: theme.colors.text },
+  checklistItem: { fontSize: 13, color: theme.colors.text, lineHeight: 19 },
+  checklistNote: { fontSize: 12, color: theme.colors.textMuted, marginTop: 4, lineHeight: 17 },
   safe: { flex: 1, backgroundColor: theme.colors.background },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12 },
   iconBtn: { padding: 8, borderRadius: 8, width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },

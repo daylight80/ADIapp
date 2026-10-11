@@ -1,4 +1,4 @@
-import { agreementStatus, instructorAgreementLine, studentAgreementLabel } from '../pupilAgreement';
+import { agreementSignError, agreementStatus, instructorAgreementLine, studentAgreementLabel } from '../pupilAgreement';
 
 const signed = { tc_signed_at: '2026-10-03T09:15:00.000Z', tc_signature_name: 'Callum Goody' };
 
@@ -31,5 +31,22 @@ describe('studentAgreementLabel', () => {
   it('asks to sign, then shows signed', () => {
     expect(studentAgreementLabel({})).toBe('Pupil Agreement — sign now');
     expect(studentAgreementLabel(signed)).toBe('Pupil Agreement (signed ✓)');
+  });
+});
+
+describe('agreementSignError', () => {
+  it('tells an unlinked pupil to ask for a new invite email, by code or by message', () => {
+    expect(agreementSignError({ code: 'P0002', message: 'whatever' })).toMatch(/re-send your invite email/);
+    expect(agreementSignError({ message: 'No student record is linked to this account' })).toMatch(/re-send your invite email/);
+  });
+
+  it('asks for a fresh sign-in when the session has gone', () => {
+    expect(agreementSignError({ code: '28000', message: 'Not signed in' })).toMatch(/sign in again/);
+  });
+
+  it('keeps any other error message, with a fallback when there is none', () => {
+    expect(agreementSignError({ message: 'Signature must be between 3 and 120 characters' })).toBe('Signature must be between 3 and 120 characters');
+    expect(agreementSignError(undefined)).toBe('Please try again.');
+    expect(agreementSignError({})).toBe('Please try again.');
   });
 });

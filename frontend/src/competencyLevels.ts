@@ -1,7 +1,8 @@
 // Competency levels run 1 to 5 and each has its own name. The screen used to have
-// only four names, so level 4 and level 5 both read "Mastered".
+// only four names, so level 4 and level 5 both read "Mastered". The names follow the
+// coaching scale of how much the pupil still needs from the instructor.
 
-export const LEVEL_LABELS = ['Introduced', 'Practising', 'Developing', 'Confident', 'Mastered'] as const;
+export const LEVEL_LABELS = ['Introduced', 'Instructor-led', 'Prompted', 'Seldom prompted', 'Independent'] as const;
 
 export const MAX_LEVEL = LEVEL_LABELS.length;
 

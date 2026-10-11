@@ -10,7 +10,8 @@ import { useAuth } from '../src/AuthContext';
 import { useStudents, createStudent } from '../src/useSupabaseData';
 import { listStudentBalances, listHoursBalanceForStudents, type StudentStatus, studentAppUsageWarning } from '../src/supabaseDb';
 import { canAddStudent, explainLimitError, tierById, isPaidTier, isProTier, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
-import { walletDisplay, isLowCredit } from '../src/walletDisplay';
+import { needsBooking, hasLowCredit } from '../src/studentGlance';
+import { walletDisplay } from '../src/walletDisplay';
 import { copyToClipboard, openSmsComposer } from '../src/tools';
 import { fireInstantNotification } from '../src/notifications';
 import { api } from '../src/api';
@@ -241,8 +242,8 @@ export default function StudentsV2Screen() {
       const matchQ = !q || s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q);
       const matchF = filter === 'All' || s.status === filter;
       const matchArrears = !arrearsActive || (balances[s.id] ?? 0) > 0;
-      const matchNoBooking = !noBookingActive || !s.next_lesson;
-      const matchLowCredit = !lowCreditActive || isLowCredit(hoursBalances[s.id]);
+      const matchNoBooking = !noBookingActive || needsBooking(s);
+      const matchLowCredit = !lowCreditActive || hasLowCredit(s, hoursBalances);
       return matchQ && matchF && matchArrears && matchNoBooking && matchLowCredit;
     });
   }, [students, search, filter, arrearsActive, balances, noBookingActive, lowCreditActive, hoursBalances]);
@@ -252,8 +253,8 @@ export default function StudentsV2Screen() {
   // and toggles the matching filter, reusing the arrears deep-link's
   // existing pattern.
   const glanceStats = useMemo(() => {
-    const noBooking = students.filter((s) => !s.next_lesson).length;
-    const lowCredit = students.filter((s) => isLowCredit(hoursBalances[s.id])).length;
+    const noBooking = students.filter(needsBooking).length;
+    const lowCredit = students.filter((s) => hasLowCredit(s, hoursBalances)).length;
     const inArrears = students.filter((s) => (balances[s.id] ?? 0) > 0).length;
     return { noBooking, lowCredit, inArrears };
   }, [students, hoursBalances, balances]);

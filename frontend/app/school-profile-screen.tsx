@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { ArrowLeft, Building2, Camera, FileText, CloudUpload } from 'lucide-react-native';
+import { RefundPolicyPicker } from '../src/RefundPolicyPicker';
 import { OWN_TERMS_CHECKLIST } from '../src/agreementTerms';
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
@@ -290,6 +291,8 @@ export default function SchoolProfileScreen() {
               </Text>
             </View>
           </Card>
+
+          {profile?.tier === 'franchise' && <RefundPolicyPicker />}
 
           <TouchableOpacity
             style={[styles.saveBtn, saving && { opacity: 0.6 }]}

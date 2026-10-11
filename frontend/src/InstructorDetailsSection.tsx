@@ -8,6 +8,7 @@ import { getInstructorProfile, updateMyInstructorProfile } from './supabaseDb';
 import { bump } from './useSupabaseData';
 import { isFranchiseTier } from './tiers';
 import { validateInstructorDetails } from './instructorDetails';
+import { RefundPolicyPicker } from './RefundPolicyPicker';
 
 /**
  * The instructor's own details, on the Profile screen. This replaces the separate
@@ -98,6 +99,8 @@ export function InstructorDetailsSection({ tier }: { tier: string | null | undef
           </Text>
         </Card>
       )}
+
+      {editable && <RefundPolicyPicker />}
 
       {editable && (
         <>

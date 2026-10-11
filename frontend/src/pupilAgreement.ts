@@ -29,3 +29,17 @@ export function instructorAgreementLine(student: AgreementRecord | null | undefi
 export function studentAgreementLabel(student: AgreementRecord | null | undefined): string {
   return agreementStatus(student).signed ? 'Pupil Agreement (signed ✓)' : 'Pupil Agreement — sign now';
 }
+
+const UNLINKED_MESSAGE =
+  "Your account isn't linked to your instructor yet. Ask your instructor to re-send your invite email, then open the link in that email.";
+
+/**
+ * What to tell a pupil when signing fails. The database refuses (code P0002) when the
+ * login is not linked to a pupil record, which happens if they signed up from the
+ * back-up link instead of the invite email. Anything else keeps its own message.
+ */
+export function agreementSignError(error: { code?: string; message?: string } | null | undefined): string {
+  if (error?.code === 'P0002' || /no student record is linked/i.test(error?.message || '')) return UNLINKED_MESSAGE;
+  if (error?.code === '28000' || /not signed in/i.test(error?.message || '')) return 'Please sign in again, then try signing the agreement.';
+  return error?.message || 'Please try again.';
+}

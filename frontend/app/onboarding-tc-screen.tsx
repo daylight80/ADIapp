@@ -9,7 +9,7 @@ import { Card } from '../src/ui';
 import { getMyPupilAgreementContext, signPupilAgreementAsStudent } from '../src/supabaseDb';
 import { buildAgreement, agreementPlainText, type AgreementContext } from '../src/agreementTerms';
 import { useStudentByAuthId, bump } from '../src/useSupabaseData';
-import { agreementStatus } from '../src/pupilAgreement';
+import { agreementStatus, agreementSignError } from '../src/pupilAgreement';
 
 /**
  * Pupil Agreement — signed by the student from their own dashboard (before
@@ -24,6 +24,8 @@ export default function OnboardingTcScreen() {
   const [accepted, setAccepted] = useState(false);
   const [signature, setSignature] = useState(user?.name || '');
   const [saving, setSaving] = useState(false);
+  // Shown inline: Alert.alert does nothing in a browser, so a pupil on the web app would see no error.
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [justSigned, setJustSigned] = useState<{ at: string; name: string } | null>(null);
 
   // The instructor's contact details and the pupil's lesson price, plus the school's
@@ -54,13 +56,14 @@ export default function OnboardingTcScreen() {
       return;
     }
     setSaving(true);
+    setSaveError(null);
     try {
       const result = await signPupilAgreementAsStudent(signature, agreementPlainText(agreement));
       setJustSigned({ at: result.tc_signed_at, name: result.tc_signature_name });
       bump();
       setTimeout(() => router.back(), 1800);
     } catch (e: any) {
-      Alert.alert('Could not save your signature', e?.message || 'Please try again.');
+      setSaveError(agreementSignError(e));
     } finally {
       setSaving(false);
     }
@@ -141,6 +144,9 @@ export default function OnboardingTcScreen() {
           )}
         </TouchableOpacity>
 
+        {!!saveError && (
+          <Text style={styles.errorNote} testID="tc-save-error">{saveError}</Text>
+        )}
         {saved && (
           <Text style={styles.savedNote} testID="tc-saved-note">
             Signed by {signedName} on {signedAt ? new Date(signedAt).toLocaleString('en-GB') : ''}
@@ -163,6 +169,7 @@ const styles = StyleSheet.create({
   heroCard: { alignItems: 'center', gap: 6 },
   heroTitle: { ...theme.font.h2 },
   heroSub: { color: theme.colors.textMuted, textAlign: 'center', fontSize: 13 },
+  errorNote: { color: theme.colors.danger, fontSize: 13.5, fontWeight: '600', lineHeight: 19, textAlign: 'center', marginTop: 8 },
   tcHeading: { fontSize: 14, fontWeight: '700', color: theme.colors.text, marginTop: 12 },
   tcText: { fontSize: 13, color: theme.colors.text, lineHeight: 19, marginTop: 4 },
   checkbox: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },

@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIn
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, ChevronDown, ChevronUp, Check, Pencil } from 'lucide-react-native';
+import { LEVEL_LABELS, levelLabel } from '../src/competencyLevels';
 import { theme } from '../src/theme';
 import { mockDb } from '../src/mockDb';
 import { useCompetencies, updateCompetency } from '../src/useSupabaseData';
@@ -18,7 +19,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'skills', label: 'Skills' },
 ];
 
-const MILESTONES = ['Introduced', 'Practising', 'Confident', 'Mastered'];
+const MILESTONES: readonly string[] = LEVEL_LABELS;
 
 export default function CompetencyDetailScreen() {
   const router = useRouter();
@@ -180,7 +181,7 @@ export default function CompetencyDetailScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.summaryLabel}>Current level</Text>
                   <Text style={styles.summaryValue}>Level {competency.level}/5</Text>
-                  <Text style={styles.summaryMeta}>{MILESTONES[milestoneIdx]}</Text>
+                  <Text style={styles.summaryMeta}>{levelLabel(competency.level)}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.summaryLabel}>Progress</Text>
@@ -290,7 +291,7 @@ export default function CompetencyDetailScreen() {
                 <View style={styles.skillRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.skillName}>{s.name}</Text>
-                    <Text style={styles.milestoneLabel}>{MILESTONES[Math.min(s.level - 1, MILESTONES.length - 1)]}</Text>
+                    <Text style={styles.milestoneLabel}>{levelLabel(s.level)}</Text>
                   </View>
                   <Badge label={`Level ${s.level}`} bg={theme.colors.primaryLight} color={theme.colors.primary} />
                 </View>
@@ -317,7 +318,7 @@ export default function CompetencyDetailScreen() {
             >
               <Text style={[styles.levelChipText, editLevel === lvl && styles.levelChipTextActive]}>L{lvl}</Text>
               <Text style={[styles.levelChipSub, editLevel === lvl && styles.levelChipTextActive]}>
-                {MILESTONES[Math.min(lvl - 1, MILESTONES.length - 1)]}
+                {levelLabel(lvl)}
               </Text>
             </TouchableOpacity>
           ))}

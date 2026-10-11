@@ -3,6 +3,7 @@
 // returns Promises and operates against the live `students` / `driving_schools`
 // / `instructors` tables. RLS does the multi-tenant scoping automatically.
 
+import type { AgreementContext } from './agreementTerms';
 import { supabase } from './supabaseClient';
 import type { DeadlineItem, EditableDeadlineKind } from './deadlines';
 
@@ -480,12 +481,12 @@ export function buildInstructorInviteLink(instructor: InvitedInstructor, appOrig
 // compliance/consent record, so it is written by the database (a SECURITY
 // DEFINER function that only touches the caller's own row, once) and the
 // timestamp comes from the server, not the phone's clock.
-export async function signPupilAgreementAsStudent(signatureName: string): Promise<{ tc_signed_at: string; tc_signature_name: string }> {
+export async function signPupilAgreementAsStudent(signatureName: string, agreementText?: string): Promise<{ tc_signed_at: string; tc_signature_name: string }> {
   const trimmed = signatureName.trim();
   if (trimmed.length < 3) {
     throw new Error('Signature must be at least 3 characters.');
   }
-  const { data, error } = await supabase.rpc('sign_pupil_agreement_as_student', { p_signature: trimmed });
+  const { data, error } = await supabase.rpc('sign_pupil_agreement_as_student', { p_signature: trimmed, p_agreement_text: agreementText ?? null });
   if (error) {
     if (/sign_pupil_agreement_as_student/i.test(error.message || '') && /could not find|does not exist/i.test(error.message || '')) {
       throw new Error('Please apply Migration 051 first (student Pupil Agreement).');
@@ -1948,13 +1949,15 @@ export async function updateMySchoolProfile(patch: Partial<{
 // getMySchoolProfile() above, which is owner-only. Added 2 Sept 2026 so a
 // regular (non-owner) instructor signing onboarding-tc-screen sees their
 // school's actual terms, not just the owner.
-// The signed-in student's school's own Pupil Agreement wording, or null when the
-// school has not written any (the app then shows its standard terms). A function
-// rather than a table read because students cannot read driving_schools (Migration 052).
-export async function getMyPupilAgreementText(): Promise<string | null> {
-  const { data, error } = await supabase.rpc('my_pupil_agreement_text');
+// What the signed-in student's Pupil Agreement needs: their instructor's and
+// business's contact details, their own hourly rate, and the school's own
+// agreement wording (null when the school has not written any). A function rather
+// than table reads because students cannot read instructors or driving_schools
+// (Migration 053).
+export async function getMyPupilAgreementContext(): Promise<AgreementContext | null> {
+  const { data, error } = await supabase.rpc('my_pupil_agreement_context');
   if (error) throw error;
-  return (data as string | null) || null;
+  return (data as AgreementContext | null) ?? null;
 }
 
 export async function uploadSchoolLogo(schoolId: string, base64: string, mimeType: string): Promise<string> {

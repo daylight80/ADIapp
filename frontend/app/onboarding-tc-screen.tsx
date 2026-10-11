@@ -6,7 +6,8 @@ import { ArrowLeft, Check, ShieldCheck } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { Card } from '../src/ui';
-import { getMyPupilAgreementText, signPupilAgreementAsStudent } from '../src/supabaseDb';
+import { getMyPupilAgreementContext, signPupilAgreementAsStudent } from '../src/supabaseDb';
+import { buildAgreement, agreementPlainText, type AgreementContext } from '../src/agreementTerms';
 import { useStudentByAuthId, bump } from '../src/useSupabaseData';
 import { agreementStatus } from '../src/pupilAgreement';
 
@@ -25,16 +26,18 @@ export default function OnboardingTcScreen() {
   const [saving, setSaving] = useState(false);
   const [justSigned, setJustSigned] = useState<{ at: string; name: string } | null>(null);
 
-  // The school's own wording, if its owner wrote any; otherwise the standard
-  // terms below. A failed lookup just means the standard terms are shown.
-  const [customAgreementText, setCustomAgreementText] = useState<string | null>(null);
+  // The instructor's contact details and the pupil's lesson price, plus the school's
+  // own wording if its owner wrote any (see agreementTerms.ts). If the lookup fails
+  // the standard terms are still shown, just without those details filled in.
+  const [context, setContext] = useState<AgreementContext>({});
   useEffect(() => {
     let cancelled = false;
-    getMyPupilAgreementText()
-      .then((t) => { if (!cancelled) setCustomAgreementText(t); })
+    getMyPupilAgreementContext()
+      .then((c) => { if (!cancelled && c) setContext(c); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
+  const agreement = buildAgreement(context);
 
   const recorded = agreementStatus(student);
   const saved = recorded.signed || !!justSigned;
@@ -52,7 +55,7 @@ export default function OnboardingTcScreen() {
     }
     setSaving(true);
     try {
-      const result = await signPupilAgreementAsStudent(signature);
+      const result = await signPupilAgreementAsStudent(signature, agreementPlainText(agreement));
       setJustSigned({ at: result.tc_signed_at, name: result.tc_signature_name });
       bump();
       setTimeout(() => router.back(), 1800);
@@ -86,40 +89,14 @@ export default function OnboardingTcScreen() {
           </Text>
         </Card>
 
-        {customAgreementText ? (
-          <Card>
-            <Text style={styles.tcHeading}>Your school's terms</Text>
-            <Text style={styles.tcText}>{customAgreementText}</Text>
-          </Card>
-        ) : (
-        <Card>
-          <Text style={styles.tcHeading}>1. Lessons & cancellations</Text>
-          <Text style={styles.tcText}>
-            Lessons run for the agreed duration. Cancellations made less than 24 hours before the lesson are
-            charged at the full rate, unless the instructor agrees otherwise.
-          </Text>
-          <Text style={styles.tcHeading}>2. Eyesight & fitness to drive</Text>
-          <Text style={styles.tcText}>
-            You confirm that you meet the DVSA eyesight standard (number plate readable at 20 metres), hold a
-            valid provisional or full licence, and are fit to drive on the day of each lesson.
-          </Text>
-          <Text style={styles.tcHeading}>3. Insurance & liability</Text>
-          <Text style={styles.tcText}>
-            The vehicle is fully insured for tuition. You agree to follow the instructor's directions at all
-            times. Reckless or wilful misuse may incur charges.
-          </Text>
-          <Text style={styles.tcHeading}>4. Data protection (UK GDPR)</Text>
-          <Text style={styles.tcText}>
-            Your contact details, lesson notes and progress data are stored securely and used only to deliver
-            tuition. You may request your data or its deletion at any time.
-          </Text>
-          <Text style={styles.tcHeading}>5. Payments & VAT</Text>
-          <Text style={styles.tcText}>
-            All fees are payable on or before the lesson. Block bookings are non-refundable but transferable.
-            VAT receipts are available on request.
-          </Text>
+        <Card testID="agreement-terms">
+          {agreement.sections.map((sec, i) => (
+            <View key={sec.heading}>
+              <Text style={styles.tcHeading}>{`${i + 1}. ${sec.heading}`}</Text>
+              <Text style={styles.tcText}>{sec.body}</Text>
+            </View>
+          ))}
         </Card>
-        )}
 
         <TouchableOpacity
           style={styles.checkbox}

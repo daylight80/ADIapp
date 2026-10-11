@@ -1922,6 +1922,21 @@ export async function getMySchoolProfile(): Promise<SchoolProfile | null> {
   return (data as SchoolProfile) || null;
 }
 
+// The school's refund policy for prepaid hours (Migration 054). Solo instructors are
+// their own school's owner, so this reads and writes their own school row.
+export async function getMyRefundPolicy(): Promise<string | null> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const uid = sessionData.session?.user.id;
+  if (!uid) return null;
+  const { data, error } = await supabase
+    .from('driving_schools')
+    .select('refund_policy')
+    .eq('owner_auth_id', uid)
+    .maybeSingle();
+  if (error) throw error;
+  return (data?.refund_policy as string | undefined) ?? null;
+}
+
 export async function updateMySchoolProfile(patch: Partial<{
   business_name: string;
   contact_email: string | null;
@@ -1930,6 +1945,7 @@ export async function updateMySchoolProfile(patch: Partial<{
   default_hourly_rate: number | null;
   google_review_url: string | null;
   pupil_agreement_text: string | null;
+  refund_policy: string;
 }>): Promise<void> {
   const { data: sessionData } = await supabase.auth.getSession();
   const uid = sessionData.session?.user.id;

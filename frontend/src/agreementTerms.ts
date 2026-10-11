@@ -9,6 +9,8 @@
 // The first two (contact details, price and duration) come from the pupil's own
 // record and are always shown, so even a school with its own wording gets them.
 
+import { refundOption, NOT_DELIVERED_SENTENCE } from './refundPolicy';
+
 export type AgreementContext = {
   instructor_name?: string | null;
   adi_number?: string | null;
@@ -18,6 +20,7 @@ export type AgreementContext = {
   address?: string | null;
   hourly_rate?: number | string | null;
   custom_text?: string | null;
+  refund_policy?: string | null;
 };
 
 export type AgreementSection = { heading: string; body: string };
@@ -53,7 +56,7 @@ export function detailsSection(ctx: AgreementContext): AgreementSection {
 }
 
 /** The standard wording, used when the school has not written its own. */
-export function standardSections(): AgreementSection[] {
+export function standardSections(refundPolicy?: string | null): AgreementSection[] {
   return [
     {
       heading: 'Lessons & cancellations',
@@ -76,8 +79,8 @@ export function standardSections(): AgreementSection[] {
       heading: 'Payments, prepaid hours & refunds',
       body:
         'All fees are payable on or before the lesson. Money you pay in advance (prepaid hours) is used up as your lessons are completed, ' +
-        'and your balance is shown in the app. Block bookings and prepaid hours are non-refundable once paid, but can be transferred to another pupil ' +
-        'with your instructor\'s agreement. If a lesson you have paid for is not delivered, it will be refunded or credited to you. VAT receipts are available on request.',
+        `and your balance is shown in the app. ${refundOption(refundPolicy).sentence} ${NOT_DELIVERED_SENTENCE} ` +
+        'VAT receipts are available on request.',
     },
     {
       heading: 'Your personal data (UK GDPR)',
@@ -114,7 +117,7 @@ export function buildAgreement(ctx: AgreementContext): BuiltAgreement {
     usesSchoolText: !!custom,
     sections: [
       detailsSection(ctx),
-      ...(custom ? [{ heading: "Your school's terms", body: custom }] : standardSections()),
+      ...(custom ? [{ heading: "Your school's terms", body: custom }] : standardSections(ctx.refund_policy)),
     ],
   };
 }

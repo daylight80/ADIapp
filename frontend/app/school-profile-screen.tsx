@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, Image, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -9,7 +9,10 @@ import { validateReviewUrl } from '../src/instructorDetails';
 import { OWN_TERMS_CHECKLIST } from '../src/agreementTerms';
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
+import { raceTimeout, loadErrorMessage } from '../src/withTimeout';
 import { getMySchoolProfile, updateMySchoolProfile, uploadSchoolLogo, type SchoolProfile } from '../src/supabaseDb';
+
+const SCHOOL_LOAD_TIMEOUT_MS = 15000;
 
 export default function SchoolProfileScreen() {
   const router = useRouter();
@@ -27,30 +30,35 @@ export default function SchoolProfileScreen() {
   // Instructor-editable T&Cs (2 Sept 2026) — per-school, freeform.
   const [pupilAgreementText, setPupilAgreementText] = useState('');
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const p = await getMySchoolProfile();
-        if (!p) {
-          Alert.alert('Not found', "We couldn't find a school profile for this account.");
-          router.back();
-          return;
-        }
-        setProfile(p);
-        setBusinessName(p.business_name || '');
-        setContactEmail(p.contact_email || '');
-        setContactPhone(p.contact_phone || '');
-        setAddress(p.address || '');
-        setHourlyRate(p.default_hourly_rate != null ? String(p.default_hourly_rate) : '');
-        setGoogleReviewUrl(p.google_review_url || '');
-        setPupilAgreementText(p.pupil_agreement_text || '');
-      } catch (e: any) {
-        Alert.alert('Could not load school profile', e?.message || 'Please try again.');
-      } finally {
-        setLoading(false);
+  // Shown on the page, not as an Alert: Alert.alert does nothing in a browser, and the
+  // old code had no time limit, so a stalled request left a spinner on screen forever.
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const p = await raceTimeout(getMySchoolProfile(), SCHOOL_LOAD_TIMEOUT_MS);
+      if (!p) {
+        setLoadError("We couldn't find a school profile for this account.");
+        return;
       }
-    })();
+      setProfile(p);
+      setBusinessName(p.business_name || '');
+      setContactEmail(p.contact_email || '');
+      setContactPhone(p.contact_phone || '');
+      setAddress(p.address || '');
+      setHourlyRate(p.default_hourly_rate != null ? String(p.default_hourly_rate) : '');
+      setGoogleReviewUrl(p.google_review_url || '');
+      setPupilAgreementText(p.pupil_agreement_text || '');
+    } catch (e: any) {
+      setLoadError(loadErrorMessage(e, 'Could not load your school profile.'));
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const handleSave = async () => {
     if (!businessName.trim()) {
@@ -141,6 +149,26 @@ export default function SchoolProfileScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 80 }} />
+      </SafeAreaView>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="btn-back">
+            <ArrowLeft size={22} color={theme.colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.title}>School Profile</Text>
+          <View style={{ width: 38 }} />
+        </View>
+        <View style={{ padding: 24, gap: 14, alignItems: 'center' }} testID="school-profile-load-error">
+          <Text style={{ fontSize: 15, color: theme.colors.text, textAlign: 'center', lineHeight: 22 }}>{loadError}</Text>
+          <TouchableOpacity style={styles.saveBtn} onPress={load} testID="btn-retry-school-profile">
+            <Text style={styles.saveBtnText}>Try again</Text>
+          </TouchableOpacity>
+        </View>
       </SafeAreaView>
     );
   }

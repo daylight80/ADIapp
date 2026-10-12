@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { ArrowLeft, Building2, Camera, FileText, CloudUpload } from 'lucide-react-native';
 import { RefundPolicyPicker } from '../src/RefundPolicyPicker';
+import { validateReviewUrl } from '../src/instructorDetails';
 import { OWN_TERMS_CHECKLIST } from '../src/agreementTerms';
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
@@ -66,8 +67,9 @@ export default function SchoolProfileScreen() {
       rateValue = parsed;
     }
     const reviewUrl = googleReviewUrl.trim();
-    if (reviewUrl && !/^https?:\/\//i.test(reviewUrl)) {
-      Alert.alert('Invalid review link', 'The Google review link should start with https://');
+    const reviewProblem = validateReviewUrl(reviewUrl);
+    if (reviewProblem) {
+      Alert.alert('Invalid review link', reviewProblem);
       return;
     }
     setSaving(true);
@@ -292,7 +294,7 @@ export default function SchoolProfileScreen() {
             </View>
           </Card>
 
-          {profile?.tier === 'franchise' && <RefundPolicyPicker />}
+          <RefundPolicyPicker />
 
           <TouchableOpacity
             style={[styles.saveBtn, saving && { opacity: 0.6 }]}

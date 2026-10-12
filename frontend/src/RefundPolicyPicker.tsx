@@ -7,8 +7,8 @@ import { REFUND_POLICIES, resolveRefundPolicy, refundOption, type RefundPolicyKe
 
 /**
  * Choose the refund policy your pupils' agreement states for prepaid hours and
- * block bookings. Saves as soon as you pick one. Used on the Profile screen (solo
- * instructors, who are their own school's owner) and on School Profile (Franchise).
+ * block bookings. Saves as soon as you pick one. Lives on School Profile, which solo
+ * instructors (their own school's owner) and Franchise owners can both open.
  */
 export function RefundPolicyPicker() {
   const [loading, setLoading] = useState(true);

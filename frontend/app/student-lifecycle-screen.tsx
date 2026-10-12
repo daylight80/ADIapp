@@ -17,7 +17,7 @@ import {
   getPendingDeletionRequestForStudent, type GdprDeletionRequest, getMySchoolProfile,
   listLessonNotesForStudent, listMyLessonNoteQuestions, type InstructorLessonNote, type LessonNoteQuestion,
   listMySyllabuses, applySyllabusToStudent, type InstructorSyllabus,
-  getLatestReminderStatus, type LessonReminderStatus, getInstructorProfile,
+  getLatestReminderStatus, type LessonReminderStatus,
 } from '../src/supabaseDb';
 import { isPaidTier, isProTier, tierById } from '../src/tiers';
 import { formatHours, isLowCredit } from '../src/walletDisplay';
@@ -214,28 +214,15 @@ export default function StudentProfileV2Screen() {
     || testOutcomes.some((o) => o.test_type === 'practical' && o.result === 'pass');
 
   const handleRequestReview = async () => {
-    // Franchise reads the school-wide link (School Profile, set once by
-    // the owner for everyone); solo tiers have no menu path to that
-    // screen at all, so they get the same setting from their own row
-    // instead (My Details) — see the note on instructors.google_review_url
-    // in supabaseDb.ts for why these are two separate columns rather than
-    // one shared source.
+    // The Google review link is a School Profile setting for every tier (it used to
+    // be a separate per-instructor field on Profile for solo tiers).
     let reviewUrl: string | null | undefined;
-    if (user?.tier === 'franchise') {
-      let schoolProfile: Awaited<ReturnType<typeof getMySchoolProfile>> = null;
-      try { schoolProfile = await getMySchoolProfile(); } catch { /* treated as not-set below */ }
-      reviewUrl = schoolProfile?.google_review_url;
-    } else {
-      let myProfile: Awaited<ReturnType<typeof getInstructorProfile>> = null;
-      try { myProfile = await getInstructorProfile(); } catch { /* treated as not-set below */ }
-      reviewUrl = myProfile?.google_review_url;
-    }
+    try { reviewUrl = (await getMySchoolProfile())?.google_review_url; } catch { /* treated as not-set below */ }
     if (!reviewUrl) {
-      const isFranchise = user?.tier === 'franchise';
       Alert.alert(
         'No review link set',
-        `You haven't added a Google review link yet. Set one in ${isFranchise ? 'School Profile' : 'Profile'} first, then come back to send this.`,
-        [{ text: 'Not now', style: 'cancel' }, { text: `Go to ${isFranchise ? 'School Profile' : 'Profile'}`, onPress: () => router.push((isFranchise ? '/school-profile-screen' : '/profile-screen') as any) }],
+        "You haven't added a Google review link yet. Set one in School Profile first, then come back to send this.",
+        [{ text: 'Not now', style: 'cancel' }, { text: 'Go to School Profile', onPress: () => router.push('/school-profile-screen' as any) }],
       );
       return;
     }

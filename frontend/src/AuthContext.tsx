@@ -44,6 +44,11 @@ type AuthContextType = {
   // clears it immediately so it can never fire again for that account.
   justRegistered: boolean;
   clearJustRegistered: () => void;
+  // True only for the one app session right after the user typed their password
+  // (signIn). _layout.tsx skips the fingerprint unlock for it: the password already
+  // proved who they are, and the unlock is meant for reopening/resuming the app.
+  justSignedIn: boolean;
+  clearJustSignedIn: () => void;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -272,6 +277,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [justRegistered, setJustRegistered] = useState(false);
+  const [justSignedIn, setJustSignedIn] = useState(false);
 
   // Restore session on mount + subscribe to auth state changes
   useEffect(() => {
@@ -348,8 +354,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user?.id, user?.role]);
 
   const signIn: AuthContextType['signIn'] = useCallback(async (email, password) => {
+    // Set before the call: the auth listener can finish loading the profile (which is
+    // what the fingerprint check waits on) before signInWithPassword resolves.
+    setJustSignedIn(true);
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (error) return { ok: false, error: error.message };
+    if (error) {
+      setJustSignedIn(false);
+      return { ok: false, error: error.message };
+    }
     return { ok: true };
   }, []);
 
@@ -481,7 +493,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut, refreshUser, acceptInvite, forgotPassword, updatePassword, justRegistered, clearJustRegistered: () => setJustRegistered(false) }}>
+    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut, refreshUser, acceptInvite, forgotPassword, updatePassword, justRegistered, clearJustRegistered: () => setJustRegistered(false), justSignedIn, clearJustSignedIn: () => setJustSignedIn(false) }}>
       {children}
     </AuthContext.Provider>
   );

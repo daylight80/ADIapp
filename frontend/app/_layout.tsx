@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider, useAuth } from '../src/AuthContext';
+import { needsBiometricUnlock } from '../src/biometricGate';
 import { isBiometricEnabled, authenticateWithBiometrics, isBiometricAvailable, setBiometricEnabled } from '../src/biometrics';
 import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, AppState } from 'react-native';
 import { theme } from '../src/theme';
@@ -26,7 +27,7 @@ const PUBLIC_ROUTES = new Set<string>([
 ]);
 
 function AuthGate() {
-  const { user, loading, signOut, justRegistered, clearJustRegistered } = useAuth();
+  const { user, loading, signOut, justRegistered, clearJustRegistered, justSignedIn, clearJustSignedIn } = useAuth();
   const router = useRouter();
   const segments = useSegments();
   const params = useLocalSearchParams();
@@ -52,10 +53,10 @@ function AuthGate() {
   // user changes or the component unmounts mid-check, this stops short of
   // calling setBiometricLocked/signOut() on a state that's no longer
   // current, exactly as the original single-effect version already did.
-  const runBiometricCheck = async (isStale: () => boolean) => {
+  const runBiometricCheck = async (isStale: () => boolean, freshPasswordSignIn = false) => {
     const enabled = await isBiometricEnabled();
     if (isStale()) return;
-    if (!enabled) { setBiometricLocked(false); return; }
+    if (!needsBiometricUnlock(enabled, freshPasswordSignIn)) { setBiometricLocked(false); return; }
     setBiometricLocked(true);
     const ok = await authenticateWithBiometrics();
     if (isStale()) return;
@@ -72,7 +73,11 @@ function AuthGate() {
   useEffect(() => {
     if (!user) { setBiometricLocked(null); return; }
     let cancelled = false;
-    runBiometricCheck(() => cancelled);
+    // A sign-in with the password just now already proved identity; don't ask for the
+    // fingerprint on top of it (and sign them out if that prompt fails). See biometricGate.ts.
+    const fresh = justSignedIn;
+    if (fresh) clearJustSignedIn();
+    runBiometricCheck(() => cancelled, fresh);
     return () => { cancelled = true; };
     // Deliberately only re-runs when the signed-in user identity changes
     // (a fresh sign-in), not on every render — this is a once-per-launch

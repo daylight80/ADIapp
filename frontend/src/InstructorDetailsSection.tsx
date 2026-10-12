@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, TextInput } from 'react-native';
-import { useRouter } from 'expo-router';
-import { IdCard, Phone, Mail, MapPin, Building2, ChevronRight } from 'lucide-react-native';
+import { IdCard, Phone, Mail, MapPin } from 'lucide-react-native';
 import { theme } from './theme';
 import { Card } from './ui';
 import { getInstructorProfile, updateMyInstructorProfile } from './supabaseDb';
@@ -17,11 +16,9 @@ import { validateInstructorDetails } from './instructorDetails';
  * Solo instructors (Starter/Growth/Pro) are their own school owner, so the
  * existing ins_owner_all RLS policy lets them edit their own row. Franchise
  * instructors only see what their school owner has set. The Google review link
- * and refund policy now live on School Profile, which solo instructors reach from the
- * link at the bottom of this section.
+ * and refund policy live on School Profile, which has its own row on the Profile screen.
  */
 export function InstructorDetailsSection({ tier }: { tier: string | null | undefined }) {
-  const router = useRouter();
   const editable = !isFranchiseTier(tier);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -104,22 +101,6 @@ export function InstructorDetailsSection({ tier }: { tier: string | null | undef
         </>
       )}
 
-      {editable && (
-        <Card>
-          <TouchableOpacity
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}
-            onPress={() => router.push('/school-profile-screen' as any)}
-            testID="link-school-profile"
-          >
-            <Building2 size={18} color={theme.colors.primary} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>School profile</Text>
-              <Text style={styles.fieldLabel}>Business name and logo, Google review link, refund policy and Pupil Agreement wording.</Text>
-            </View>
-            <ChevronRight size={18} color={theme.colors.textMuted} />
-          </TouchableOpacity>
-        </Card>
-      )}
     </>
   );
 }

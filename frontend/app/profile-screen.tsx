@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LogOut, Mail, Phone, MapPin, Award, Calendar, CalendarClock, Crown, ShieldCheck, Wallet, Copy, IdCard, Car, Navigation as NavIcon, Users, FileSpreadsheet, Download, Trash2, BookOpen, Fingerprint, Gift } from 'lucide-react-native';
+import { ChevronRight, ChevronDown, Building2, Mail, Phone, MapPin, Award, Calendar, CalendarClock, Crown, ShieldCheck, Wallet, Copy, IdCard, Car, Navigation as NavIcon, Users, FileSpreadsheet, Download, Trash2, BookOpen, Fingerprint, Gift } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { mockDb, instructorProfile } from '../src/mockDb';
 import { Card, Badge, StatusBadge } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
 import { useRouter } from 'expo-router';
-import { isPaidTier } from '../src/tiers';
+import { isPaidTier, isFranchiseTier } from '../src/tiers';
 import { InstructorDetailsSection } from '../src/InstructorDetailsSection';
+import { INSTRUCTOR_PROFILE_SECTIONS, visibleSections, type ProfileRowKey } from '../src/profileSections';
+import { NAV_APP_LABELS, resolveNavApp } from '../src/navApp';
 import { studentAgreementLabel } from '../src/pupilAgreement';
 import { PaywallModal } from '../src/PaywallModal';
 import { copyToClipboard } from '../src/tools';
@@ -24,7 +26,7 @@ import { Alert, TextInput, ActivityIndicator } from 'react-native';
 import { isBiometricAvailable, isBiometricEnabled, setBiometricEnabled } from '../src/biometrics';
 
 export default function ProfileScreen() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   const role = user?.role || 'student';
 
@@ -59,6 +61,8 @@ export default function ProfileScreen() {
   // Preferred navigation app for the diary's one-tap 🧭 button.
   const { profile: sbInstructor } = useInstructorProfile();
   const [navApp, setNavApp] = useState<NavApp>('google');
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
   React.useEffect(() => {
     if (sbInstructor?.preferred_nav_app) setNavApp(sbInstructor.preferred_nav_app);
   }, [sbInstructor?.preferred_nav_app]);
@@ -150,6 +154,167 @@ export default function ProfileScreen() {
     Alert.alert(ok ? 'Copied' : 'ADI number', instructorProfile.adi_number);
   };
 
+  // Rows shared by the instructor sections and the student layout.
+  const fingerprintRow = biometricAvailable ? (
+    <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+      <Fingerprint size={20} color={theme.colors.primary} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.linkRowText}>Use fingerprint to unlock</Text>
+        <Text style={styles.hint}>Skip re-entering your password each time you open the app.</Text>
+      </View>
+      <Switch value={biometricOn} onValueChange={handleToggleBiometric} testID="switch-biometric" />
+    </Card>
+  ) : null;
+
+  // Privacy & data — GDPR self-service export + deletion request
+  const privacyCard = (
+    <Card style={{ gap: 10 }} testID="card-privacy-data">
+      <Text style={styles.cardTitle}>Privacy & data</Text>
+      <TouchableOpacity
+        style={styles.linkRow}
+        onPress={handleDownloadMyData}
+        disabled={exportingData}
+        testID="btn-download-my-data"
+      >
+        {exportingData ? (
+          <ActivityIndicator size="small" color={theme.colors.primary} />
+        ) : (
+          <Download size={18} color={theme.colors.primary} />
+        )}
+        <Text style={styles.linkRowText}>{exportingData ? 'Preparing your data…' : 'Download my data'}</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.linkRow, { borderColor: theme.colors.danger }]}
+        onPress={handleRequestDeletion}
+        disabled={submittingDeletion || pendingDeletionRequest}
+        testID="btn-request-deletion"
+      >
+        {submittingDeletion ? (
+          <ActivityIndicator size="small" color={theme.colors.danger} />
+        ) : (
+          <Trash2 size={18} color={theme.colors.danger} />
+        )}
+        <Text style={[styles.linkRowText, { color: theme.colors.danger }]}>
+          {pendingDeletionRequest ? 'Deletion request pending' : 'Request account deletion'}
+        </Text>
+      </TouchableOpacity>
+    </Card>
+  );
+
+  // Instructor rows, keyed as in profileSections.ts (which decides the grouping and order).
+  const navAppLabel = NAV_APP_LABELS[resolveNavApp(navApp)];
+  const instructorRows = (key: ProfileRowKey): React.ReactNode => {
+    switch (key) {
+      case 'details':
+        return (
+          <>
+            <NavRow
+              icon={<IdCard size={18} color={theme.colors.primary} />}
+              label="My details"
+              value={sbInstructor?.adi_number ? `ADI ${sbInstructor.adi_number}` : undefined}
+              open={detailsOpen}
+              onPress={() => setDetailsOpen((o) => !o)}
+              testID="link-my-details"
+            />
+            {detailsOpen && <InstructorDetailsSection tier={user?.tier} />}
+          </>
+        );
+      case 'school':
+        return isFranchiseTier(user?.tier) ? null : (
+          <NavRow
+            icon={<Building2 size={18} color={theme.colors.primary} />}
+            label="School profile"
+            value="Business name, logo, reviews, refunds"
+            onPress={() => router.push('/school-profile-screen' as any)}
+            testID="link-school-profile"
+          />
+        );
+      case 'packages':
+        return <NavRow icon={<Wallet size={18} color={theme.colors.accent} />} label="Pricing & packages" onPress={() => router.push('/packages-screen' as any)} testID="link-packages" />;
+      case 'vouchers':
+        return (
+          <NavRow
+            icon={<Gift size={18} color={theme.colors.accent} />}
+            label="Gift vouchers"
+            onPress={() => (pro ? router.push('/vouchers-screen' as any) : setVouchersPaywallOpen(true))}
+            testID="link-vouchers"
+          />
+        );
+      case 'income':
+        return <NavRow icon={<FileSpreadsheet size={18} color={theme.colors.success} />} label="Income & expense report (CSV)" onPress={() => router.push('/income-expense-report-screen' as any)} testID="link-income-expense" />;
+      case 'subscription':
+        return (
+          <TouchableOpacity
+            style={[styles.proCta, pro && styles.proCtaActive]}
+            onPress={() => router.push('/pricing-screen')}
+            testID="btn-pricing"
+          >
+            <Crown size={18} color="#fff" />
+            <Text style={styles.proCtaText}>{pro ? 'Manage subscription' : 'Upgrade plan'}</Text>
+          </TouchableOpacity>
+        );
+      case 'syllabuses':
+        return <NavRow icon={<BookOpen size={18} color={theme.colors.primary} />} label="My syllabuses" onPress={() => router.push('/syllabuses-screen')} testID="link-syllabuses" />;
+      case 'vehicles':
+        return <NavRow icon={<Car size={18} color={theme.colors.primary} />} label="Manage vehicles" onPress={() => router.push('/vehicles-screen')} testID="link-vehicles" />;
+      case 'noteQuestions':
+        return <NavRow icon={<FileSpreadsheet size={18} color={theme.colors.primary} />} label="Lesson note questions" onPress={() => router.push('/lesson-note-questions-screen' as any)} testID="link-lesson-note-questions" />;
+      case 'standards':
+        return <NavRow icon={<Award size={18} color={theme.colors.primary} />} label="My Standards Check" onPress={() => router.push('/standards-check-screen' as any)} testID="link-standards-check" />;
+      case 'deadlines':
+        return (
+          <NavRow
+            icon={<CalendarClock size={18} color={theme.colors.primary} />}
+            label="Deadlines & reminders"
+            onPress={() => (pro ? router.push('/deadlines-screen' as any) : setDeadlinesPaywallOpen(true))}
+            testID="link-deadlines"
+          />
+        );
+      case 'navApp':
+        return (
+          <>
+            <NavRow
+              icon={<NavIcon size={18} color={theme.colors.primary} />}
+              label="Default navigation app"
+              value={navAppLabel}
+              open={navOpen}
+              onPress={() => setNavOpen((o) => !o)}
+              testID="link-nav-app"
+            />
+            {navOpen && (
+              <Card style={{ gap: 10 }}>
+                <Text style={styles.hint}>The diary's one-tap 🧭 button and Lesson tools will launch this app.</Text>
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  {(Object.keys(NAV_APP_LABELS) as NavApp[]).map((key) => (
+                    <TouchableOpacity
+                      key={key}
+                      style={[styles.navChip, navApp === key && styles.navChipActive, savingNav && { opacity: 0.7 }]}
+                      onPress={() => onPickNavApp(key)}
+                      disabled={savingNav}
+                      testID={`navapp-${key}`}
+                    >
+                      <Text style={[styles.navChipText, navApp === key && styles.navChipTextActive]}>{NAV_APP_LABELS[key]}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </Card>
+            )}
+          </>
+        );
+      case 'unavailabilities':
+        return <NavRow icon={<Calendar size={18} color={theme.colors.danger} />} label="Unavailabilities (time off)" onPress={() => router.push('/unavailabilities-screen' as any)} testID="link-unavailabilities" />;
+      case 'calendarFeed':
+        return <CalendarFeedCard />;
+      case 'importContacts':
+        return <NavRow icon={<Users size={18} color={theme.colors.primary} />} label="Import students from Contacts" onPress={() => setContactsImportOpen(true)} testID="link-import-contacts" />;
+      case 'fingerprint':
+        return fingerprintRow;
+      case 'privacy':
+        return privacyCard;
+    }
+  };
+  const sections = visibleSections(INSTRUCTOR_PROFILE_SECTIONS, instructorRows);
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <KeyboardAvoidingView
@@ -178,7 +343,12 @@ export default function ProfileScreen() {
           </View>
         </Card>
 
-        {role === 'instructor' && <InstructorDetailsSection tier={user?.tier} />}
+        {role === 'instructor' && sections.map((sec) => (
+          <View key={sec.title} style={styles.section} testID={`profile-section-${sec.title}`}>
+            <Text style={styles.sectionTitle}>{sec.title}</Text>
+            {sec.rows.map((r) => <React.Fragment key={r.key}>{r.node}</React.Fragment>)}
+          </View>
+        ))}
 
         {student && (
           <>
@@ -239,150 +409,6 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         )}
 
-        {role === 'instructor' && (
-          <Card style={{ gap: 12, marginTop: 12 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <NavIcon size={18} color={theme.colors.primary} />
-              <Text style={{ fontSize: 15, fontWeight: '700', color: theme.colors.text }}>Default navigation app</Text>
-            </View>
-            <Text style={{ fontSize: 12, color: theme.colors.textMuted }}>
-              The diary's one-tap 🧭 button on each lesson will launch your preferred app.
-            </Text>
-            <View style={{ flexDirection: 'row', gap: 6 }}>
-              {([
-                { key: 'google', label: 'Google Maps' },
-                { key: 'waze', label: 'Waze' },
-                { key: 'apple', label: 'Apple Maps' },
-              ] as { key: NavApp; label: string }[]).map((opt) => (
-                <TouchableOpacity
-                  key={opt.key}
-                  style={[styles.navChip, navApp === opt.key && styles.navChipActive, savingNav && { opacity: 0.7 }]}
-                  onPress={() => onPickNavApp(opt.key)}
-                  disabled={savingNav}
-                  testID={`navapp-${opt.key}`}
-                >
-                  <Text style={[styles.navChipText, navApp === opt.key && styles.navChipTextActive]}>
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </Card>
-        )}
-
-
-        {role === 'instructor' && (
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => router.push('/syllabuses-screen')}
-            testID="link-syllabuses"
-          >
-            <BookOpen size={18} color={theme.colors.primary} />
-            <Text style={styles.linkRowText}>My syllabuses</Text>
-          </TouchableOpacity>
-        )}
-
-        {role === 'instructor' && (
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => router.push('/vehicles-screen')}
-            testID="link-vehicles"
-          >
-            <Car size={18} color={theme.colors.primary} />
-            <Text style={styles.linkRowText}>Manage vehicles</Text>
-          </TouchableOpacity>
-        )}
-
-        {role === 'instructor' && (
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => router.push('/lesson-note-questions-screen' as any)}
-            testID="link-lesson-note-questions"
-          >
-            <FileSpreadsheet size={18} color={theme.colors.primary} />
-            <Text style={styles.linkRowText}>Lesson note questions</Text>
-          </TouchableOpacity>
-        )}
-
-        {role === 'instructor' && (
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => router.push('/standards-check-screen' as any)}
-            testID="link-standards-check"
-          >
-            <Award size={18} color={theme.colors.primary} />
-            <Text style={styles.linkRowText}>My Standards Check</Text>
-          </TouchableOpacity>
-        )}
-
-        {role === 'instructor' && (
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => (pro ? router.push('/deadlines-screen' as any) : setDeadlinesPaywallOpen(true))}
-            testID="link-deadlines"
-          >
-            <CalendarClock size={18} color={theme.colors.primary} />
-            <Text style={styles.linkRowText}>Deadlines & reminders</Text>
-          </TouchableOpacity>
-        )}
-
-        {role === 'instructor' && (
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => (pro ? router.push('/vouchers-screen' as any) : setVouchersPaywallOpen(true))}
-            testID="link-vouchers"
-          >
-            <Gift size={18} color={theme.colors.accent} />
-            <Text style={styles.linkRowText}>Gift vouchers</Text>
-          </TouchableOpacity>
-        )}
-
-        {role === 'instructor' && (
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => router.push('/packages-screen' as any)}
-            testID="link-packages"
-          >
-            <Wallet size={18} color={theme.colors.accent} />
-            <Text style={styles.linkRowText}>Pricing & packages</Text>
-          </TouchableOpacity>
-        )}
-
-        {role === 'instructor' && (
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => router.push('/income-expense-report-screen' as any)}
-            testID="link-income-expense"
-          >
-            <FileSpreadsheet size={18} color={theme.colors.success} />
-            <Text style={styles.linkRowText}>Income & expense report (CSV)</Text>
-          </TouchableOpacity>
-        )}
-
-        {role === 'instructor' && (
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => setContactsImportOpen(true)}
-            testID="link-import-contacts"
-          >
-            <Users size={18} color={theme.colors.primary} />
-            <Text style={styles.linkRowText}>Import students from Contacts</Text>
-          </TouchableOpacity>
-        )}
-
-        {role === 'instructor' && (
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => router.push('/unavailabilities-screen' as any)}
-            testID="link-unavailabilities"
-          >
-            <Calendar size={18} color={theme.colors.danger} />
-            <Text style={styles.linkRowText}>Unavailabilities (time off)</Text>
-          </TouchableOpacity>
-        )}
-
-        {role === 'instructor' && <CalendarFeedCard />}
-
         {role === 'student' && student && (
           <TouchableOpacity
             style={styles.linkRow}
@@ -394,65 +420,14 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         )}
 
-        {role !== 'student' && (
-          <TouchableOpacity
-            style={[styles.proCta, pro && styles.proCtaActive]}
-            onPress={() => router.push('/pricing-screen')}
-            testID="btn-pricing"
-          >
-            <Crown size={18} color="#fff" />
-            <Text style={styles.proCtaText}>{pro ? 'Manage subscription' : 'Upgrade plan'}</Text>
-          </TouchableOpacity>
+        {role !== 'instructor' && (
+          <View style={styles.section}>
+            {fingerprintRow}
+            {privacyCard}
+          </View>
         )}
 
-        {/* Privacy & data — GDPR self-service export + deletion request */}
-        <Card style={{ gap: 10 }} testID="card-privacy-data">
-          <Text style={styles.cardTitle}>Privacy & data</Text>
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={handleDownloadMyData}
-            disabled={exportingData}
-            testID="btn-download-my-data"
-          >
-            {exportingData ? (
-              <ActivityIndicator size="small" color={theme.colors.primary} />
-            ) : (
-              <Download size={18} color={theme.colors.primary} />
-            )}
-            <Text style={styles.linkRowText}>{exportingData ? 'Preparing your data…' : 'Download my data'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.linkRow, { borderColor: theme.colors.danger }]}
-            onPress={handleRequestDeletion}
-            disabled={submittingDeletion || pendingDeletionRequest}
-            testID="btn-request-deletion"
-          >
-            {submittingDeletion ? (
-              <ActivityIndicator size="small" color={theme.colors.danger} />
-            ) : (
-              <Trash2 size={18} color={theme.colors.danger} />
-            )}
-            <Text style={[styles.linkRowText, { color: theme.colors.danger }]}>
-              {pendingDeletionRequest ? 'Deletion request pending' : 'Request account deletion'}
-            </Text>
-          </TouchableOpacity>
-        </Card>
-
-        {biometricAvailable && (
-          <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <Fingerprint size={20} color={theme.colors.primary} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.linkRowText}>Use fingerprint to unlock</Text>
-              <Text style={styles.hint}>Skip re-entering your password each time you open the app.</Text>
-            </View>
-            <Switch value={biometricOn} onValueChange={handleToggleBiometric} testID="switch-biometric" />
-          </Card>
-        )}
-
-        <TouchableOpacity style={styles.logoutBtn} onPress={signOut} testID="btn-signout">
-          <LogOut size={18} color="#fff" />
-          <Text style={styles.logoutText}>Sign Out</Text>
-        </TouchableOpacity>
+        {/* Sign out lives in the bottom bar (Logout), so there is no second button here. */}
 
         <View style={{ height: 32 }} />
       </ScrollView>
@@ -478,6 +453,28 @@ export default function ProfileScreen() {
       />
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+/** A tappable row. With `open` set it acts as an expander (chevron down/up) instead of a link. */
+function NavRow({
+  icon, label, value, onPress, testID, open,
+}: {
+  icon: React.ReactNode; label: string; value?: string; onPress: () => void; testID: string; open?: boolean;
+}) {
+  return (
+    <TouchableOpacity style={styles.linkRow} onPress={onPress} testID={testID} accessibilityRole="button">
+      {icon}
+      <View style={{ flex: 1 }}>
+        <Text style={styles.linkRowText}>{label}</Text>
+        {!!value && <Text style={styles.rowValue} numberOfLines={1}>{value}</Text>}
+      </View>
+      {open === undefined ? (
+        <ChevronRight size={18} color={theme.colors.textMuted} />
+      ) : (
+        open ? <ChevronDown size={18} color={theme.colors.textMuted} /> : <ChevronRight size={18} color={theme.colors.textMuted} />
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -527,6 +524,9 @@ const styles = StyleSheet.create({
   proCtaActive: { backgroundColor: theme.colors.primary },
   proCtaText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   hint: { color: theme.colors.textMuted, fontSize: 12 },
+  section: { gap: 10 },
+  sectionTitle: { fontSize: 12, fontWeight: '700', color: theme.colors.textMuted, textTransform: 'uppercase', letterSpacing: 1, marginTop: 8, marginLeft: 2 },
+  rowValue: { fontSize: 12.5, color: theme.colors.textMuted, marginTop: 1 },
   adiRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   adiSave: { backgroundColor: theme.colors.primary, paddingHorizontal: 16, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 },
   adiSaveText: { color: '#fff', fontWeight: '700' },

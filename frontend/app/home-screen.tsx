@@ -176,8 +176,6 @@ export default function InstructorHomeV2Screen() {
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <Text style={s.greeting} numberOfLines={1}>{user?.name || 'Instructor'}</Text>
-                {/* Tapping your name opens Profile, where your details live. */}
-                <ChevronRight size={16} color={C.textMuted} />
               </View>
             </TouchableOpacity>
             <TouchableOpacity

@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
-import { IdCard, Phone, Mail, MapPin, Star, Building2, ChevronRight } from 'lucide-react-native';
+import { IdCard, Phone, Mail, MapPin, Building2, ChevronRight } from 'lucide-react-native';
 import { theme } from './theme';
 import { Card } from './ui';
 import { getInstructorProfile, updateMyInstructorProfile } from './supabaseDb';
 import { bump } from './useSupabaseData';
 import { isFranchiseTier } from './tiers';
 import { validateInstructorDetails } from './instructorDetails';
-import { RefundPolicyPicker } from './RefundPolicyPicker';
 
 /**
  * The instructor's own details, on the Profile screen. This replaces the separate
@@ -18,8 +17,8 @@ import { RefundPolicyPicker } from './RefundPolicyPicker';
  * Solo instructors (Starter/Growth/Pro) are their own school owner, so the
  * existing ins_owner_all RLS policy lets them edit their own row. Franchise
  * instructors only see what their school owner has set. The Google review link
- * is a solo-tier setting (Franchise sets it in School Profile), and the business
- * name and logo link is ADI Pro only, as before.
+ * and refund policy now live on School Profile, which solo instructors reach from the
+ * link at the bottom of this section.
  */
 export function InstructorDetailsSection({ tier }: { tier: string | null | undefined }) {
   const router = useRouter();
@@ -33,7 +32,6 @@ export function InstructorDetailsSection({ tier }: { tier: string | null | undef
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
-  const [googleReviewUrl, setGoogleReviewUrl] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -44,13 +42,12 @@ export function InstructorDetailsSection({ tier }: { tier: string | null | undef
       setMobile(p.mobile_number || '');
       setEmail(p.email || '');
       setAddress(p.address || '');
-      setGoogleReviewUrl(p.google_review_url || '');
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
 
   const save = async () => {
-    const problem = validateInstructorDetails({ fullName, adiNumber, googleReviewUrl });
+    const problem = validateInstructorDetails({ fullName, adiNumber });
     if (problem) { setMessage({ ok: false, text: problem }); return; }
     setSaving(true);
     setMessage(null);
@@ -61,7 +58,6 @@ export function InstructorDetailsSection({ tier }: { tier: string | null | undef
         mobile_number: mobile,
         email,
         address,
-        google_review_url: googleReviewUrl.trim(),
       });
       // updateMyInstructorProfile is the raw write and never bumps the shared
       // version itself, so other screens would keep showing stale details.
@@ -91,18 +87,6 @@ export function InstructorDetailsSection({ tier }: { tier: string | null | undef
       </Card>
 
       {editable && (
-        <Card style={{ gap: 14 }}>
-          <Text style={styles.cardTitle}>Google reviews</Text>
-          <Field icon={<Star size={16} color={theme.colors.textMuted} />} label="Google review link" value={googleReviewUrl} onChangeText={setGoogleReviewUrl} editable keyboardType="url" autoCapitalize="none" testID="input-google-review-url" />
-          <Text style={styles.fieldLabel}>
-            Your Google Business Profile&apos;s &quot;write a review&quot; link, shown to students who pass in the review-request text.
-          </Text>
-        </Card>
-      )}
-
-      {editable && <RefundPolicyPicker />}
-
-      {editable && (
         <>
           {message && (
             <Text style={[styles.message, { color: message.ok ? theme.colors.success : theme.colors.danger }]} testID="details-message">
@@ -120,7 +104,7 @@ export function InstructorDetailsSection({ tier }: { tier: string | null | undef
         </>
       )}
 
-      {tier === 'pro' && (
+      {editable && (
         <Card>
           <TouchableOpacity
             style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}
@@ -129,8 +113,8 @@ export function InstructorDetailsSection({ tier }: { tier: string | null | undef
           >
             <Building2 size={18} color={theme.colors.primary} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>Business name & logo</Text>
-              <Text style={styles.fieldLabel}>Shown on your invoices: edit your business name, logo and contact details.</Text>
+              <Text style={styles.cardTitle}>School profile</Text>
+              <Text style={styles.fieldLabel}>Business name and logo, Google review link, refund policy and Pupil Agreement wording.</Text>
             </View>
             <ChevronRight size={18} color={theme.colors.textMuted} />
           </TouchableOpacity>

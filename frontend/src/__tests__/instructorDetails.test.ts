@@ -1,21 +1,28 @@
-import { validateInstructorDetails } from '../instructorDetails';
+import { validateInstructorDetails, validateReviewUrl } from '../instructorDetails';
 
-const ok = { fullName: 'Grant Robery', adiNumber: '1234567', googleReviewUrl: '' };
+const ok = { fullName: 'Grant Robery', adiNumber: '1234567' };
 
 describe('validateInstructorDetails', () => {
-  it('accepts complete details, with or without a review link', () => {
+  it('accepts a name and an ADI/PDI number', () => {
     expect(validateInstructorDetails(ok)).toBeNull();
-    expect(validateInstructorDetails({ ...ok, googleReviewUrl: 'https://g.page/r/abc/review' })).toBeNull();
-    expect(validateInstructorDetails({ ...ok, googleReviewUrl: 'HTTP://example.com' })).toBeNull();
   });
 
   it('needs a name and an ADI/PDI number, ignoring spaces', () => {
     expect(validateInstructorDetails({ ...ok, fullName: '   ' })).toMatch(/name/i);
     expect(validateInstructorDetails({ ...ok, adiNumber: '' })).toMatch(/ADI/);
   });
+});
 
-  it('rejects a review link that is not a web address', () => {
-    expect(validateInstructorDetails({ ...ok, googleReviewUrl: 'g.page/r/abc' })).toMatch(/https/);
-    expect(validateInstructorDetails({ ...ok, googleReviewUrl: '  ' })).toBeNull();
+describe('validateReviewUrl', () => {
+  it('accepts a blank link or a web address in either case', () => {
+    expect(validateReviewUrl('')).toBeNull();
+    expect(validateReviewUrl('  ')).toBeNull();
+    expect(validateReviewUrl('https://g.page/r/abc/review')).toBeNull();
+    expect(validateReviewUrl('HTTP://example.com')).toBeNull();
+  });
+
+  it('rejects anything that is not a web address', () => {
+    expect(validateReviewUrl('g.page/r/abc')).toMatch(/https/);
+    expect(validateReviewUrl('ftp://example.com')).toMatch(/https/);
   });
 });

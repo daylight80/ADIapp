@@ -586,6 +586,7 @@ export default function StudentProfileV2Screen() {
                 </View>
               )}
 
+              {student.status !== 'Passed' && (
               <View style={s.readyCard}>
                 <View style={s.readyInner}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -613,6 +614,9 @@ export default function StudentProfileV2Screen() {
                 </View>
               </View>
 
+              )}
+
+              {student.status !== 'Passed' && (
               <View style={{ flexDirection: 'row', gap: 7, marginTop: 12 }}>
                 {!!student.address && (
                   <OpenInMapsButton address={student.address} variant="pill" label="Directions" testID="v2-directions" />
@@ -633,6 +637,8 @@ export default function StudentProfileV2Screen() {
                   <Text style={s.qaBtnText}>Record route</Text>
                 </TouchableOpacity>
               </View>
+
+              )}
 
               {hasPassedPracticalTest && (
                 <TouchableOpacity style={s.reviewBtn} onPress={handleRequestReview} testID="v2-request-review">

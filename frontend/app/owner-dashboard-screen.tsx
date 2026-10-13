@@ -297,7 +297,8 @@ export default function OwnerDashboardV2Screen() {
 
   const issues = useMemo(() => {
     const list: { key: string; title: string; onPress: () => void }[] = [];
-    if (leaderboard && !leaderboard.can_add_instructor) {
+    // Only a Franchise school can be "at its limit"; a solo Pro instructor at 1 of 1 is normal.
+    if (leaderboard && isFranchise && !leaderboard.can_add_instructor) {
       list.push({ key: 'seats', title: 'Instructor seat limit reached', onPress: () => router.push('/pricing-screen' as any) });
     }
     if (arrears.count > 0) {
@@ -308,7 +309,7 @@ export default function OwnerDashboardV2Screen() {
       });
     }
     return list;
-  }, [leaderboard, arrears, isRevenueHidden, router]);
+  }, [leaderboard, isFranchise, arrears, isRevenueHidden, router]);
 
   const recentPracticals = useMemo(
     () => testOutcomes.filter((t) => t.test_type === 'practical').slice(0, 5),

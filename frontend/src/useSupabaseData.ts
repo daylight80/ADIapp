@@ -796,7 +796,9 @@ export function useInstructorEarnings() {
           if (buckets.has(key)) buckets.set(key, (buckets.get(key) || 0) + (l.amount_paid || 0));
           if (d >= monthStart) {
             earned += l.amount_paid || 0;
-            count += 1;
+            // Cancelled lessons still count towards earnings (a retained charge) but not
+            // as lessons given, matching the owner dashboard.
+            if ((l.status || '').toLowerCase() !== 'cancelled') count += 1;
             if (!l.amount_paid && l.status === 'Completed') unpaid += l.quoted_amount || 0;
           }
         }

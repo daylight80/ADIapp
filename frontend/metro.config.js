@@ -35,6 +35,11 @@ config.resolver.resolveRequest = (context, moduleName, platform, ...rest) => {
   if (moduleName === 'ws' && platform !== 'web') {
     return { type: 'empty' };
   }
+  // On web, the package's main entry bundles all ~1,700 lucide icons (~2 MB). Point it
+  // at a file that re-exports only the ones the app uses. Native keeps the real package.
+  if (moduleName === 'lucide-react-native' && platform === 'web') {
+    return { type: 'sourceFile', filePath: path.join(__dirname, 'src', 'lucideWeb.ts') };
+  }
   return context.resolveRequest(context, moduleName, platform, ...rest);
 };
 

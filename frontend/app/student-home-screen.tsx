@@ -268,17 +268,6 @@ export default function StudentAppV2Screen() {
             </View>
           </View>
 
-          <TouchableOpacity style={s.mockCta} onPress={() => router.push('/dl25-mock-test-screen' as any)} testID="v2-student-mock-cta">
-            <View style={s.mockIcon}><Text style={s.mockIconText}>DL25</Text></View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={s.mockTitle}>Mock test</Text>
-              <Text style={s.mockSub}>
-                {mockTestAttempts.length > 0 ? `${mockTestAttempts.length} attempt${mockTestAttempts.length === 1 ? '' : 's'} so far` : 'Take a full DVSA-style mock'}
-              </Text>
-            </View>
-            <Text style={s.chev}>›</Text>
-          </TouchableOpacity>
-
           <TouchableOpacity style={s.smtmCard} onPress={() => router.push('/show-me-tell-me-screen' as any)} testID="v2-student-smtm">
             <View style={s.smtmIcon}><Text style={s.smtmIconText}>21</Text></View>
             <View style={{ flex: 1, minWidth: 0 }}>
@@ -560,11 +549,6 @@ const s = StyleSheet.create({
   nextLessonWhen: { fontFamily: 'Archivo_800ExtraBold', fontSize: 22, letterSpacing: -0.4, color: C.text, marginTop: 6 },
   nextLessonSub: { fontFamily: 'Barlow_500Medium', fontSize: 13.5, color: C.textMuted2, marginTop: 4 },
   nextLessonEmpty: { fontFamily: 'Barlow_500Medium', fontSize: 14, color: C.textMuted2, marginTop: 6 },
-  mockCta: { marginHorizontal: 20, marginTop: 14, borderRadius: 18, backgroundColor: C.accent, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 },
-  mockIcon: { width: 52, height: 52, borderRadius: 15, backgroundColor: 'rgba(255,255,255,.22)', alignItems: 'center', justifyContent: 'center' },
-  mockIconText: { fontFamily: 'Archivo_800ExtraBold', fontSize: 15, color: '#fff' },
-  mockTitle: { fontFamily: 'Archivo_700Bold', fontSize: 17, color: '#fff' },
-  mockSub: { fontFamily: 'Barlow_500Medium', fontSize: 13, color: 'rgba(255,255,255,.85)', marginTop: 1 },
   chev: { fontFamily: 'Barlow_700Bold', fontSize: 20, color: '#fff' },
 
   smtmCard: { marginHorizontal: 20, marginTop: 9, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 13 },

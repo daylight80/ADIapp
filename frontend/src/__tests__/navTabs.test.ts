@@ -17,8 +17,8 @@ describe('instructor bottom bar', () => {
 });
 
 describe('student bottom bar', () => {
-  it('still has My Learning, Mock Test, Profile and Logout', () => {
-    expect(STUDENT_TAB_SPECS.map((t) => t.key)).toEqual(['learning', 'mock', 'profile', 'logout']);
+  it('has My Learning, Profile and Logout, and no Mock Test (instructors run mock tests)', () => {
+    expect(STUDENT_TAB_SPECS.map((t) => t.key)).toEqual(['learning', 'profile', 'logout']);
   });
 });
 

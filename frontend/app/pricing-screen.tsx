@@ -182,7 +182,7 @@ export default function PricingScreen() {
         )}
 
         <Text style={styles.legal}>
-          Powered by Stripe. Subscriptions renew monthly until cancelled. Franchise tier bills £10 per
+          Powered by Stripe. Subscriptions renew monthly until cancelled. Franchise tier bills £{(tierById('franchise').per_seat_gbp ?? 9.99).toFixed(2)} per
           additional instructor — quantities update automatically when you add or remove team members.
         </Text>
 

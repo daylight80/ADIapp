@@ -186,7 +186,7 @@ async function loadProfile(session: Session): Promise<User> {
 
 // Bootstrap school + instructor rows for a freshly-signed-up instructor.
 // Idempotent — if rows already exist for this auth user, it returns them.
-async function ensureInstructorBootstrap(args: {
+export async function ensureInstructorBootstrap(args: {
   authUserId: string;
   email: string;
   name: string;
@@ -215,12 +215,13 @@ async function ensureInstructorBootstrap(args: {
     // able to stop someone creating their account.
     let referredByInstructorId: string | null = null;
     if (args.referralCode) {
-      const { data: referrer } = await supabase
-        .from('instructors')
-        .select('id')
-        .eq('referral_code', args.referralCode.trim().toUpperCase())
-        .maybeSingle();
-      if (referrer) referredByInstructorId = referrer.id;
+      // An RPC, not a table read: row-level security hides other instructors from a
+      // brand-new user, so a plain select here always came back empty and every
+      // referral was silently dropped.
+      const { data: referrerId } = await supabase.rpc('resolve_referral_code', {
+        p_code: args.referralCode,
+      });
+      if (referrerId) referredByInstructorId = referrerId as string;
     }
     const { data: school, error: schoolErr } = await supabase
       .from('driving_schools')

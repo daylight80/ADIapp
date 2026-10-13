@@ -242,7 +242,8 @@ export default function StudentProfileV2Screen() {
     if (!student) return;
     const paidLessons = lessons.filter((l) => l.amount_paid);
     if (paidLessons.length === 0) {
-      Alert.alert('No paid lessons yet', "This student doesn't have any paid lessons to invoice yet.");
+      // showSnack, not Alert.alert: Alert does nothing in a browser, so the web app showed no reply.
+      showSnack("No paid lessons yet. This student doesn't have any paid lessons to invoice.", null);
       return;
     }
     setGeneratingInvoice(true);
@@ -265,9 +266,9 @@ export default function StudentProfileV2Screen() {
         schoolAddress: schoolProfile?.address,
       });
       const result = await generateAndShareInvoicePdf(html, `Invoice-${invoiceNo}.pdf`);
-      if (!result.ok) Alert.alert('Could not generate invoice', result.error || 'Please try again.');
+      if (!result.ok) showSnack(`Could not generate the invoice. ${result.error || 'Please try again.'}`, null);
     } catch (e: any) {
-      Alert.alert('Could not generate invoice', e?.message || 'Please try again.');
+      showSnack(`Could not generate the invoice. ${e?.message || 'Please try again.'}`, null);
     } finally {
       setGeneratingInvoice(false);
     }

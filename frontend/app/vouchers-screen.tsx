@@ -68,6 +68,8 @@ export default function VouchersScreen() {
   const [message, setMessage] = useState('');
   const [expiryMonths, setExpiryMonths] = useState(DEFAULT_EXPIRY_MONTHS);
   const [formError, setFormError] = useState<string | null>(null);
+  // Shown on the page: Alert.alert does nothing in a browser, so a blocked PDF window went unnoticed.
+  const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -98,6 +100,7 @@ export default function VouchersScreen() {
   const expiryPreview = useMemo(() => formatVoucherDate(addMonths(new Date(), expiryMonths)), [expiryMonths]);
 
   const sharePdf = async (v: GiftVoucher): Promise<boolean> => {
+    setNotice(null);
     const html = buildVoucherHtml({
       code: v.code,
       hours: v.hours,
@@ -113,7 +116,7 @@ export default function VouchersScreen() {
       address: school?.address,
     });
     const result = await generateAndSharePdf(html, `Gift-voucher-${v.code}.pdf`, 'voucher', A4_POINTS);
-    if (!result.ok) Alert.alert('Could not make the PDF', result.error || 'Please try again.');
+    if (!result.ok) setNotice(`Could not make the PDF. ${result.error || 'Please try again.'}`);
     return result.ok;
   };
 
@@ -146,7 +149,7 @@ export default function VouchersScreen() {
       // PDF first, straight after the click, so a browser is less likely to block the print window.
       const ok = await sharePdf(created);
       await load();
-      if (!ok) Alert.alert('Voucher saved', 'The voucher is saved. Tap "Share PDF" on it to try the PDF again.');
+      if (!ok) setNotice('Voucher saved, but the PDF did not open. If your browser blocked the window, allow pop-ups for this site, then tap "Share PDF" on the voucher.');
     } catch (e: any) {
       setFormError(e?.message || 'Could not create the voucher. Please try again.');
     } finally {
@@ -201,6 +204,12 @@ export default function VouchersScreen() {
             Make a PDF gift voucher for a number of prepaid driving hours, with your logo and business name.
             When the recipient books, add the hours to their wallet and mark the voucher redeemed.
           </Text>
+
+          {!!notice && (
+            <Card style={{ borderColor: theme.colors.danger, borderWidth: 1 }} testID="voucher-notice">
+              <Text style={styles.formError}>{notice}</Text>
+            </Card>
+          )}
 
           {!!loadError && (
             <Card style={{ borderColor: theme.colors.danger, borderWidth: 1 }} testID="vouchers-error">

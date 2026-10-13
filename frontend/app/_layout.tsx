@@ -1,3 +1,4 @@
+import Head from 'expo-router/head';
 import React, { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -252,6 +253,10 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthProvider>
+          {/* Browser tab title on web. Without it Expo Router leaves the title blank. */}
+          <Head>
+            <title>ADI Pro</title>
+          </Head>
           <AuthGate />
           <Stack
             screenOptions={{

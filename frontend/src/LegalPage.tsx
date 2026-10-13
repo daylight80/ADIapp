@@ -16,8 +16,8 @@ const C = {
   card: '#FFFFFF',
   border: '#E4DED2',
   text: '#0F172A',
-  textMuted: '#8A8172',
-  textMuted2: '#64748B',
+  textMuted: '#6B6356',
+  textMuted2: '#566377',
   primary: '#00539F',
 };
 

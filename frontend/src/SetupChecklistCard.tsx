@@ -34,7 +34,7 @@ const C = {
   card: '#FFFFFF',
   border: '#E4DED2',
   text: '#0F172A',
-  muted: '#64748B',
+  muted: '#566377',
   track: '#EAE5DA',
   primary: '#00539F',
   accent: '#FF6B00',

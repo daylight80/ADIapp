@@ -63,8 +63,8 @@ const C = {
   border: '#E4DED2',
   divider: '#EDE8DE',
   text: '#0F172A',
-  textMuted: '#8A8172',
-  textMuted2: '#64748B',
+  textMuted: '#6B6356',
+  textMuted2: '#566377',
   faint: '#A69C8B',
   primary: '#00539F',
   accent: '#FF6B00',
@@ -82,7 +82,7 @@ const STATUS_STYLE: Record<string, { bg: string; fg: string; solid: string }> = 
   Active: { bg: '#D1FAE5', fg: '#047857', solid: '#047857' },
   'Test Ready': { bg: '#FFF7ED', fg: '#C2410C', solid: '#C2410C' },
   Passed: { bg: '#0F172A', fg: '#fff', solid: '#0F172A' },
-  Inactive: { bg: '#EDE8DE', fg: '#8A8172', solid: '#A69C8B' },
+  Inactive: { bg: '#EDE8DE', fg: '#6B6356', solid: '#A69C8B' },
   Waitlist: { bg: '#FEF3C7', fg: '#92400E', solid: '#92400E' },
 };
 

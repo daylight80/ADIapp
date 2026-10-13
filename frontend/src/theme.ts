@@ -10,7 +10,7 @@ export const theme = {
     surface: '#FFFFFF',
     border: '#E2E8F0',
     text: '#0F172A',
-    textMuted: '#64748B',
+    textMuted: '#566377',
     faultDriving: '#F59E0B',
     faultSerious: '#EF4444',
     faultDangerous: '#7F1D1D',
@@ -49,7 +49,7 @@ export const theme = {
     h2: { fontSize: 22, fontWeight: '700' as const, color: '#0F172A' },
     h3: { fontSize: 18, fontWeight: '600' as const, color: '#0F172A' },
     body: { fontSize: 15, fontWeight: '400' as const, color: '#0F172A' },
-    caption: { fontSize: 13, fontWeight: '400' as const, color: '#64748B' },
+    caption: { fontSize: 13, fontWeight: '400' as const, color: '#566377' },
     button: { fontSize: 16, fontWeight: '600' as const, color: '#FFFFFF' },
   },
 };

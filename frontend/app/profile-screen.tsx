@@ -21,6 +21,7 @@ import { submitDeletionRequest, listMyDeletionRequests } from '../src/supabaseDb
 import { StudentDetailsCard } from '../src/StudentDetailsCard';
 import { exportMyDataJson } from '../src/gdprExport';
 import { CalendarFeedCard } from '../src/CalendarFeedCard';
+import { BankHolidayRegionCard } from '../src/BankHolidayRegionCard';
 import { ContactsImportSheet } from '../src/ContactsImportSheet';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { Alert, TextInput, ActivityIndicator } from 'react-native';
@@ -295,6 +296,8 @@ export default function ProfileScreen() {
         );
       case 'unavailabilities':
         return <NavRow icon={<Calendar size={18} color={theme.colors.danger} />} label="Unavailabilities (time off)" onPress={() => router.push('/unavailabilities-screen' as any)} testID="link-unavailabilities" />;
+      case 'bankHolidays':
+        return <BankHolidayRegionCard />;
       case 'calendarFeed':
         return <CalendarFeedCard />;
       case 'importContacts':

@@ -4,6 +4,8 @@ import { Car, AlertTriangle } from 'lucide-react-native';
 import { theme } from '../theme';
 import { BottomSheet } from '../BottomSheet';
 import { DateField, TimeField } from '../DateTimeFields';
+import { useBankHolidays } from '../useBankHolidays';
+import { holidayBanner, holidayOn } from '../bankHolidays';
 import { supabase } from '../supabaseClient';
 import { createLesson, patchLesson } from '../useSupabaseData';
 import { overlapsAnyBlock, type AvailabilityBlock, type Lesson, type Student } from '../supabaseDb';
@@ -70,6 +72,7 @@ type Props = {
 export function AddLessonSheet({ visible, onClose, students, lessons, availBlocks, pro, onCreated, initialDate }: Props) {
   const [studentId, setStudentId] = useState('');
   const [date, setDate] = useState('');
+  const { holidays } = useBankHolidays();
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('11:00');
   const [topic, setTopic] = useState('');
@@ -519,6 +522,11 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
 
       <Text style={styles.label}>Date</Text>
       <DateField value={date} onChange={setDate} testID="input-lesson-date" />
+      {!!holidayOn(holidays, date) && (
+        <Text style={styles.holidayWarning} testID="lesson-holiday-warning">
+          {holidayBanner(holidayOn(holidays, date)!)}. You can still book it.
+        </Text>
+      )}
 
       <View style={{ flexDirection: 'row', gap: 12 }}>
         <View style={{ flex: 1 }}>

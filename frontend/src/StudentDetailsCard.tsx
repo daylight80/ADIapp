@@ -6,6 +6,7 @@ import { Card } from './ui';
 import { updateMyStudentDetails } from './supabaseDb';
 import { bump } from './useSupabaseData';
 import { validatePupilDetails } from './pupilDetails';
+import { formatPostcode, lookupPostcode, looksLikePostcode } from './postcodeLookup';
 
 type Student = {
   email?: string | null; phone?: string | null; address?: string | null;
@@ -24,6 +25,27 @@ export function StudentDetailsCard({ student }: { student: Student }) {
   const [licence, setLicence] = useState(student.provisional_licence || '');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [postcodeNote, setPostcodeNote] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Checks the postcode when the pupil leaves the field: tidies it ("sm14ls" -> "SM1 4LS") and
+  // shows the area it belongs to, or says it was not found. If the service cannot be reached
+  // the pupil is not blocked.
+  const checkPostcode = async (value: string): Promise<boolean> => {
+    if (!value.trim()) { setPostcodeNote(null); return true; }
+    if (!looksLikePostcode(value)) {
+      setPostcodeNote({ ok: false, text: 'That does not look like a UK postcode.' });
+      return false;
+    }
+    const tidy = formatPostcode(value);
+    setPostcode(tidy);
+    const r = await lookupPostcode(tidy);
+    if (r.status === 'not_found') {
+      setPostcodeNote({ ok: false, text: 'We could not find that postcode. Please check it.' });
+      return false;
+    }
+    setPostcodeNote(r.status === 'found' && r.area ? { ok: true, text: `${r.postcode}: ${r.area}` } : null);
+    return true;
+  };
 
   // The record can arrive after the first render; fill the fields once it does.
   useEffect(() => {
@@ -39,7 +61,11 @@ export function StudentDetailsCard({ student }: { student: Student }) {
     setSaving(true);
     setMessage(null);
     try {
-      const saved = await updateMyStudentDetails(checked.values);
+      if (!(await checkPostcode(postcode))) {
+        setMessage({ ok: false, text: 'Please check your postcode before saving.' });
+        return;
+      }
+      const saved = await updateMyStudentDetails({ ...checked.values, postcode: formatPostcode(checked.values.postcode) });
       setPhone(saved.phone); setAddress(saved.address); setPostcode(saved.postcode); setLicence(saved.provisional_licence);
       bump();
       // On the card, not an Alert: Alert.alert does nothing in a browser.
@@ -56,7 +82,13 @@ export function StudentDetailsCard({ student }: { student: Student }) {
       <Text style={styles.title}>My details</Text>
       <Field icon={<Phone size={16} color={theme.colors.textMuted} />} label="Mobile number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" testID="input-pupil-phone" />
       <Field icon={<MapPin size={16} color={theme.colors.textMuted} />} label="Pickup address" value={address} onChangeText={setAddress} testID="input-pupil-address" />
-      <Field icon={<MapPin size={16} color={theme.colors.textMuted} />} label="Postcode" value={postcode} onChangeText={setPostcode} autoCapitalize="characters" testID="input-pupil-postcode" />
+      <Field
+        icon={<MapPin size={16} color={theme.colors.textMuted} />} label="Postcode" value={postcode}
+        onChangeText={(v) => { setPostcode(v); setPostcodeNote(null); }}
+        onBlur={() => { checkPostcode(postcode); }}
+        autoCapitalize="characters" testID="input-pupil-postcode"
+        note={postcodeNote}
+      />
       <Field icon={<IdCard size={16} color={theme.colors.textMuted} />} label="Provisional licence number" value={licence} onChangeText={setLicence} autoCapitalize="characters" testID="input-pupil-licence" />
       <View style={styles.row}>
         <Mail size={16} color={theme.colors.textMuted} />
@@ -78,8 +110,9 @@ export function StudentDetailsCard({ student }: { student: Student }) {
   );
 }
 
-function Field({ icon, label, value, onChangeText, testID, keyboardType, autoCapitalize }: {
+function Field({ icon, label, value, onChangeText, onBlur, note, testID, keyboardType, autoCapitalize }: {
   icon: React.ReactNode; label: string; value: string; onChangeText: (v: string) => void; testID: string;
+  onBlur?: () => void; note?: { ok: boolean; text: string } | null;
   keyboardType?: 'default' | 'phone-pad'; autoCapitalize?: 'none' | 'sentences' | 'characters';
 }) {
   return (
@@ -87,7 +120,10 @@ function Field({ icon, label, value, onChangeText, testID, keyboardType, autoCap
       {icon}
       <View style={{ flex: 1 }}>
         <Text style={styles.label}>{label}</Text>
-        <TextInput style={styles.input} value={value} onChangeText={onChangeText} keyboardType={keyboardType} autoCapitalize={autoCapitalize} testID={testID} />
+        <TextInput style={styles.input} value={value} onChangeText={onChangeText} onBlur={onBlur} keyboardType={keyboardType} autoCapitalize={autoCapitalize} testID={testID} />
+        {!!note && (
+          <Text style={[styles.hint, { color: note.ok ? theme.colors.success : theme.colors.danger }]} testID={`${testID}-note`}>{note.text}</Text>
+        )}
       </View>
     </View>
   );

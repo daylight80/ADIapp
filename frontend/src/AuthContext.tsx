@@ -69,7 +69,7 @@ const INSTRUCTOR_PROFILE_SELECT =
 // instead of racing two of them into duplicate schools.
 const onboardingInFlight = new Map<string, Promise<unknown>>();
 
-async function loadProfile(session: Session): Promise<User> {
+export async function loadProfile(session: Session): Promise<User> {
   const authUser = session.user;
   const email = authUser.email || '';
   const meta = (authUser.user_metadata || {}) as Record<string, any>;
@@ -148,11 +148,16 @@ async function loadProfile(session: Session): Promise<User> {
   // 2) Try student lookup (by email match — students don't have auth_user_id in the spec'd schema)
   const { data: student } = await supabase
     .from('students')
-    .select('id, full_name, school_id, instructor_id, driving_schools(id, business_name, subscription_status, tier)')
+    .select('id, full_name, school_id, instructor_id')
     .eq('email', email)
     .maybeSingle();
 
   if (student) {
+    // The plan comes from an RPC: a pupil cannot read driving_schools, so the embedded
+    // select above always returned nothing and every pupil looked like Starter (the DVSA
+    // tracker showed "locked" for a Pro instructor's pupil).
+    const { data: plan } = await supabase.rpc('my_school_plan');
+    const planRow = (plan ?? null) as { tier?: User['tier']; subscription_status?: User['subscription_status'] } | null;
     return {
       id: authUser.id,
       email,
@@ -166,8 +171,8 @@ async function loadProfile(session: Session): Promise<User> {
       // "locked" regardless of what tier their instructor's school is
       // actually on. Now resolved from the school the student belongs to,
       // same as the instructor branch above.
-      subscription_status: (student as any).driving_schools?.subscription_status || 'free',
-      tier: (student as any).driving_schools?.tier || 'starter',
+      subscription_status: planRow?.subscription_status || 'free',
+      tier: planRow?.tier || 'starter',
       created_at: authUser.created_at || new Date().toISOString(),
     };
   }

@@ -15,8 +15,23 @@ export type InstructorCardData = {
     make_and_model?: string | null;
     registration_plate?: string | null;
     transmission?: string | null;
+    colour?: string | null;
   } | null;
 };
+
+export const MAX_VEHICLE_COLOUR_LENGTH = 40;
+
+/** What's typed as a vehicle's colour, tidied for saving: single spaces, first letter capital, null when empty. */
+export function cleanVehicleColour(input: string | null | undefined): string | null {
+  const t = (input || '').replace(/\s+/g, ' ').trim().slice(0, MAX_VEHICLE_COLOUR_LENGTH);
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : null;
+}
+
+/** "Silver VW Golf": the colour in front of the make and model, when there is one. */
+export function describeCarName(v: { make_and_model?: string | null; colour?: string | null } | null | undefined): string {
+  if (!v) return '';
+  return [v.colour, v.make_and_model].map((p) => (p || '').trim()).filter(Boolean).join(' ');
+}
 
 const firstName = (full: string | null | undefined) => (full || '').trim().split(/\s+/)[0] || '';
 
@@ -37,9 +52,9 @@ export function telUrl(phone: string): string {
   return `tel:${phone.replace(/\s+/g, '')}`;
 }
 
-/** "VW Golf, AD39 ADI, Automatic": only the parts that are filled in. */
+/** "Silver VW Golf, AD39 ADI, Automatic": only the parts that are filled in. */
 export function describeVehicle(v: InstructorCardData['vehicle']): string | null {
   if (!v) return null;
-  const parts = [v.make_and_model, v.registration_plate, v.transmission].map((p) => (p || '').trim()).filter(Boolean);
+  const parts = [describeCarName(v), v.registration_plate, v.transmission].map((p) => (p || '').trim()).filter(Boolean);
   return parts.length ? parts.join(', ') : null;
 }

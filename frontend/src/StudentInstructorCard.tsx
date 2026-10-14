@@ -5,7 +5,7 @@ import { theme } from './theme';
 import { Card } from './ui';
 import { copyToClipboard } from './tools';
 import { DVSA_COMPLAINTS_URL } from './agreementTerms';
-import { runningLateMessage, smsUrl, telUrl, type InstructorCardData } from './instructorCard';
+import { describeCarName, runningLateMessage, smsUrl, telUrl, type InstructorCardData } from './instructorCard';
 
 /**
  * A pupil's own instructor, on the Instructor tab: who they are, how to reach them, and the
@@ -29,7 +29,7 @@ export function StudentInstructorCard({
   const phone = instructor.contact_phone || '';
   const email = instructor.contact_email || '';
   const v = instructor.vehicle;
-  const carLine = v ? [v.make_and_model, v.transmission].filter(Boolean).join(' · ') : '';
+  const carLine = v ? [describeCarName(v), v.transmission].filter(Boolean).join(' · ') : '';
 
   const copyAdi = () => {
     if (!instructor.adi_number) return;

@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Share, ActivityIndicator, Tex
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Gift, X } from 'lucide-react-native';
 import { supabase } from './supabaseClient';
+import { referralSubtitle, type ReferralSummary } from './referralText';
 
 /**
  * "Refer a driving instructor, get 1 month free" (23 Sept 2026), per
@@ -22,7 +23,7 @@ import { supabase } from './supabaseClient';
 
 const DISMISSED_KEY = 'referral_banner_dismissed_v1';
 
-type Summary = { pending: number; rewarded_this_year: number; capped: number; cap_per_year: number };
+type Summary = ReferralSummary;
 
 // NOTE: read EXPO_PUBLIC_* as the exact expression `process.env.EXPO_PUBLIC_X`.
 // Expo only substitutes that static form at build time; `(process as any).env?.X`
@@ -133,7 +134,6 @@ export function ReferralBanner() {
 
   if (dismissed !== false || !code) return null;
 
-  const hasActivity = !!summary && (summary.pending > 0 || summary.rewarded_this_year > 0);
 
   return (
     <View style={s.card} testID="referral-banner">
@@ -142,11 +142,7 @@ export function ReferralBanner() {
       </TouchableOpacity>
       <Gift size={22} color="#fff" />
       <Text style={s.title}>Refer a driving instructor, get 1 month free</Text>
-      <Text style={s.sub}>
-        {hasActivity
-          ? `${summary!.pending} pending · ${summary!.rewarded_this_year} earned this year (cap ${summary!.cap_per_year})`
-          : 'Share your code — you\'re rewarded once they subscribe.'}
-      </Text>
+      <Text style={s.sub}>{referralSubtitle(summary)}</Text>
       <TouchableOpacity style={s.shareBtn} onPress={onShare} disabled={sharing} testID="referral-banner-share">
         {sharing ? <ActivityIndicator color="#fff" /> : <Text style={s.shareBtnText}>Share my code · {code}</Text>}
       </TouchableOpacity>

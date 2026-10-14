@@ -549,7 +549,7 @@ def _seat_qty_from_subscription(sub: dict) -> int:
     return max(1, base_qty + seat_qty)
 
 
-REFERRAL_MAX_REWARDS_PER_YEAR = 6  # Grant's own suggested range was 3-6; trivial to change, this is the one place it's defined.
+REFERRAL_MAX_REWARDS_PER_YEAR = 2  # Grant, 14 Oct 2026: max 2 rewarded referrals per rolling 12 months (was 6). The one place it's defined; the app reads it from /referrals/summary.
 
 
 async def _apply_referral_reward_if_due(school: dict) -> None:

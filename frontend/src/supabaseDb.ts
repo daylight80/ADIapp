@@ -1723,14 +1723,12 @@ export async function getStudentByAuthId(authUserId: string): Promise<Student | 
 // registerExpoPushToken() is already wired there for the exact same
 // student?.id-keyed effect). Deliberately a no-op on any error — an
 // activity timestamp failing to write should never surface as a visible
-// problem to a student just opening the app, and pre-Migration-035
-// environments would otherwise throw on a column that doesn't exist yet.
-export async function stampStudentActivity(authUserId: string): Promise<void> {
+// problem to a student just opening the app. Pupils have no UPDATE policy on
+// students, so this goes through the stamp_my_activity RPC (migration 066),
+// which only touches the caller's own row. The parameter is kept for callers.
+export async function stampStudentActivity(_authUserId: string): Promise<void> {
   try {
-    await supabase
-      .from('students')
-      .update({ last_active_at: new Date().toISOString() })
-      .eq('auth_user_id', authUserId);
+    await supabase.rpc('stamp_my_activity');
   } catch {
     // Silently ignored — see comment above.
   }

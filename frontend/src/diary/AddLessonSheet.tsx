@@ -8,7 +8,8 @@ import { useBankHolidays } from '../useBankHolidays';
 import { holidayBanner, holidayOn } from '../bankHolidays';
 import { supabase } from '../supabaseClient';
 import { createLesson, patchLesson } from '../useSupabaseData';
-import { overlapsAnyBlock, type AvailabilityBlock, type Lesson, type Student } from '../supabaseDb';
+import { overlapsAnyBlock, getMyDefaultTravelMinutes, type AvailabilityBlock, type Lesson, type Student } from '../supabaseDb';
+import { cleanBufferMinutes, lessonBuffer, findTightTurnarounds, describeTightTurnaround } from './buffer';
 import { getTravelTime, lessonAddress } from '../maps';
 import { scheduleLessonReminders } from '../notifications';
 import { styles } from './diaryStyles';
@@ -93,6 +94,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
   // Holds the full plan while paused, waiting for the instructor to
   // explicitly confirm or cancel — nothing is saved until they choose.
   const [pendingClashPlan, setPendingClashPlan] = useState<PlanEntry[] | null>(null);
+  const [pendingTight, setPendingTight] = useState<{ plan: PlanEntry[]; notes: string[] } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   // Charge decision for each cancelled clash (25 Aug 2026, second
   // follow-up) — same full/partial/waive choice as a normal manual
@@ -172,11 +174,20 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
       setRate('');
       rateManuallyEdited.current = false;
       setPendingClashPlan(null);
+      setPendingTight(null);
       setClashStep('confirm');
       setClashDecisionIndex(0);
       setClashCharges({});
       setClashPartialInput('');
     }
+  }, [visible]);
+
+  // A new lesson starts with the instructor's own default travel buffer (Profile > Travel buffer).
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    getMyDefaultTravelMinutes().then((n) => { if (!cancelled) setTravelMinutes(String(n)); }).catch(() => {});
+    return () => { cancelled = true; };
   }, [visible]);
 
   const recurWeeksNum = useMemo(
@@ -226,6 +237,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
 
     // For each occurrence, check (a) unavailability overlap, (b) clash.
     const plan: PlanEntry[] = [];
+    const tightNotes: string[] = [];
     for (const d of targetDates) {
       try {
         const sIso = new Date(`${d}T${startTime}:00`).toISOString();
@@ -239,7 +251,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
           const toIsoX = `${d}T23:59:59`;
           const { data: dayLessons } = await supabase
             .from('lessons')
-            .select('id, start_time, end_time, status, amount_paid, students(full_name)')
+            .select('id, start_time, end_time, status, amount_paid, travel_minutes, students(full_name)')
             .eq('instructor_id', instructorId)
             .gte('start_time', fromIsoX)
             .lte('start_time', toIsoX);
@@ -280,6 +292,20 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
             plan.push({ date: d, clash: { id: clashId, name: clashName, start: clashStart, end: clashEnd, agreedAmount: clashAmount } });
             continue;
           }
+          // No clash, but is it a tight turnaround? Travel buffer: a lesson may start inside the previous
+          // lesson's travel time (or run its own into the next lesson), but the instructor is told first.
+          const minOfDay = (ms: number) => { const t = new Date(ms); return t.getHours() * 60 + t.getMinutes(); };
+          const others = ((dayLessons || []) as any[])
+            .filter((L) => L.status !== 'Cancelled')
+            .map((L) => ({ id: L.id as string, startMin: minOfDay(new Date(L.start_time).getTime()), endMin: minOfDay(new Date(L.end_time).getTime()), buffer: lessonBuffer(L), name: ((L.students as any)?.full_name as string) || '' }));
+          const tight = findTightTurnarounds(
+            { id: 'new', startMin: minOfDay(newStartMs), endMin: minOfDay(newEndMs), buffer: cleanBufferMinutes(travelMinutes) },
+            others,
+          );
+          for (const t of tight) {
+            const text = describeTightTurnaround(t, others.find((o) => o.id === t.otherId)?.name || '');
+            tightNotes.push(targetDates.length > 1 ? `${d}: ${text}` : text);
+          }
         }
         // No clash and no unavailability.
         plan.push({ date: d });
@@ -307,6 +333,12 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     const hasClash = plan.some((p) => p.clash);
     if (hasClash) {
       setPendingClashPlan(plan);
+      return;
+    }
+
+    // Tight turnaround(s) pause for a yes/no too, but never block: "Book anyway" saves as normal.
+    if (tightNotes.length > 0) {
+      setPendingTight({ plan, notes: tightNotes.slice(0, 4) });
       return;
     }
 
@@ -807,6 +839,37 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
                 </TouchableOpacity>
               </>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Tight turnaround: the new lesson starts inside the previous lesson's travel buffer, or its own
+          buffer runs into the next lesson. A warning only: "Book anyway" saves exactly as normal. */}
+      <Modal visible={!!pendingTight} transparent animationType="fade" onRequestClose={() => setPendingTight(null)}>
+        <View style={styles.clashBackdrop}>
+          <View style={styles.clashCard} testID="tight-confirm-modal">
+            <View style={styles.clashIconWrap}>
+              <AlertTriangle size={26} color="#fff" />
+            </View>
+            <Text style={styles.clashTitle}>Tight turnaround</Text>
+            <ScrollView style={{ maxHeight: 180, alignSelf: 'stretch' }}>
+              {(pendingTight?.notes || []).map((n, i) => (
+                <Text key={i} style={styles.clashLine} testID={`tight-line-${i}`}>{n}</Text>
+              ))}
+            </ScrollView>
+            <Text style={styles.clashHint}>You can still book it.</Text>
+            <View style={{ flexDirection: 'row', gap: 9, marginTop: 14, alignSelf: 'stretch' }}>
+              <TouchableOpacity style={styles.clashCancelBtn} onPress={() => setPendingTight(null)} testID="tight-cancel">
+                <Text style={styles.clashCancelBtnText}>Go back</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.clashConfirmBtn}
+                onPress={async () => { const p = pendingTight; setPendingTight(null); if (p) await finishSaving(p.plan); }}
+                testID="tight-confirm"
+              >
+                <Text style={styles.clashConfirmBtnText}>Book anyway</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>

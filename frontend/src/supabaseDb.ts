@@ -53,6 +53,8 @@ export type Student = {
   // Pupil Agreement, signed by the student (Migration 051).
   tc_signed_at?: string | null;
   tc_signature_name?: string | null;
+  /** Whether the pupil wants a push notification when their instructor has a free slot. */
+  slot_alerts?: boolean;
 };
 
 // Shared across the Students screen and Phase 3's Select Students picker
@@ -100,6 +102,7 @@ const fromRow = (r: any): Student => ({
   last_active_at: r.last_active_at ?? null,
   tc_signed_at: r.tc_signed_at ?? null,
   tc_signature_name: r.tc_signature_name ?? null,
+  slot_alerts: r.slot_alerts !== false,
 });
 
 // ---------------------------------------------------------------------------
@@ -1494,6 +1497,14 @@ export async function listBadges(studentId: string): Promise<Badge[]> {
     .order('earned_at', { ascending: false });
   if (error) throw error;
   return (data || []) as Badge[];
+}
+
+// The pupil's "Slot alerts" switch. A function rather than an update: pupils cannot update
+// their own student record (migration 063). Returns the saved value.
+export async function setMySlotAlerts(on: boolean): Promise<boolean> {
+  const { data, error } = await supabase.rpc('set_my_slot_alerts', { p_on: on });
+  if (error) throw error;
+  return data === true;
 }
 
 // A pupil passing the in-app theory practice test. A function rather than an insert: pupils

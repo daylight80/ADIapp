@@ -9,6 +9,7 @@ import { BottomNav } from '../src/BottomNav';
 import { useAuth } from '../src/AuthContext';
 import { useStudentByAuthId, useStudentByEmail, useStudent } from '../src/useSupabaseData';
 import { addMockTestAttempt } from '../src/supabaseDb';
+import { awardMockPassBadge } from '../src/useSupabaseData';
 
 type FaultType = 'driving' | 'serious' | 'dangerous';
 type Faults = Record<string, { driving: number; serious: number; dangerous: number }>;
@@ -81,6 +82,7 @@ export default function Dl25MockTestScreen() {
           passed,
           category_breakdown: faults,
         });
+        if (passed) void awardMockPassBadge(supabaseStudent.id);
       } catch (e: any) {
         // Don't block the student from seeing their report if the save
         // fails — but let them know it wasn't recorded this time.

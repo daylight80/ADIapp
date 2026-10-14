@@ -11,6 +11,7 @@ import { Card, ProgressBar, Badge, LockedFeature } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import { useAuth } from '../src/AuthContext';
 import { isPaidTier, tierById } from '../src/tiers';
+import { canEditCompetency } from '../src/competencyAccess';
 
 type Tab = 'overview' | 'lessons' | 'skills';
 const TABS: { key: Tab; label: string }[] = [
@@ -150,7 +151,7 @@ export default function CompetencyDetailScreen() {
           <ArrowLeft size={22} color={theme.colors.text} />
         </TouchableOpacity>
         <Text style={styles.title} numberOfLines={1}>{competency.name}</Text>
-        {isLive ? (
+        {canEditCompetency(user?.role, isLive) ? (
           <TouchableOpacity onPress={openEdit} style={styles.iconBtn} testID="btn-edit-competency">
             <Pencil size={20} color={theme.colors.primary} />
           </TouchableOpacity>

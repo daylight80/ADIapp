@@ -29,6 +29,7 @@ import { isFranchiseTier } from '../src/tiers';
 import { PaywallModal } from '../src/PaywallModal';
 import { Card, Badge } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
+import { ShareVehicleSwitch } from '../src/ShareVehicleSwitch';
 import {
   useVehicles,
   createVehicle,
@@ -190,6 +191,8 @@ export default function VehiclesScreen() {
         <Text style={styles.lede}>
           Add the cars you use for lessons. The default vehicle is auto-selected on new bookings.
         </Text>
+
+        <ShareVehicleSwitch />
 
         {loading && vehicles.length === 0 && (
           <Card><ActivityIndicator size="small" color={theme.colors.primary} /></Card>

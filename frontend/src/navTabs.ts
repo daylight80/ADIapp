@@ -18,6 +18,7 @@ export const INSTRUCTOR_TAB_SPECS: TabSpec[] = [
 
 export const STUDENT_TAB_SPECS: TabSpec[] = [
   { key: 'learning', label: 'My Learning', route: '/student-home-screen' },
+  { key: 'instructor', label: 'Instructor', route: '/instructor-screen' },
   { key: 'profile', label: 'Profile', route: '/profile-screen' },
   { key: 'logout', label: 'Logout', route: '' },
 ];

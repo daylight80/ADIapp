@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform, Modal } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
 import { theme } from './theme';
-import { Home, CalendarDays, Users, BookOpen, FileCheck, User, LogOut } from 'lucide-react-native';
+import { Home, CalendarDays, Users, BookOpen, FileCheck, User, LogOut, IdCard } from 'lucide-react-native';
 import { useAuth } from './AuthContext';
 import { INSTRUCTOR_TAB_SPECS, STUDENT_TAB_SPECS, isTabActive, type TabSpec } from './navTabs';
 
@@ -11,7 +11,7 @@ type Tab = { key: string; label: string; icon: any; route: string };
 // Icons by tab key; the tabs themselves (labels and routes) live in navTabs.ts.
 const TAB_ICONS: Record<string, any> = {
   home: Home, diary: CalendarDays, students: Users, profile: User, logout: LogOut,
-  learning: BookOpen, mock: FileCheck,
+  learning: BookOpen, mock: FileCheck, instructor: IdCard,
 };
 const withIcons = (specs: TabSpec[]): Tab[] => specs.map((t) => ({ ...t, icon: TAB_ICONS[t.key] }));
 const INSTRUCTOR_TABS: Tab[] = withIcons(INSTRUCTOR_TAB_SPECS);

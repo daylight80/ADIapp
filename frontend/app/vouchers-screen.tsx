@@ -202,7 +202,8 @@ export default function VouchersScreen() {
         <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} keyboardShouldPersistTaps="handled">
           <Text style={styles.subtitle}>
             Make a PDF gift voucher for a number of prepaid driving hours, with your logo and business name.
-            When the recipient books, add the hours to their wallet and mark the voucher redeemed.
+            Pupils can enter the code under Wallet in the app and the hours are added automatically. If someone
+            redeems with you instead, add the hours to their wallet and mark the voucher redeemed yourself.
           </Text>
 
           {!!notice && (
@@ -331,7 +332,7 @@ export default function VouchersScreen() {
                     <Text style={styles.itemName}>{formatHoursLabel(v.hours)}{v.recipient_name ? ` · ${v.recipient_name}` : ''}</Text>
                     <Text style={styles.itemDate}>
                       {status === 'redeemed' && v.redeemed_at
-                        ? `Redeemed ${new Date(v.redeemed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                        ? `Redeemed${v.redeemed_by_name ? ` by ${v.redeemed_by_name}` : ''} ${new Date(v.redeemed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
                         : `Valid until ${formatVoucherDate(v.expires_at)}`}
                     </Text>
                   </View>

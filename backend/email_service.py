@@ -199,6 +199,66 @@ def render_lesson_reminder_email(
     return subject, body, text
 
 
+def render_slot_alert_email(
+    *,
+    student_name: Optional[str],
+    instructor_name: Optional[str],
+    weekday: str,
+    date_text: str,
+    start_text: str,
+    end_text: str,
+    instructor_phone: Optional[str] = None,
+) -> Tuple[str, str, str]:
+    """Return (subject, html_body, text_body) telling a pupil that a lesson slot has opened.
+
+    Times must already be UK local time. Only sent to a pupil who has the app and has Slot alerts
+    switched on (it is the fallback for when a push notification cannot be delivered), and the
+    footer says where to switch them off. The pupil does not book the slot in the app: they
+    contact their instructor, so the instructor's number is the call to action.
+    """
+    first = clean_display_name(student_name, fallback="").split(" ")[0]
+    instructor = clean_display_name(instructor_name, fallback="your instructor")
+    phone = re.sub(r"\s+", " ", _CONTROL_AND_HEADER_CHARS.sub("", instructor_phone or "")).strip()[:30]
+
+    subject = f"A lesson slot has opened: {weekday} at {start_text}"
+    headline = f"A lesson slot has opened on {weekday}"
+    when = f"{weekday} {date_text}, {start_text} to {end_text}"
+    greeting = f"Hi {first}," if first else "Hi,"
+    lead = f"{instructor} has a free lesson slot, for example after a cancellation."
+    if phone:
+        action = f"If you would like it, please contact {instructor} on {phone}. Slots go to whoever asks first."
+    else:
+        action = f"If you would like it, please contact {instructor}. Slots go to whoever asks first."
+    footer = (
+        "You're receiving this because you have Slot alerts switched on in ADI Pro. "
+        "To stop them, open the app and turn off Slot alerts on the My Learning screen. "
+        f"Questions about these emails: {LESSON_REMINDER_SUPPORT_ADDRESS}."
+    )
+    esc = html.escape
+    text = "\n".join([greeting, "", lead, "", f"When: {when}", "", action, "", footer]) + "\n"
+    body = f"""\
+<!doctype html>
+<html lang="en-GB">
+<body style="margin:0;padding:24px;background:#f5f2ec;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;">
+    <tr><td style="padding:28px 28px 8px;">
+      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">ADI PRO</div>
+      <h1 style="font-size:20px;line-height:1.3;margin:10px 0 14px;">{esc(headline)}</h1>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(greeting)}</p>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(lead)}</p>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 6px;"><strong>When:</strong> {esc(when)}</p>
+      <p style="font-size:15px;line-height:1.55;margin:14px 0 20px;">{esc(action)}</p>
+    </td></tr>
+    <tr><td style="padding:16px 28px 24px;border-top:1px solid #e4ded2;">
+      <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">{esc(footer)}</p>
+    </td></tr>
+  </table>
+</body>
+</html>
+"""
+    return subject, body, text
+
+
 def looks_like_email(value: Optional[str]) -> bool:
     """Cheap sanity check on an instructor-typed address before we spend a
     send on it. Deliberately loose — Resend does the real validation."""

@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import email_service  # noqa: E402
 import lesson_reminders as lr  # noqa: E402
 import slot_alerts as sa  # noqa: E402
 
@@ -26,8 +27,8 @@ LESSON = {
 }
 
 
-def pupil(pid, status="Active", alerts=True, auth="auth-1", name=None):
-    return {"id": pid, "auth_user_id": auth, "status": status, "slot_alerts": alerts, "full_name": name or pid}
+def pupil(pid, status="Active", alerts=True, auth="auth-1", name=None, email="pupil@example.com"):
+    return {"id": pid, "auth_user_id": auth, "status": status, "slot_alerts": alerts, "full_name": name or pid, "email": email}
 
 
 # --------------------------------------------------------------------------- overlap
@@ -113,8 +114,8 @@ class World:
     """A fake of everything slot_alerts reads and writes, with a record of what it sent."""
 
     def __init__(self, monkeypatch, *, lessons=(LESSON,), pupils=(), claim=True, taken=False, tokens=("ExpoPushToken[x]",),
-                 push_ok=True, busy=None, recent=None):
-        self.sent, self.logged, self.claimed = [], [], []
+                 push_ok=True, busy=None, recent=None, email_configured=True, email_ok=True):
+        self.sent, self.logged, self.claimed, self.emails = [], [], [], []
         self.lessons, self.pupils = list(lessons), list(pupils)
 
         async def find(now): return self.lessons
@@ -129,6 +130,13 @@ class World:
             self.sent.extend(messages)
             return {"accepted": len(messages) if push_ok else 0, "receipt_ids": []}
 
+        async def send_email(payload, client=None):
+            if not email_ok:
+                raise email_service.EmailSendError("resend down")
+            self.emails.append(payload)
+
+        monkeypatch.setattr(email_service, "is_configured", lambda: email_configured)
+        monkeypatch.setattr(email_service, "send_email", send_email)
         monkeypatch.setattr(sa, "_find_cancelled", find)
         monkeypatch.setattr(sa, "_claim", claim_)
         monkeypatch.setattr(sa, "_slot_taken", taken_)
@@ -175,16 +183,49 @@ def test_a_slot_that_has_been_filled_again_is_not_announced(monkeypatch):
     assert summary["skipped_taken"] == 1 and w.sent == [] and w.claimed == ["L1"]
 
 
-def test_a_pupil_with_no_device_is_not_counted_as_told(monkeypatch):
+def test_a_pupil_with_no_device_gets_an_email_instead(monkeypatch):
     w = World(monkeypatch, pupils=[pupil("A")], tokens=())
     summary = run()
-    assert summary["pupils_told"] == 0 and w.logged == []
+    assert summary["pupils_told"] == 1 and summary["by_email"] == 1 and summary["by_push"] == 0
+    assert w.sent == [] and len(w.emails) == 1 and w.logged == [("A", "L1", 0)]
+    assert w.emails[0]["to"] == ["pupil@example.com"]
+    assert w.emails[0]["subject"].startswith("A lesson slot has opened")
 
 
-def test_a_push_the_service_refuses_is_not_recorded_as_sent(monkeypatch):
+def test_a_push_the_service_refuses_falls_back_to_email(monkeypatch):
     w = World(monkeypatch, pupils=[pupil("A")], push_ok=False)
     summary = run()
+    assert summary["by_email"] == 1 and len(w.emails) == 1
+
+
+def test_a_pupil_who_got_the_push_is_not_also_emailed(monkeypatch):
+    w = World(monkeypatch, pupils=[pupil("A")])
+    summary = run()
+    assert summary["by_push"] == 1 and summary["by_email"] == 0 and w.emails == []
+
+
+def test_no_email_when_email_is_not_configured_or_the_pupil_has_no_address(monkeypatch):
+    w = World(monkeypatch, pupils=[pupil("A")], tokens=(), email_configured=False)
+    assert run()["pupils_told"] == 0 and w.emails == []
+    w2 = World(monkeypatch, pupils=[pupil("B", email=None), pupil("C", email="not an email")], tokens=())
+    assert run()["pupils_told"] == 0 and w2.emails == []
+
+
+def test_a_failed_email_is_not_recorded_as_sent(monkeypatch):
+    w = World(monkeypatch, pupils=[pupil("A")], tokens=(), email_ok=False)
+    summary = run()
     assert summary["pupils_told"] == 0 and w.logged == []
+
+
+def test_the_email_names_the_instructor_and_gives_their_number(monkeypatch):
+    lesson = {**LESSON, "instructors": {**LESSON["instructors"], "mobile_number": "07806 750559"}}
+    w = World(monkeypatch, lessons=[lesson], pupils=[pupil("A", name="Test Pupil")], tokens=())
+    run()
+    text = w.emails[0]["text"]
+    assert "Hi Test," in text and "Grant Robery has a free lesson slot" in text
+    assert "Thursday 15 October, 14:00 to 15:00" in text
+    assert "contact Grant Robery on 07806 750559" in text
+    assert "turn off Slot alerts" in text
 
 
 def test_each_device_of_a_pupil_gets_the_message_but_it_counts_once(monkeypatch):
@@ -197,3 +238,30 @@ def test_does_nothing_when_supabase_is_not_configured(monkeypatch):
     World(monkeypatch)
     monkeypatch.setattr(lr, "_sb_url", lambda: None)
     assert run()["ok"] is False
+
+
+# --------------------------------------------------------------------------- the email itself
+
+
+def render(**over):
+    args = dict(student_name="Test Pupil", instructor_name="Grant Robery", weekday="Thursday", date_text="15 October",
+                start_text="14:00", end_text="15:00", instructor_phone="07806 750559")
+    args.update(over)
+    return email_service.render_slot_alert_email(**args)
+
+
+def test_email_subject_and_content():
+    subject, html_body, text = render()
+    assert subject == "A lesson slot has opened: Thursday at 14:00"
+    assert "Thursday 15 October, 14:00 to 15:00" in html_body
+    assert "Slots go to whoever asks first" in text
+
+
+def test_email_without_a_phone_number_still_says_who_to_contact():
+    _, _, text = render(instructor_phone=None)
+    assert "please contact Grant Robery." in text
+
+
+def test_email_escapes_anything_user_supplied():
+    _, html_body, _ = render(student_name='<script>alert(1)</script>Sam', instructor_name='<b>Grant</b>')
+    assert "<script>" not in html_body and "<b>Grant</b>" not in html_body

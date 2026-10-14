@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 import stripe
 from lesson_reminders import start_lesson_reminder_scheduler, stop_lesson_reminder_scheduler, close_http_client as close_lesson_reminder_http_client
 import email_service
-from referral_rules import referral_eligible
+from referral_rules import referral_eligible, referral_eligible_from, referral_item, referral_reward_due
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -570,6 +570,9 @@ async def _apply_referral_reward_if_due(school: dict) -> None:
     referrer_instructor_id = school.get("referred_by_instructor_id")
     if not referrer_instructor_id or school.get("referral_reward_status") != "pending":
         return
+    # Held until the referred school has stayed subscribed for a month (referral_rules.py).
+    if not referral_reward_due(school):
+        return
 
     async with httpx.AsyncClient(timeout=10.0) as client_http:
         ref = await client_http.get(
@@ -695,6 +698,10 @@ async def stripe_webhook(request: FastAPIRequest):
                     if patch["subscription_status"] == "active" and not school.get("subscribed_since"):
                         patch["subscribed_since"] = datetime.now(timezone.utc).isoformat()
                     await sb_update_school(school["id"], patch)
+                    # Renewals arrive here: release a held referral reward once the month is up.
+                    renewed = await sb_get_school_by_id(school["id"])
+                    if renewed:
+                        await _apply_referral_reward_if_due(renewed)
 
         elif etype == "customer.subscription.deleted":
             customer_id = data.get("customer")
@@ -731,11 +738,23 @@ class ReferralCodeResponse(BaseModel):
     share_link: str
 
 
+class ReferralListItem(BaseModel):
+    name: str
+    stage: str  # signed_up | subscribed | rewarded | capped
+    date: Optional[str] = None
+
+
 class ReferralSummaryResponse(BaseModel):
     pending: int
     rewarded_this_year: int
     capped: int
     cap_per_year: int
+    referrals: List[ReferralListItem] = []
+
+
+class ReferralStatusResponse(BaseModel):
+    eligible: bool
+    eligible_from: Optional[str] = None  # when referring opens, if the school is on a paid plan
 
 
 async def _get_own_instructor(sb_user: dict) -> dict:
@@ -789,22 +808,44 @@ async def get_my_referral_code(sb_user: dict = Depends(get_current_supabase_user
     return ReferralCodeResponse(code=code, share_link=f"{APP_DOMAIN}/sign-up-login-screen?ref={code}")
 
 
-@api_router.get("/referrals/summary", response_model=ReferralSummaryResponse)
-async def get_referral_summary(sb_user: dict = Depends(get_current_supabase_user)):
+@api_router.get("/referrals/status", response_model=ReferralStatusResponse)
+async def get_referral_status(sb_user: dict = Depends(get_current_supabase_user)):
+    """Whether this instructor's school may refer yet, and when it opens. Lets the app show
+    "Referrals unlock on ..." instead of the banner."""
     instructor = await _get_own_instructor(sb_user)
-    one_year_ago = (datetime.now(timezone.utc) - timedelta(days=365)).isoformat()
+    school = await sb_get_school_by_id(instructor["school_id"]) if instructor.get("school_id") else None
+    start = referral_eligible_from(school)
+    return ReferralStatusResponse(eligible=referral_eligible(school), eligible_from=start.isoformat() if start else None)
+
+
+async def _read_referred_schools(instructor_id: str) -> list:
     async with httpx.AsyncClient(timeout=10.0) as client_http:
         r = await client_http.get(
             f"{_sb_rest_base}/driving_schools",
-            params={
-                "referred_by_instructor_id": f"eq.{instructor['id']}",
-                "select": "referral_reward_status,referral_resolved_at",
-            },
+            params={"referred_by_instructor_id": f"eq.{instructor_id}", "select": "*", "order": "created_at.desc"},
             headers=_sb_headers(),
         )
     if r.status_code >= 400:
         raise HTTPException(status_code=500, detail=f"Referral summary read failed: {r.text}")
-    rows = r.json()
+    return r.json()
+
+
+@api_router.get("/referrals/summary", response_model=ReferralSummaryResponse)
+async def get_referral_summary(sb_user: dict = Depends(get_current_supabase_user)):
+    instructor = await _get_own_instructor(sb_user)
+    one_year_ago = (datetime.now(timezone.utc) - timedelta(days=365)).isoformat()
+    rows = await _read_referred_schools(instructor["id"])
+    # Safety net: release any held reward whose month is up, even if no renewal event reached us.
+    released = False
+    for row in rows:
+        if row.get("referral_reward_status") == "pending" and referral_reward_due(row):
+            try:
+                await _apply_referral_reward_if_due(row)
+                released = True
+            except Exception:
+                logger.exception("Could not release referral reward for school %s", row.get("id"))
+    if released:
+        rows = await _read_referred_schools(instructor["id"])
     pending = sum(1 for row in rows if row.get("referral_reward_status") == "pending")
     rewarded_this_year = sum(
         1 for row in rows
@@ -814,6 +855,7 @@ async def get_referral_summary(sb_user: dict = Depends(get_current_supabase_user
     return ReferralSummaryResponse(
         pending=pending, rewarded_this_year=rewarded_this_year, capped=capped,
         cap_per_year=REFERRAL_MAX_REWARDS_PER_YEAR,
+        referrals=[ReferralListItem(**referral_item(row)) for row in rows],
     )
 
 

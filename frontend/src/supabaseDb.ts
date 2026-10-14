@@ -5,7 +5,7 @@
 
 import type { AgreementContext } from './agreementTerms';
 import { supabase } from './supabaseClient';
-import type { InstructorCardData } from './instructorCard';
+import { cleanVehicleColour, type InstructorCardData } from './instructorCard';
 import type { SlotAlertStatus } from './slotAlertStatus';
 import type { DeadlineItem, EditableDeadlineKind } from './deadlines';
 
@@ -740,12 +740,15 @@ export type Vehicle = {
   transmission: 'Manual' | 'Automatic' | 'Electric';
   is_right_hand_drive: boolean;
   is_default: boolean;
+  /** Optional, e.g. "Silver"; shown to pupils so they can spot the car. */
+  colour?: string | null;
 };
 
 const vehicleFromRow = (r: any): Vehicle => ({
   id: r.id,
   school_id: r.school_id,
   make_and_model: r.make_and_model,
+  colour: r.colour ?? null,
   registration_plate: r.registration_plate,
   transmission: r.transmission,
   is_right_hand_drive: r.is_right_hand_drive,
@@ -769,6 +772,7 @@ export type VehicleInput = {
   make_and_model: string;
   registration_plate: string;
   transmission: 'Manual' | 'Automatic' | 'Electric';
+  colour?: string | null;
   is_default?: boolean;
 };
 
@@ -781,6 +785,7 @@ export async function createVehicle(input: VehicleInput): Promise<Vehicle> {
       make_and_model: input.make_and_model.trim(),
       registration_plate: input.registration_plate.toUpperCase().trim(),
       transmission: input.transmission,
+      colour: cleanVehicleColour(input.colour),
       is_right_hand_drive: true, // UK only
     })
     .select('*')
@@ -800,6 +805,7 @@ export async function updateVehicle(id: string, patch: Partial<VehicleInput>): P
   if (patch.make_and_model !== undefined)     dbPatch.make_and_model     = patch.make_and_model.trim();
   if (patch.registration_plate !== undefined) dbPatch.registration_plate = patch.registration_plate.toUpperCase().trim();
   if (patch.transmission !== undefined)       dbPatch.transmission       = patch.transmission;
+  if (patch.colour !== undefined)             dbPatch.colour             = cleanVehicleColour(patch.colour);
   const { data, error } = await supabase.from('vehicles').update(dbPatch).eq('id', id).select('*').single();
   if (error) throw error;
   _defaultVehicleCache = null;

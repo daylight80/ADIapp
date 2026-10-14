@@ -38,6 +38,7 @@ import {
   setDefaultVehicle,
 } from '../src/useSupabaseData';
 import type { Vehicle } from '../src/supabaseDb';
+import { describeCarName, MAX_VEHICLE_COLOUR_LENGTH } from '../src/instructorCard';
 
 type Transmission = 'Manual' | 'Automatic' | 'Electric';
 const TRANSMISSIONS: Transmission[] = ['Manual', 'Automatic', 'Electric'];
@@ -66,6 +67,7 @@ export default function VehiclesScreen() {
   const [editing, setEditing] = useState<Vehicle | null>(null);
   const [makeModel, setMakeModel] = useState('');
   const [plate, setPlate] = useState('');
+  const [colour, setColour] = useState('');
   const [transmission, setTransmission] = useState<Transmission>('Manual');
   const [setAsDefault, setSetAsDefault] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -74,6 +76,7 @@ export default function VehiclesScreen() {
     if (vehicles.length >= 1 && !franchise) { setVehiclePaywallOpen(true); return; }
     setEditing(null);
     setMakeModel('');
+    setColour('');
     setPlate('');
     setTransmission('Manual');
     // First-ever vehicle should default to default.
@@ -84,6 +87,7 @@ export default function VehiclesScreen() {
   const openEdit = (v: Vehicle) => {
     setEditing(v);
     setMakeModel(v.make_and_model);
+    setColour(v.colour || '');
     setPlate(v.registration_plate);
     setTransmission(v.transmission);
     setSetAsDefault(v.is_default);
@@ -101,6 +105,7 @@ export default function VehiclesScreen() {
       if (editing) {
         await updateVehicle(editing.id, {
           make_and_model: makeModel,
+          colour,
           registration_plate: plate,
           transmission,
           is_default: setAsDefault,
@@ -108,6 +113,7 @@ export default function VehiclesScreen() {
       } else {
         await createVehicle({
           make_and_model: makeModel,
+          colour,
           registration_plate: plate,
           transmission,
           is_default: setAsDefault,
@@ -219,7 +225,7 @@ export default function VehiclesScreen() {
                 <Car size={22} color={theme.colors.primary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.cardName}>{v.make_and_model}</Text>
+                <Text style={styles.cardName} testID={`vehicle-name-${v.id}`}>{describeCarName(v)}</Text>
                 <Text style={styles.cardPlate}>{v.registration_plate}</Text>
               </View>
               {v.is_default && (
@@ -273,6 +279,20 @@ export default function VehiclesScreen() {
           autoCapitalize="words"
           testID="input-make-model"
         />
+
+        <Text style={styles.label}>Colour (optional)</Text>
+        <TextInput
+          value={colour}
+          onChangeText={setColour}
+          placeholder="e.g. Silver"
+          style={styles.input}
+          autoCapitalize="words"
+          maxLength={MAX_VEHICLE_COLOUR_LENGTH}
+          testID="input-colour"
+        />
+        <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginTop: -4, marginBottom: 6 }}>
+          Pupils see this on their Instructor tab so they can spot the car.
+        </Text>
 
         <Text style={styles.label}>Registration plate</Text>
         <TextInput

@@ -35,6 +35,12 @@ describe('pupil Instructor tab', () => {
     expect(screen.getByTestId('instructor-plate')).toHaveTextContent('AD39 ADI');
   });
 
+  it('puts the colour first when the vehicle has one', async () => {
+    const silver = { ...grant, vehicle: { ...grant.vehicle, colour: 'Silver' } };
+    await render(<StudentInstructorCard instructor={silver} loadFailed={false} />);
+    expect(screen.getByTestId('instructor-car')).toHaveTextContent('Silver VW Golf · Automatic');
+  });
+
   it('has no car card when the school does not share the car', async () => {
     await render(<StudentInstructorCard instructor={{ ...grant, vehicle: null }} loadFailed={false} />);
     expect(screen.queryByTestId('instructor-car-card')).toBeNull();

@@ -21,7 +21,7 @@ import {
 } from '../src/supabaseDb';
 import { isPaidTier, isProTier, tierById } from '../src/tiers';
 import { formatHours, isLowCredit } from '../src/walletDisplay';
-import { instructorAgreementLine, agreementStatus } from '../src/pupilAgreement';
+import { instructorAgreementLine, agreementStatus, mediaConsentLine } from '../src/pupilAgreement';
 import { manualStatusMoves, statusChangeMessage, type LifecycleStatus } from '../src/studentLifecycle';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { openSmsComposer } from '../src/tools';
@@ -790,6 +790,9 @@ export default function StudentProfileV2Screen() {
                 </View>
                 <Text style={s.lifecycleHint} testID="v2-agreement-line">
                   {instructorAgreementLine(student, student.name.split(' ')[0])}
+                </Text>
+                <Text style={[s.lifecycleHint, { fontWeight: '600' }]} testID="v2-media-consent-line">
+                  {mediaConsentLine(student)}
                 </Text>
               </View>
 

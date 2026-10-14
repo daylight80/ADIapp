@@ -56,6 +56,9 @@ export type Student = {
   tc_signature_name?: string | null;
   /** Whether the pupil wants a push notification when their instructor has a free slot. */
   slot_alerts?: boolean;
+  /** Pupil's optional OK to use their pass photo/video on social media and the school's website. */
+  media_consent?: boolean;
+  media_consent_at?: string | null;
 };
 
 // Shared across the Students screen and Phase 3's Select Students picker
@@ -104,6 +107,8 @@ const fromRow = (r: any): Student => ({
   tc_signed_at: r.tc_signed_at ?? null,
   tc_signature_name: r.tc_signature_name ?? null,
   slot_alerts: r.slot_alerts !== false,
+  media_consent: r.media_consent === true,
+  media_consent_at: r.media_consent_at ?? null,
 });
 
 // ---------------------------------------------------------------------------

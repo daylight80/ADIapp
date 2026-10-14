@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { Lesson, Student } from './supabaseDb';
+import { reportError, reportNote } from './errorReporting';
 
 // On web preview, expo-notifications local scheduling falls back to a simple alert flow.
 // In production native builds these become real device notifications.
@@ -48,12 +49,22 @@ import { supabase } from './supabaseClient';
 import Constants from 'expo-constants';
 
 let _lastRegisteredToken: string | null = null;
+// Each kind of "no token" outcome is reported once per app session, not on every sign-in.
+const _reportedNotes = new Set<string>();
+function noteOnce(message: string): void {
+  if (_reportedNotes.has(message)) return;
+  _reportedNotes.add(message);
+  reportNote(message, 'push-token');
+}
 
 export async function registerExpoPushToken(): Promise<string | null> {
   // Push tokens are a no-op on web (Expo Push targets native devices).
   if (Platform.OS === 'web') return null;
   const ok = await ensureNotificationPermission();
-  if (!ok) return null;
+  if (!ok) {
+    noteOnce('Push token not registered: notification permission not granted');
+    return null;
+  }
   try {
     const projectId =
       (Constants.expoConfig?.extra as any)?.eas?.projectId ||
@@ -62,7 +73,10 @@ export async function registerExpoPushToken(): Promise<string | null> {
       projectId ? { projectId } : undefined,
     );
     const token = tokenResp.data;
-    if (!token) return null;
+    if (!token) {
+      noteOnce('Push token not registered: Expo returned no token');
+      return null;
+    }
     if (token === _lastRegisteredToken) return token; // skip re-uploads
     _lastRegisteredToken = token;
 
@@ -84,11 +98,14 @@ export async function registerExpoPushToken(): Promise<string | null> {
       // Graceful no-op if push_tokens doesn't exist yet (pre-Migration 007).
       // eslint-disable-next-line no-console
       console.warn('[push] could not register token:', error.message);
+      reportError(new Error(`Could not save push token: ${error.message}`), 'push-token');
     }
     return token;
   } catch (e) {
     // eslint-disable-next-line no-console
     console.warn('[push] registerExpoPushToken failed', e);
+    // The usual cause on Android is missing Firebase setup; Sentry then shows the exact error.
+    reportError(e, 'push-token');
     return null;
   }
 }

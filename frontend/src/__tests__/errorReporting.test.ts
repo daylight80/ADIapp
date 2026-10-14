@@ -6,15 +6,19 @@ jest.mock('@sentry/react-native', () => ({
   setUser: jest.fn(),
   setTag: jest.fn(),
   wrap: jest.fn((c: unknown) => c),
+  withScope: jest.fn((cb: (scope: unknown) => void) => cb(mockScope)),
+  captureException: jest.fn(),
+  captureMessage: jest.fn(),
 }));
+const mockScope = { setTag: jest.fn(), setLevel: jest.fn() };
 
 import * as Sentry from '@sentry/react-native';
-import { initErrorReporting, setReportingUser, withErrorReporting } from '../errorReporting.native';
+import { initErrorReporting, setReportingUser, withErrorReporting, reportError, reportNote } from '../errorReporting.native';
 
-const mockSentry = Sentry as unknown as Record<'init' | 'setUser' | 'setTag' | 'wrap', jest.Mock>;
+const mockSentry = Sentry as unknown as Record<'init' | 'setUser' | 'setTag' | 'wrap' | 'withScope' | 'captureException' | 'captureMessage', jest.Mock>;
 const setDev = (v: boolean) => { (global as any).__DEV__ = v; };
 
-beforeEach(() => { (['init', 'setUser', 'setTag', 'wrap'] as const).forEach((k) => mockSentry[k].mockClear()); });
+beforeEach(() => { (['init', 'setUser', 'setTag', 'wrap', 'captureException', 'captureMessage'] as const).forEach((k) => mockSentry[k].mockClear()); mockScope.setTag.mockClear(); mockScope.setLevel.mockClear(); });
 afterAll(() => setDev(true));
 
 describe('error reporting on the phone apps', () => {
@@ -58,5 +62,34 @@ describe('error reporting on the phone apps', () => {
     expect(mockSentry.setTag).toHaveBeenCalledWith('role', 'instructor');
     setReportingUser(null);
     expect(mockSentry.setUser).toHaveBeenLastCalledWith(null);
+  });
+});
+
+describe('reporting handled errors', () => {
+  it('sends the error to Sentry tagged with the area it came from', () => {
+    const err = new Error('boom');
+    reportError(err, 'push-token');
+    expect(mockScope.setTag).toHaveBeenCalledWith('area', 'push-token');
+    expect(mockSentry.captureException).toHaveBeenCalledWith(err);
+  });
+
+  it('wraps something that is not an Error so it still has a message', () => {
+    reportError('plain text', 'push-token');
+    const sent = mockSentry.captureException.mock.calls[0][0];
+    expect(sent).toBeInstanceOf(Error);
+    expect(sent.message).toBe('plain text');
+  });
+
+  it('sends a note as an info-level message', () => {
+    reportNote('permission refused', 'push-token');
+    expect(mockScope.setLevel).toHaveBeenCalledWith('info');
+    expect(mockSentry.captureMessage).toHaveBeenCalledWith('permission refused');
+  });
+
+  it('never throws if Sentry itself does', () => {
+    mockSentry.withScope.mockImplementationOnce(() => { throw new Error('sentry down'); });
+    expect(() => reportError(new Error('x'), 'a')).not.toThrow();
+    mockSentry.withScope.mockImplementationOnce(() => { throw new Error('sentry down'); });
+    expect(() => reportNote('x', 'a')).not.toThrow();
   });
 });

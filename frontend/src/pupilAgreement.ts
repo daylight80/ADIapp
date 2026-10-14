@@ -25,6 +25,15 @@ export function instructorAgreementLine(student: AgreementRecord | null | undefi
   return `Agreed${by} on ${formatDate(s.signedAt)}.`;
 }
 
+/** "Photo/video consent: Yes/No" on the pupil's profile, with the date when they've made a choice. */
+export function mediaConsentLine(
+  student: { media_consent?: boolean | null; media_consent_at?: string | null } | null | undefined,
+): string {
+  const yes = student?.media_consent === true;
+  const when = student?.media_consent_at ? ` (updated ${formatDate(student.media_consent_at)})` : '';
+  return `Photo/video consent: ${yes ? 'Yes' : 'No'}${when}`;
+}
+
 /** The student's own link text. */
 export function studentAgreementLabel(student: AgreementRecord | null | undefined): string {
   return agreementStatus(student).signed ? 'Pupil Agreement (signed ✓)' : 'Pupil Agreement — sign now';

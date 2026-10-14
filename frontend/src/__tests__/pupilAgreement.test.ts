@@ -1,5 +1,22 @@
 import { agreementSignError, agreementStatus, instructorAgreementLine, studentAgreementLabel } from '../pupilAgreement';
 
+import { mediaConsentLine } from '../pupilAgreement';
+
+describe('mediaConsentLine', () => {
+  it('says No when nothing has been chosen', () => {
+    expect(mediaConsentLine({})).toBe('Photo/video consent: No');
+    expect(mediaConsentLine(null)).toBe('Photo/video consent: No');
+  });
+  it('says Yes, with the date, when the pupil agreed', () => {
+    expect(mediaConsentLine({ media_consent: true, media_consent_at: '2026-10-14T13:00:00.000Z' }))
+      .toBe('Photo/video consent: Yes (updated 14 October 2026)');
+  });
+  it('says No, with the date, after the pupil withdrew', () => {
+    expect(mediaConsentLine({ media_consent: false, media_consent_at: '2026-10-14T13:00:00.000Z' }))
+      .toBe('Photo/video consent: No (updated 14 October 2026)');
+  });
+});
+
 const signed = { tc_signed_at: '2026-10-03T09:15:00.000Z', tc_signature_name: 'Callum Goody' };
 
 describe('agreementStatus', () => {

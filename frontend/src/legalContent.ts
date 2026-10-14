@@ -231,6 +231,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
       'Google: when you ask for a travel-time estimate, the pick-up and destination addresses are sent to Google Maps.',
       'Anthropic: when you scan a receipt, the receipt image is sent to Anthropic so the text can be read.',
       'Postcodes.io: when a pupil enters their postcode, the postcode alone is sent to this free UK postcode service to check that it exists.',
+      'Sentry: if the phone app crashes or hits an error, a report is sent to Sentry (stored in the EU, in Germany) so we can fix it. It holds technical details of the error and your phone, and your account number, but not your name, email address or the details in your requests.',
     ],
   },
   {

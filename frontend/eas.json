@@ -13,12 +13,16 @@
       "distribution": "internal",
       "environment": "preview",
       "env": {
-        "EAS_BUILD_DISABLE_MAVEN_CACHE": "1"
+        "EAS_BUILD_DISABLE_MAVEN_CACHE": "1",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
     },
     "production": {
       "autoIncrement": true,
-      "environment": "production"
+      "environment": "production",
+      "env": {
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
     }
   },
   "submit": {

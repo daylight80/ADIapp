@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "508805922992",
+    "project_id": "adi-app-8c337",
+    "storage_bucket": "adi-app-8c337.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:508805922992:android:32bf7ba3cbaa939162fb75",
+        "android_client_info": {
+          "package_name": "uk.co.drivingschoolsolutions.adi"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDsmBv79ytRTd7LNS2vJToc7tgZgEb8mhk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

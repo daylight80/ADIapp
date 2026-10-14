@@ -43,7 +43,8 @@
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_LOCATION"
       ],
-      "package": "uk.co.drivingschoolsolutions.adi"
+      "package": "uk.co.drivingschoolsolutions.adi",
+      "googleServicesFile": "./google-services.json"
     },
     "androidStatusBar": {
       "backgroundColor": "#000000",

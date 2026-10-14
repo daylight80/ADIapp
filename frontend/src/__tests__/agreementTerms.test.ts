@@ -68,6 +68,12 @@ describe('standardSections', () => {
     expect(text).toMatch(/instructor badge/);
   });
 
+  it('does not mention VAT, and the payments section ends cleanly', () => {
+    expect(text).not.toMatch(/VAT/i);
+    const payments = standardSections().find((s) => s.heading === 'Payments, prepaid hours & refunds')!;
+    expect(payments.body.endsWith(' ')).toBe(false);
+  });
+
   it('keeps the existing policies: 24-hour cancellation and non-refundable block bookings', () => {
     expect(text).toMatch(/less than 24 hours/);
     expect(text).toMatch(/non-refundable once paid/);

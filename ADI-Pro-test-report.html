@@ -1,0 +1,78 @@
+<!doctype html><html><head><meta charset="utf-8"><title>ADI Pro test report</title>
+<style>
+body{font-family:Segoe UI,Arial,sans-serif;color:#1e293b;margin:32px;font-size:12px;line-height:1.45}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 6px;border-bottom:2px solid #ff6b00;padding-bottom:3px}
+.meta{color:#64748b;margin-bottom:12px}table{border-collapse:collapse;width:100%;margin:6px 0}
+td,th{border:1px solid #cbd5e1;padding:5px 7px;text-align:left;vertical-align:top}th{background:#f1f5f9}
+.p{color:#15803d;font-weight:700}.n{color:#b45309;font-weight:700}.f{color:#b91c1c;font-weight:700}
+.box{background:#f8fafc;border:1px solid #cbd5e1;padding:8px 10px;margin:6px 0}
+</style></head><body>
+<h1>ADI Pro: test report</h1>
+<div class="meta">Tested 13 October 2026 &middot; Web app https://webapp.drivingschoolsolutions.co.uk (phone-width view, signed in as Grant Robery, ADI Pro tier) &middot; Code at main, including PRs #38&ndash;#50</div>
+
+<h2>Summary</h2>
+<div class="box">
+<b>No blocking bugs found.</b> Every instructor screen I opened loaded real data, with no spinner stalls and no browser console errors. The automated checks pass apart from one timing flake. I found <b>4 small issues</b> to look at (section 4) and several things I could <b>not</b> test from a desktop browser (section 5). I changed no data.
+</div>
+
+<h2>1. Automated checks</h2>
+<table><tr><th>Check</th><th>Result</th><th>Notes</th></tr>
+<tr><td>Unit and screen tests (Jest)</td><td class="p">366 / 367 pass</td><td>One failure, the School Profile "gives up on a stalled load" test. It passed when re-run alone, so it appears to be a timing flake when the whole suite runs in parallel. Not confirmed.</td></tr>
+<tr><td>TypeScript type check</td><td class="p">Pass</td><td>No errors.</td></tr>
+<tr><td>Lint</td><td class="n">Cosmetic errors</td><td>Unescaped apostrophes in text (react/no-unescaped-entities). They do not affect how the app runs.</td></tr>
+<tr><td>Browser console</td><td class="p">No errors</td><td>Checked after visiting about 25 screens.</td></tr></table>
+
+<h2>2. Screens checked in the live web app</h2>
+<table><tr><th>Screen</th><th>Result</th><th>What I saw</th></tr>
+<tr><td>Home</td><td class="p">Pass</td><td>Dashboard, referral code, month-to-date figures, "where students need help", bottom bar.</td></tr>
+<tr><td>Profile</td><td class="p">Pass</td><td>Grouped under My business, Teaching, Compliance, Diary &amp; students, Account. No Sign Out row. "My details" expands to Name, ADI number, Mobile, Email, Address and Save. No chevron next to the name.</td></tr>
+<tr><td>School Profile</td><td class="p">Pass</td><td>Loads fine (the spinner problem did not recur). Business details, price, Google review link, Pupil agreement checklist, four refund policies with the wording pupils will read.</td></tr>
+<tr><td>Bottom bar highlight</td><td class="p">Pass</td><td>On Students the Students icon is orange (255,107,0) and the others are grey.</td></tr>
+<tr><td>Students list</td><td class="p">Pass</td><td>3 pupils with correct status labels. Callum Goody shows PASSED. Filters and tile counts are consistent.</td></tr>
+<tr><td>Student profile (Callum Goody)</td><td class="p">Pass</td><td>Status PASSED. Test outcomes (practical and theory, 28 Sept), mock test history and Pupil Agreement card ("NOT SIGNED") all show.</td></tr>
+<tr><td>Competency tab</td><td class="p">Pass</td><td>All DVSA categories listed with a level and percentage.</td></tr>
+<tr><td>Diary</td><td class="p">Pass</td><td>Day, Week and Month views, Block time, Add lesson. No lessons today.</td></tr>
+<tr><td>Pricing &amp; packages</td><td class="p">Pass</td><td>8 packages with prices and per-hour rates.</td></tr>
+<tr><td>Gift vouchers</td><td class="p">Pass</td><td>2 active vouchers with Share PDF, Mark redeemed and Cancel buttons.</td></tr>
+<tr><td>Deadlines</td><td class="p">Pass</td><td>The Due date field is a real calendar input (type=date). This confirms the date-picker fix.</td></tr>
+<tr><td>Standards check, Unavailabilities, Vehicles, Syllabuses, Lesson note questions</td><td class="p">Pass</td><td>All load. Vehicles shows VW Golf as default. The three default note questions are present.</td></tr>
+<tr><td>Income &amp; expense report</td><td class="p">Pass (screen only)</td><td>Date range and quick ranges show. I did not generate a CSV.</td></tr>
+<tr><td>Receipts</td><td class="p">Pass</td><td>Empty state and categories show.</td></tr>
+<tr><td>Subscription / Pricing</td><td class="p">Pass</td><td>Starter, ADI Pro (current) and Franchise tiers, with prices.</td></tr>
+<tr><td>Owner dashboard</td><td class="p">Pass</td><td>Revenue, test performance, performance card.</td></tr>
+<tr><td>Theory test, Show Me / Tell Me, DL25 mock test</td><td class="p">Pass</td><td>Content and controls render. The theory test shows 10 questions; 21 official Show Me/Tell Me questions are listed.</td></tr>
+<tr><td>Privacy policy, Terms of service, Sync status</td><td class="p">Pass</td><td>Load. Sync shows "Connected, 0 pending".</td></tr>
+<tr><td>Wallet (pupil screen)</td><td class="p">Pass</td><td>As an instructor it correctly says no student profile is linked.</td></tr></table>
+
+<h2>3. Fixes from this session, verified</h2>
+<table><tr><th>Fix</th><th>Result</th></tr>
+<tr><td>Orange highlight on the current bottom-bar icon</td><td class="p">Verified live</td></tr>
+<tr><td>Calendar for deadline dates</td><td class="p">Verified live (Deadlines). The Standards check log was not opened.</td></tr>
+<tr><td>One "My details" in Profile (old My Details and Instructor Profile screens removed)</td><td class="p">Verified live</td></tr>
+<tr><td>Refund policy and Google reviews on School Profile</td><td class="p">Verified live</td></tr>
+<tr><td>Callum Goody shows Passed</td><td class="p">Verified live</td></tr>
+<tr><td>School Profile no longer spins forever</td><td class="p">Loads normally; the timeout and retry message were covered by unit tests only</td></tr></table>
+
+<h2>4. Issues found (all minor)</h2>
+<table><tr><th>#</th><th>Where</th><th>Issue</th></tr>
+<tr><td>1</td><td>Owner dashboard vs Home</td><td>Home says "3 lessons" this month; the owner dashboard says "1 lesson" and "-92% vs last month". The two screens probably count differently (booked and completed vs completed only). Needs checking so the numbers agree.</td></tr>
+<tr><td>2</td><td>Owner dashboard</td><td>On a solo ADI Pro plan it shows a "Needs attention: Instructor seat limit reached" alert at 1 of 1 seats. That is a normal state, so the alert is noise.</td></tr>
+<tr><td>3</td><td>Pricing</td><td>The tier card says "+ £9.99 per additional instructor" but the footnote says "£10". They should say the same.</td></tr>
+<tr><td>4</td><td>Student profile (passed pupil)</td><td>Callum is PASSED but still shows "Driving readiness 40%", "I've arrived" and "Record route". Consider hiding those for passed pupils. Also his readiness counts lessons against "Minimum 25 lessons" with only 2 recorded, which is a data quirk.</td></tr>
+<tr><td>5 (info)</td><td>Pricing</td><td>"Active students 2 / Unlimited" while Home and Students show 1 active. Probably it counts waitlist or test-ready pupils too.</td></tr></table>
+
+<h2>5. Not tested</h2>
+<table><tr><th>Area</th><th>Why</th></tr>
+<tr><td>Pupil flow: invite email, set password, sign Pupil Agreement, "Agreed by …" on the instructor side</td><td>Needs a fresh pupil email and you opening the invite link. Still outstanding.</td></tr>
+<tr><td>Lesson tools sheet (single preferred map button)</td><td>It opens from a lesson, and there are no lessons booked today.</td></tr>
+<tr><td>Fingerprint sign-in, logout this device only, sign-in bounce fix</td><td>Needs the Android app and signing in or out, which I can't do for you.</td></tr>
+<tr><td>Contacts import, route recording</td><td>Phone-only. You confirmed route recording works.</td></tr>
+<tr><td>Creating or editing data: add lesson, cancellation charge, add or deduct hours, unavailability blocks, saving School Profile, saving My details</td><td>I deliberately made no changes to your data.</td></tr>
+<tr><td>PDF invoice and voucher output, CSV export, Stripe checkout, emails (Resend), Google review request, calendar feed</td><td>Needs real sending or downloads. I did not trigger them.</td></tr>
+<tr><td>Sign-up, login and password-reset screens</td><td>I stayed signed in so the session wasn't lost.</td></tr></table>
+
+<h2>6. Suggested next steps</h2>
+<ol><li>You run the pupil agreement test with a fresh plus-tag email, as planned.</li>
+<li>Test the new Android build for the phone-only items in section 5.</li>
+<li>Say the word and I'll fix issues 1&ndash;4 above.</li></ol>
+</body></html>

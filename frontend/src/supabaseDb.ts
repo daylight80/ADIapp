@@ -503,6 +503,20 @@ export async function signPupilAgreementAsStudent(signatureName: string, agreeme
   return { tc_signed_at: row.tc_signed_at, tc_signature_name: row.tc_signature_name };
 }
 
+// Optional consent for the pupil's pass photo/video to be used on social media and the school's
+// website. Separate from the agreement signature; can be changed or withdrawn at any time.
+export async function getMyMediaConsent(): Promise<boolean> {
+  const { data, error } = await supabase.rpc('get_my_media_consent');
+  if (error) throw error;
+  return data === true;
+}
+
+export async function setMyMediaConsent(consent: boolean): Promise<boolean> {
+  const { data, error } = await supabase.rpc('set_my_media_consent', { p_consent: consent });
+  if (error) throw error;
+  return data === true;
+}
+
 export async function updateInstructorPreferredNavApp(app: NavApp): Promise<void> {
   const { instructorId } = await ownContext();
   const { error } = await supabase

@@ -6,7 +6,7 @@ import { ArrowLeft, Check, ShieldCheck } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
 import { Card } from '../src/ui';
-import { getMyPupilAgreementContext, signPupilAgreementAsStudent } from '../src/supabaseDb';
+import { getMyPupilAgreementContext, signPupilAgreementAsStudent, getMyMediaConsent, setMyMediaConsent } from '../src/supabaseDb';
 import { buildAgreement, agreementPlainText, type AgreementContext } from '../src/agreementTerms';
 import { useStudentByAuthId, bump } from '../src/useSupabaseData';
 import { agreementStatus, agreementSignError } from '../src/pupilAgreement';
@@ -41,8 +41,30 @@ export default function OnboardingTcScreen() {
   }, []);
   const agreement = buildAgreement(context);
 
+  // Optional, separate from the signature: pass photo/video on social media and the school's website.
+  const [mediaConsent, setMediaConsent] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    getMyMediaConsent().then((v) => { if (!cancelled) setMediaConsent(v); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   const recorded = agreementStatus(student);
   const saved = recorded.signed || !!justSigned;
+
+  // Before signing, the choice is saved with the signature; after signing, a change saves straight away.
+  const toggleMediaConsent = async () => {
+    const next = !mediaConsent;
+    setMediaConsent(next);
+    if (!saved) return;
+    setSaveError(null);
+    try {
+      await setMyMediaConsent(next);
+    } catch {
+      setMediaConsent(!next);
+      setSaveError('Could not save your photo/video choice. Please try again.');
+    }
+  };
   const signedAt = justSigned?.at ?? recorded.signedAt;
   const signedName = justSigned?.name ?? recorded.signedBy ?? '';
 
@@ -60,6 +82,7 @@ export default function OnboardingTcScreen() {
     try {
       const result = await signPupilAgreementAsStudent(signature, agreementPlainText(agreement));
       setJustSigned({ at: result.tc_signed_at, name: result.tc_signature_name });
+      if (mediaConsent) await setMyMediaConsent(true).catch(() => {});
       bump();
       setTimeout(() => router.back(), 1800);
     } catch (e: any) {
@@ -111,6 +134,23 @@ export default function OnboardingTcScreen() {
             {accepted && <Check size={14} color="#fff" />}
           </View>
           <Text style={styles.checkboxLabel}>I have read and accept the Pupil Agreement above.</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.checkbox}
+          onPress={toggleMediaConsent}
+          testID="checkbox-media-consent"
+          activeOpacity={0.7}
+        >
+          <View style={[styles.checkboxBox, mediaConsent && styles.checkboxBoxActive]}>
+            {mediaConsent && <Check size={14} color="#fff" />}
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.checkboxLabel}>
+              I agree for my driving test pass photo/video to be used on social media and the driving school&apos;s website.
+            </Text>
+            <Text style={styles.optionalNote}>Optional. You can change your mind at any time.</Text>
+          </View>
         </TouchableOpacity>
 
         <View>
@@ -176,6 +216,7 @@ const styles = StyleSheet.create({
   checkboxBox: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center' },
   checkboxBoxActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   checkboxLabel: { fontSize: 14, color: theme.colors.text, flex: 1 },
+  optionalNote: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
   label: { ...theme.font.caption, fontWeight: '600', marginBottom: 6, color: theme.colors.text },
   input: {
     borderWidth: 1,

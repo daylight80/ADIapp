@@ -186,7 +186,7 @@ export default function SchoolProfileScreen() {
 
         <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
           <Text style={styles.subtitle}>
-            This appears on your invoices, and on your dashboard header if you're on Franchise.
+            This appears on your invoices, and on your dashboard header if you&apos;re on Franchise.
           </Text>
 
           <Card style={{ gap: 12, alignItems: 'center' }}>
@@ -269,7 +269,7 @@ export default function SchoolProfileScreen() {
               testID="input-hourly-rate"
             />
             <Text style={styles.hint}>
-              A standard/default rate for reference — doesn't change what's already set for individual students.
+              A standard/default rate for reference — doesn&apos;t change what&apos;s already set for individual students.
             </Text>
 
             <Text style={[styles.label, { marginTop: 10 }]}>Google review link</Text>
@@ -284,7 +284,7 @@ export default function SchoolProfileScreen() {
               testID="input-google-review-url"
             />
             <Text style={styles.hint}>
-              Your Google Business Profile's "write a review" link, to share with students.
+              Your Google Business Profile&apos;s &quot;write a review&quot; link, to share with students.
             </Text>
           </Card>
 
@@ -295,7 +295,7 @@ export default function SchoolProfileScreen() {
             </View>
             <Text style={styles.hint}>
               Shown to your pupils when they sign the Pupil Agreement. Leave blank to use the standard wording, which already
-              covers everything below. Your instructor's contact details and the pupil's lesson price are always added
+              covers everything below. Your instructor&apos;s contact details and the pupil&apos;s lesson price are always added
               automatically.
             </Text>
             <TextInput

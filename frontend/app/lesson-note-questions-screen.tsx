@@ -115,7 +115,7 @@ export default function LessonNoteQuestionsScreen() {
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 10 }}>
         <Text style={styles.subtitle}>
-          These are the questions you'll answer after each lesson. Reorder, edit, or remove them — changes apply to new lesson notes only.
+          These are the questions you&apos;ll answer after each lesson. Reorder, edit, or remove them — changes apply to new lesson notes only.
         </Text>
 
         {questions.map((q, i) => (

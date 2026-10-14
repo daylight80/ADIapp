@@ -175,7 +175,7 @@ export default function BackupScreen() {
         {!GOOGLE_CLIENT_ID && (
           <Text style={styles.setupHint}>
             Not set up yet — this needs a one-time Google Cloud Console step before it can work. See the code
-            comments on this screen for exactly what's needed.
+            comments on this screen for exactly what&apos;s needed.
           </Text>
         )}
       </View>

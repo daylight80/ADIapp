@@ -327,7 +327,7 @@ export default function RouteRecorderScreen() {
         {linkedStudentName && (
           <View style={styles.linkedBanner} testID="linked-lesson-banner">
             <MapPin size={14} color={theme.colors.primary} />
-            <Text style={styles.linkedBannerText}>Recording for {linkedStudentName}'s lesson</Text>
+            <Text style={styles.linkedBannerText}>Recording for {linkedStudentName}&apos;s lesson</Text>
           </View>
         )}
         {/* ---- Recording panel ---- */}
@@ -395,7 +395,7 @@ export default function RouteRecorderScreen() {
           <Card style={styles.emptyCard}>
             <MapPin size={36} color={theme.colors.textMuted} />
             <Text style={styles.emptyText}>No routes saved yet.</Text>
-            <Text style={styles.emptyHint}>Tap "Start Recording" to capture your first lesson route.</Text>
+            <Text style={styles.emptyHint}>Tap &quot;Start Recording&quot; to capture your first lesson route.</Text>
           </Card>
         ) : (
           saved.map((r) => (

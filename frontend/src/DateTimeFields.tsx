@@ -199,6 +199,9 @@ function PickerHost({
   onChange: (d: Date) => void;
   onClose: () => void;
 }) {
+  // The iOS sheet's draft value. Declared first: hooks must not sit after an early return.
+  const [draft, setDraft] = useState<Date>(value);
+
   // Android's native dialog auto-closes — emit + close immediately.
   if (Platform.OS === 'android') {
     return (
@@ -216,7 +219,6 @@ function PickerHost({
   }
 
   // iOS: present as a bottom-sheet modal with Cancel / Done buttons.
-  const [draft, setDraft] = useState<Date>(value);
   return (
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>

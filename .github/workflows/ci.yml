@@ -35,6 +35,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Type check
         run: npx tsc --noEmit
+      - name: Lint (errors only)
+        run: npx eslint . --quiet
       - name: Tests
         run: npx jest --ci
 

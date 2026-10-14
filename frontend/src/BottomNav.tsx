@@ -78,7 +78,7 @@ export function BottomNav({ role }: { role: 'instructor' | 'student' }) {
         <View style={styles.confirmBackdrop}>
           <View style={styles.confirmCard} testID="logout-confirm-modal">
             <Text style={styles.confirmTitle}>Log out?</Text>
-            <Text style={styles.confirmLine}>You'll need to sign in again to get back in.</Text>
+            <Text style={styles.confirmLine}>You&apos;ll need to sign in again to get back in.</Text>
             <View style={{ flexDirection: 'row', gap: 9, marginTop: 16 }}>
               <TouchableOpacity
                 style={styles.confirmCancelBtn}

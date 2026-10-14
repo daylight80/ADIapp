@@ -142,7 +142,7 @@ export default function StandardsCheckScreen() {
 
         <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
           <Text style={styles.subtitle}>
-            Your own DVSA quality assurance record — distinct from your students' pass rates. DVSA re-checks every registered ADI at least once every 4 years.
+            Your own DVSA quality assurance record — distinct from your students&apos; pass rates. DVSA re-checks every registered ADI at least once every 4 years.
           </Text>
 
           {nextDueInfo && (

@@ -93,7 +93,7 @@ export default function ForgotPasswordScreen() {
               </View>
               <Text style={s.heading}>Forgotten your password?</Text>
               <Text style={s.body}>
-                No worries — pop in the email address you signed up with and we'll send you a secure link to set a new one.
+                No worries — pop in the email address you signed up with and we&apos;ll send you a secure link to set a new one.
               </Text>
 
               <View style={{ gap: 6, marginTop: 26 }}>
@@ -142,11 +142,11 @@ export default function ForgotPasswordScreen() {
               </View>
               <Text style={s.heading}>Check your inbox</Text>
               <Text style={s.body}>
-                We've sent a reset link to <Text style={{ fontFamily: 'Barlow_700Bold', color: C.text }}>{email.trim()}</Text>.
+                We&apos;ve sent a reset link to <Text style={{ fontFamily: 'Barlow_700Bold', color: C.text }}>{email.trim()}</Text>.
                 Open it on this device to choose a new password. The link will expire in 1 hour.
               </Text>
               <Text style={[s.body, { marginTop: 12 }]}>
-                Can't find it? Have a peek in your spam folder, or double-check the address.
+                Can&apos;t find it? Have a peek in your spam folder, or double-check the address.
               </Text>
 
               <TouchableOpacity

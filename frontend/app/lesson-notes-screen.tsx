@@ -131,7 +131,7 @@ export default function LessonNotesScreen() {
           {questions.length === 0 ? (
             <Card>
               <Text style={styles.emptyText}>
-                You don't have any lesson note questions set up yet.
+                You don&apos;t have any lesson note questions set up yet.
               </Text>
               <TouchableOpacity
                 style={styles.setupBtn}

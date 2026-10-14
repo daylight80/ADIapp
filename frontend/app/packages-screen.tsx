@@ -193,7 +193,7 @@ export default function PackagesScreen() {
         <Card style={styles.rateCard}>
           <Text style={styles.cardTitle}>Default hourly rate</Text>
           <Text style={styles.cardSub}>
-            New students inherit this rate when they're added. You can still override per student.
+            New students inherit this rate when they&apos;re added. You can still override per student.
           </Text>
           <View style={styles.rateRow}>
             <PoundSterling size={18} color={theme.colors.textMuted} />
@@ -229,7 +229,7 @@ export default function PackagesScreen() {
           <Card style={[styles.warnCard, { marginBottom: 12 }]}>
             <Text style={styles.warnTitle}>{grouped.incomplete.length} package{grouped.incomplete.length === 1 ? '' : 's'} need pricing</Text>
             <Text style={styles.warnSub}>
-              Tap a package below to set its price. Packages without a price won't appear to students in the Wallet.
+              Tap a package below to set its price. Packages without a price won&apos;t appear to students in the Wallet.
             </Text>
           </Card>
         )}
@@ -237,7 +237,7 @@ export default function PackagesScreen() {
         {items.length === 0 ? (
           <Card style={{ alignItems: 'center', gap: 6, paddingVertical: 28 }}>
             <Text style={styles.emptyTitle}>No packages yet</Text>
-            <Text style={styles.emptySub}>Tap "New" to add your first package.</Text>
+            <Text style={styles.emptySub}>Tap &quot;New&quot; to add your first package.</Text>
           </Card>
         ) : (
           items.map((p) => (

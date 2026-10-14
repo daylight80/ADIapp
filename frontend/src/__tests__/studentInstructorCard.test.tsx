@@ -58,6 +58,17 @@ describe('pupil Instructor tab', () => {
     expect(url).toContain("Hi Grant, it's Test. I'm running a few minutes late");
   });
 
+  it('shows the driving school after the instructor, only when its details differ', async () => {
+    const { rerender } = await render(<StudentInstructorCard instructor={grant} loadFailed={false} />);
+    expect(screen.queryByTestId('instructor-school-card')).toBeNull();
+    await rerender(<StudentInstructorCard instructor={{ ...grant, school_phone: '020 8000 0000', school_email: 'office@school.co.uk' }} loadFailed={false} />);
+    expect(screen.getByTestId('instructor-school-card')).toHaveTextContent(/Contact your instructor first/);
+    await fireEvent.press(screen.getByTestId('school-phone'));
+    expect(open).toHaveBeenLastCalledWith('tel:02080000000');
+    await fireEvent.press(screen.getByTestId('school-email'));
+    expect(open).toHaveBeenLastCalledWith('mailto:office@school.co.uk');
+  });
+
   it('links to the DVSA complaints page', async () => {
     await render(<StudentInstructorCard instructor={grant} loadFailed={false} />);
     await fireEvent.press(screen.getByTestId('instructor-complaint'));

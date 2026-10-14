@@ -7,6 +7,9 @@ export type InstructorCardData = {
   business_name?: string | null;
   contact_phone?: string | null;
   contact_email?: string | null;
+  /** The driving school's own phone and email, only when they differ from the instructor's. */
+  school_phone?: string | null;
+  school_email?: string | null;
   /** null when the school has chosen not to share the car. */
   vehicle?: {
     make_and_model?: string | null;

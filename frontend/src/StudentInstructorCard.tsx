@@ -120,6 +120,25 @@ export function StudentInstructorCard({
         </Card>
       )}
 
+      {!!(instructor.school_phone || instructor.school_email) && (
+        <Card style={{ gap: 8 }} testID="instructor-school-card">
+          <Text style={styles.title}>{instructor.business_name || 'Your driving school'}</Text>
+          <Text style={styles.hint}>Contact your instructor first. Use these if you cannot reach them.</Text>
+          {!!instructor.school_phone && (
+            <TouchableOpacity style={styles.row} onPress={() => Linking.openURL(telUrl(instructor.school_phone!))} testID="school-phone">
+              <Phone size={18} color={theme.colors.primary} />
+              <Text style={styles.link}>{instructor.school_phone}</Text>
+            </TouchableOpacity>
+          )}
+          {!!instructor.school_email && (
+            <TouchableOpacity style={styles.row} onPress={() => Linking.openURL(`mailto:${instructor.school_email}`)} testID="school-email">
+              <Mail size={18} color={theme.colors.primary} />
+              <Text style={[styles.link, { flex: 1 }]} numberOfLines={1}>{instructor.school_email}</Text>
+            </TouchableOpacity>
+          )}
+        </Card>
+      )}
+
       <TouchableOpacity style={styles.complaint} onPress={() => Linking.openURL(DVSA_COMPLAINTS_URL)} testID="instructor-complaint">
         <Flag size={16} color={theme.colors.textMuted} />
         <Text style={styles.hint}>Need to make a complaint? See the DVSA&apos;s page.</Text>

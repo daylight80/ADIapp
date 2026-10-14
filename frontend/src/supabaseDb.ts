@@ -1533,6 +1533,21 @@ export async function setMySlotAlerts(on: boolean): Promise<boolean> {
   return data === true;
 }
 
+// The instructor's default travel buffer, in minutes: what a new lesson starts with, and what the
+// diary draws after a lesson. Functions because only a school owner may update the instructors table
+// directly, but every instructor may change their own default (migration 071).
+export async function getMyDefaultTravelMinutes(): Promise<number> {
+  const { data, error } = await supabase.rpc('get_my_default_travel_minutes');
+  if (error) throw error;
+  return typeof data === 'number' ? data : 15;
+}
+
+export async function setMyDefaultTravelMinutes(minutes: number): Promise<number> {
+  const { data, error } = await supabase.rpc('set_my_default_travel_minutes', { p_minutes: minutes });
+  if (error) throw error;
+  return typeof data === 'number' ? data : minutes;
+}
+
 // What happened to the slot alert for one of the instructor's cancelled lessons: when it was
 // handled and how many pupils were told. A function because slot_alert_log is backend-only
 // (migrations 064 and 065). null when the lesson is not the caller's.

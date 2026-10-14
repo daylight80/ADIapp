@@ -11,6 +11,7 @@ import { startOfWeek, addDays, localDateKey, startOfMonthGrid, endOfMonthGrid, a
 import { colorForLessonType, LESSON_TYPES } from '../src/diary/lessonTypes';
 import { AddLessonSheet } from '../src/diary/AddLessonSheet';
 import { DraggableLessonBlock } from '../src/diary/DraggableLessonBlock';
+import { lessonBuffer, findTightTurnarounds, describeTightTurnaround } from '../src/diary/buffer';
 import { UnavailabilityModal } from '../src/UnavailabilityModal';
 import { useAuth } from '../src/AuthContext';
 import { isPaidTier } from '../src/tiers';
@@ -138,7 +139,7 @@ export default function LessonDiaryV2Screen() {
   // is awaiting, so tapping Confirm/Cancel in the modal settles that same
   // promise rather than needing a second, separate mechanism.
   const [dragConfirm, setDragConfirm] = useState<{
-    lesson: Lesson; newStart: string; newEnd: string; resolve: (v: boolean) => void;
+    lesson: Lesson; newStart: string; newEnd: string; warning?: string; resolve: (v: boolean) => void;
   } | null>(null);
 
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
@@ -278,10 +279,21 @@ export default function LessonDiaryV2Screen() {
     const newStartTime = minutesToTime(newStartMin);
     const newEndTime = minutesToTime(newStartMin + durationMinutes);
 
+    // Travel buffer: moving into the previous lesson's travel time (or running your own into the next
+    // lesson) is allowed, but the confirmation says so.
+    const timed = (x: Lesson) => ({ id: x.id, startMin: toMinutesOfDay(x.start_time), endMin: toMinutesOfDay(x.end_time), buffer: lessonBuffer(x) });
+    const tight = findTightTurnarounds(
+      { id: l.id, startMin: newStartMin, endMin: newStartMin + durationMinutes, buffer: lessonBuffer(l) },
+      dayList.filter((o) => o.id !== l.id && o.status !== 'Cancelled').map(timed),
+    );
+    const warning = tight.length
+      ? tight.map((t) => describeTightTurnaround(t, studentName(dayList.find((o) => o.id === t.otherId)?.student_id ?? ''))).join(' ')
+      : undefined;
+
     // Wait for the instructor to actually confirm before saving anything —
     // the modal's Confirm/Cancel buttons resolve this same promise.
     const confirmed = await new Promise<boolean>((resolve) => {
-      setDragConfirm({ lesson: l, newStart: newStartTime, newEnd: newEndTime, resolve });
+      setDragConfirm({ lesson: l, newStart: newStartTime, newEnd: newEndTime, warning, resolve });
     });
     if (!confirmed) return false;
 
@@ -629,7 +641,8 @@ export default function LessonDiaryV2Screen() {
                       const items = [];
                       const prev = k > 0 ? dayList[k - 1] : null;
                       if (prev) {
-                        const prevEnd = toMinutesOfDay(prev.end_time);
+                        // The free slot starts after the previous lesson's travel buffer.
+                        const prevEnd = toMinutesOfDay(prev.end_time) + lessonBuffer(prev);
                         if (sMin - prevEnd >= 60) {
                           const top = (prevEnd - TOP_MIN) / 60 * HOUR_H;
                           const height = (sMin - prevEnd) / 60 * HOUR_H - 4;
@@ -646,6 +659,7 @@ export default function LessonDiaryV2Screen() {
                       const colInfo = dayColumns[l.id] || { column: 0, totalColumns: 1 };
                       const colWidthPct = 100 / colInfo.totalColumns;
                       const isCancelled = l.status === 'Cancelled';
+                      const bufferMin = lessonBuffer(l);
                       items.push(
                         // Outer wrapper matches the original single-lesson
                         // positioning exactly (left: 38 for the hour-label
@@ -692,6 +706,26 @@ export default function LessonDiaryV2Screen() {
                             </View>
                             {colInfo.totalColumns === 1 && <Text style={s.lessonBlockTag}>{durLabel(eMin - sMin)}</Text>}
                           </TouchableOpacity>
+                          {bufferMin > 0 && (
+                            // Travel buffer: a lighter dashed strip under the lesson, moving with it when dragged.
+                            // The lesson's own end time, length and price are untouched.
+                            <View
+                              pointerEvents="none"
+                              style={[
+                                s.bufferStrip,
+                                {
+                                  top: height + 1,
+                                  height: Math.max(8, (bufferMin / 60) * HOUR_H - 3),
+                                  left: `${colInfo.column * colWidthPct}%`,
+                                  width: colInfo.totalColumns > 1 ? `${colWidthPct}%` : '100%',
+                                  marginHorizontal: colInfo.totalColumns > 1 ? 2 : 0,
+                                },
+                              ]}
+                              testID={`v2-buffer-${l.id}`}
+                            >
+                              {(bufferMin / 60) * HOUR_H >= 18 && <Text style={s.bufferText} numberOfLines={1}>{bufferMin} min travel</Text>}
+                            </View>
+                          )}
                         </DraggableLessonBlock>,
                       );
                       return items;
@@ -768,6 +802,9 @@ export default function LessonDiaryV2Screen() {
               <Text style={s.dragConfirmLine}>
                 {studentName(dragConfirm.lesson.student_id)}&apos;s lesson to {dragConfirm.newStart}–{dragConfirm.newEnd}
               </Text>
+            )}
+            {!!dragConfirm?.warning && (
+              <Text style={s.dragConfirmWarning} testID="drag-confirm-tight">Tight turnaround: {dragConfirm.warning}</Text>
             )}
             <View style={{ flexDirection: 'row', gap: 9, marginTop: 16 }}>
               <TouchableOpacity
@@ -849,6 +886,11 @@ const s = StyleSheet.create({
   gapMeta: { fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: '#A69C8B' },
   gapCta: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: C.accent },
   lessonBlock: { position: 'absolute', left: 38, right: 0, borderRadius: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingHorizontal: 13, shadowColor: '#0F172A', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 3 },
+  bufferStrip: {
+    position: 'absolute', backgroundColor: 'rgba(100,92,80,0.10)', borderWidth: 1, borderTopWidth: 0, borderColor: 'rgba(100,92,80,0.35)',
+    borderStyle: 'dashed', borderBottomLeftRadius: 9, borderBottomRightRadius: 9, justifyContent: 'center', paddingHorizontal: 10,
+  },
+  bufferText: { fontFamily: 'Barlow_600SemiBold', fontSize: 10.5, color: '#6B6356' },
   lessonBlockName: { fontFamily: 'Barlow_700Bold', fontSize: 14.5, color: '#fff' },
   lessonBlockMeta: { fontFamily: 'Barlow_500Medium', fontSize: 12, color: 'rgba(255,255,255,0.78)' },
   lessonBlockTag: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1, color: 'rgba(255,255,255,0.85)' },
@@ -877,6 +919,7 @@ const s = StyleSheet.create({
   dragConfirmBackdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
   dragConfirmCard: { width: '100%', maxWidth: 360, backgroundColor: '#fff', borderRadius: 18, padding: 20 },
   dragConfirmTitle: { fontFamily: 'Archivo_800ExtraBold', fontSize: 17, color: C.text },
+  dragConfirmWarning: { fontFamily: 'Barlow_600SemiBold', fontSize: 13, color: '#B45309', marginTop: 10, lineHeight: 18 },
   dragConfirmLine: { fontFamily: 'Barlow_500Medium', fontSize: 14, color: C.textMuted, marginTop: 8, lineHeight: 19 },
   dragConfirmCancelBtn: { flex: 1, minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
   dragConfirmCancelBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 14, color: C.textMuted },

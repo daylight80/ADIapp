@@ -5,12 +5,19 @@ jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }))
 jest.mock('../supabaseClient', () => ({ supabase: {} }));
 jest.mock('../useSupabaseData', () => ({ bump: jest.fn() }));
 jest.mock('../supabaseDb', () => ({ updateMyStudentDetails: jest.fn() }));
+// The real postcode shape checks, but no network: lookupPostcode is replaced.
+jest.mock('../postcodeLookup', () => ({
+  ...jest.requireActual('../postcodeLookup'),
+  lookupPostcode: jest.fn(),
+}));
 
 import * as db from '../supabaseDb';
 import { validatePupilDetails, normaliseLicence } from '../pupilDetails';
 import { StudentDetailsCard } from '../StudentDetailsCard';
+import * as postcodes from '../postcodeLookup';
 
 const update = db.updateMyStudentDetails as jest.Mock;
+const lookup = postcodes.lookupPostcode as jest.Mock;
 const good = { phone: '07700 900123', address: '5 High Street, Sutton', postcode: 'sm1 4ls', licence: 'abcde 123456 78901' };
 
 describe('validatePupilDetails', () => {
@@ -54,7 +61,46 @@ describe('validatePupilDetails', () => {
 describe('pupil My details card', () => {
   const student = { email: 'pupil@x.co', phone: '07700 900123', address: '5 High Street', postcode: 'SM1 4LS', provisional_licence: 'ABCDE12345678901' };
 
-  beforeEach(() => update.mockReset());
+  beforeEach(() => {
+    update.mockReset();
+    lookup.mockReset();
+    lookup.mockResolvedValue({ status: 'found', postcode: 'SM1 4LS', area: 'Sutton, London' });
+  });
+
+  it('checks the postcode when the pupil leaves the field: tidies it and shows the area', async () => {
+    await render(<StudentDetailsCard student={student} />);
+    await fireEvent.changeText(screen.getByTestId('input-pupil-postcode'), 'sm14ls');
+    await fireEvent(screen.getByTestId('input-pupil-postcode'), 'blur');
+    expect(screen.getByTestId('input-pupil-postcode').props.value).toBe('SM1 4LS');
+    expect(await screen.findByTestId('input-pupil-postcode-note')).toHaveTextContent('SM1 4LS: Sutton, London');
+  });
+
+  it('says so when the postcode is not found, and will not save it', async () => {
+    lookup.mockResolvedValue({ status: 'not_found' });
+    await render(<StudentDetailsCard student={student} />);
+    await fireEvent.changeText(screen.getByTestId('input-pupil-postcode'), 'ZZ99 9ZZ');
+    await fireEvent.press(screen.getByTestId('btn-save-pupil-details'));
+    expect(update).not.toHaveBeenCalled();
+    expect(await screen.findByTestId('input-pupil-postcode-note')).toHaveTextContent(/could not find that postcode/);
+    expect(screen.getByTestId('pupil-details-message')).toHaveTextContent(/check your postcode/);
+  });
+
+  it('still saves when the postcode service cannot be reached', async () => {
+    lookup.mockResolvedValue({ status: 'unavailable' });
+    update.mockResolvedValue({ phone: '07700 900123', address: '5 High Street', postcode: 'SM1 4LS', provisional_licence: 'ABCDE12345678901' });
+    await render(<StudentDetailsCard student={student} />);
+    await fireEvent.press(screen.getByTestId('btn-save-pupil-details'));
+    expect(update).toHaveBeenCalled();
+    expect(await screen.findByTestId('pupil-details-message')).toHaveTextContent('Your details have been saved.');
+  });
+
+  it('rejects something that is not shaped like a postcode without calling the service', async () => {
+    await render(<StudentDetailsCard student={student} />);
+    await fireEvent.changeText(screen.getByTestId('input-pupil-postcode'), 'hello');
+    await fireEvent(screen.getByTestId('input-pupil-postcode'), 'blur');
+    expect(lookup).not.toHaveBeenCalled();
+    expect(await screen.findByTestId('input-pupil-postcode-note')).toHaveTextContent(/does not look like a UK postcode/);
+  });
 
   it('shows the pupil their details, with email read-only', async () => {
     await render(<StudentDetailsCard student={student} />);

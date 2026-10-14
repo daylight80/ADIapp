@@ -11,7 +11,7 @@
  * touching any layout code. To change what a section says, edit it here.
  */
 
-export const LEGAL_LAST_UPDATED = '28 September 2026';
+export const LEGAL_LAST_UPDATED = '14 October 2026';
 
 export const OPERATOR = {
   name: 'Driving School Solutions',
@@ -230,6 +230,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
       'Expo: delivers push notifications to your phone.',
       'Google: when you ask for a travel-time estimate, the pick-up and destination addresses are sent to Google Maps.',
       'Anthropic: when you scan a receipt, the receipt image is sent to Anthropic so the text can be read.',
+      'Postcodes.io: when a pupil enters their postcode, the postcode alone is sent to this free UK postcode service to check that it exists.',
     ],
   },
   {

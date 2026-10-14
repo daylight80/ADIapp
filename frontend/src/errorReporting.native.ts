@@ -33,6 +33,30 @@ export function setReportingUser(id: string | null, role?: string): void {
   } catch { /* ignore */ }
 }
 
+/**
+ * Reports a handled error (one the app caught and carried on from) so it still reaches Sentry.
+ * `area` says which feature it came from, e.g. "push-token". Never throws.
+ */
+export function reportError(error: unknown, area: string): void {
+  try {
+    Sentry.withScope((scope) => {
+      scope.setTag('area', area);
+      Sentry.captureException(error instanceof Error ? error : new Error(String(error)));
+    });
+  } catch { /* ignore */ }
+}
+
+/** Reports something worth knowing that is not an error, such as a permission being refused. */
+export function reportNote(message: string, area: string): void {
+  try {
+    Sentry.withScope((scope) => {
+      scope.setTag('area', area);
+      scope.setLevel('info');
+      Sentry.captureMessage(message);
+    });
+  } catch { /* ignore */ }
+}
+
 /** Wraps the root component so errors thrown while rendering are reported. */
 export function withErrorReporting<P extends object>(Component: React.ComponentType<P>): React.ComponentType<P> {
   return __DEV__ ? Component : (Sentry.wrap(Component as React.ComponentType<any>) as unknown as React.ComponentType<P>);

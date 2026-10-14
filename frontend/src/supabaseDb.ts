@@ -5,6 +5,7 @@
 
 import type { AgreementContext } from './agreementTerms';
 import { supabase } from './supabaseClient';
+import type { InstructorCardData } from './instructorCard';
 import type { DeadlineItem, EditableDeadlineKind } from './deadlines';
 
 // ---------------------------------------------------------------------------
@@ -1920,6 +1921,8 @@ export type SchoolProfile = {
   // Instructor-editable T&Cs (2 Sept 2026) — per-school, freeform. Null
   // means the school hasn't set their own text yet.
   pupil_agreement_text: string | null;
+  /** Whether pupils see the car (make, plate, gearbox) on their Instructor tab. */
+  share_vehicle_with_pupils: boolean;
 };
 
 export async function getMySchoolProfile(): Promise<SchoolProfile | null> {
@@ -1928,7 +1931,7 @@ export async function getMySchoolProfile(): Promise<SchoolProfile | null> {
   if (!uid) return null;
   const { data, error } = await supabase
     .from('driving_schools')
-    .select('id, business_name, logo_url, contact_email, contact_phone, address, default_hourly_rate, google_review_url, tier, pupil_agreement_text')
+    .select('id, business_name, logo_url, contact_email, contact_phone, address, default_hourly_rate, google_review_url, tier, pupil_agreement_text, share_vehicle_with_pupils')
     .eq('owner_auth_id', uid)
     .maybeSingle();
   if (error) throw error;
@@ -1959,6 +1962,7 @@ export async function updateMySchoolProfile(patch: Partial<{
   google_review_url: string | null;
   pupil_agreement_text: string | null;
   refund_policy: string;
+  share_vehicle_with_pupils: boolean;
 }>): Promise<void> {
   const { data: sessionData } = await supabase.auth.getSession();
   const uid = sessionData.session?.user.id;
@@ -1987,6 +1991,15 @@ export async function getMyPupilAgreementContext(): Promise<AgreementContext | n
   const { data, error } = await supabase.rpc('my_pupil_agreement_context');
   if (error) throw error;
   return (data as AgreementContext | null) ?? null;
+}
+
+// What the pupil's Instructor tab shows: name, ADI number, business contact details and
+// (if the school shares it) the car. A function rather than table reads, because pupils
+// cannot read instructors, driving_schools or vehicles (migration 060).
+export async function getMyInstructorCard(): Promise<InstructorCardData | null> {
+  const { data, error } = await supabase.rpc('my_instructor_card');
+  if (error) throw error;
+  return (data as InstructorCardData | null) ?? null;
 }
 
 export async function uploadSchoolLogo(schoolId: string, base64: string, mimeType: string): Promise<string> {

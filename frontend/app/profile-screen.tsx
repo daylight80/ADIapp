@@ -17,9 +17,7 @@ import { PaywallModal } from '../src/PaywallModal';
 import { copyToClipboard } from '../src/tools';
 import { useInstructorProfile, useStudentByAuthId, updatePreferredNavApp } from '../src/useSupabaseData';
 import type { NavApp } from '../src/supabaseDb';
-import { submitDeletionRequest, listMyDeletionRequests, getMyPupilAgreementContext } from '../src/supabaseDb';
-import type { AgreementContext } from '../src/agreementTerms';
-import { StudentInstructorCard } from '../src/StudentInstructorCard';
+import { submitDeletionRequest, listMyDeletionRequests } from '../src/supabaseDb';
 import { StudentDetailsCard } from '../src/StudentDetailsCard';
 import { exportMyDataJson } from '../src/gdprExport';
 import { CalendarFeedCard } from '../src/CalendarFeedCard';
@@ -60,20 +58,6 @@ export default function ProfileScreen() {
   const student = user?.email ? mockDb.getStudentByEmail(user.email) : undefined;
   const pro = isPaidTier(user?.tier);
   const { student: myStudent } = useStudentByAuthId(role === 'student' ? user?.id : undefined);
-
-  // A pupil's own instructor: name, contact details and ADI number, read through the
-  // same function the Pupil Agreement uses (a pupil cannot read the instructors table).
-  // This card used to show a hard-coded demo instructor (ADI 123456) from mockDb.
-  const [myInstructor, setMyInstructor] = useState<AgreementContext | null>(null);
-  const [instructorLoadFailed, setInstructorLoadFailed] = useState(false);
-  React.useEffect(() => {
-    if (role !== 'student') return;
-    let cancelled = false;
-    getMyPupilAgreementContext()
-      .then((c) => { if (!cancelled) setMyInstructor(c); })
-      .catch(() => { if (!cancelled) setInstructorLoadFailed(true); });
-    return () => { cancelled = true; };
-  }, [role, user?.id]);
 
   // Preferred navigation app for the diary's one-tap 🧭 button.
   const { profile: sbInstructor } = useInstructorProfile();
@@ -389,7 +373,6 @@ export default function ProfileScreen() {
           </>
         )}
 
-        {role === 'student' && <StudentInstructorCard instructor={myInstructor} loadFailed={instructorLoadFailed} />}
         {role === 'student' && myStudent && <StudentDetailsCard student={myStudent} />}
 
         {role === 'student' && (

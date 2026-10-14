@@ -24,9 +24,8 @@ export function buildInvoiceHtml(opts: {
     invoiceNo, instructorName, instructorEmail, student, lessons, issuedAt,
     schoolName, schoolLogoUrl, schoolContactEmail, schoolContactPhone, schoolAddress,
   } = opts;
-  const subtotal = lessons.reduce((s, l) => s + (l.amount_paid || 0), 0);
-  const vat = +(subtotal * 0.2).toFixed(2);
-  const total = +(subtotal + vat).toFixed(2);
+  // No VAT: the total is simply what the lessons cost (Grant, 14 Oct 2026).
+  const total = +lessons.reduce((s, l) => s + (l.amount_paid || 0), 0).toFixed(2);
   const dateStr = issuedAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
   const rows = lessons
@@ -98,8 +97,6 @@ export function buildInvoiceHtml(opts: {
 </table>
 
 <div class="totals">
-  <div class="row"><span class="muted">Subtotal</span><span>£${subtotal.toFixed(2)}</span></div>
-  <div class="row"><span class="muted">VAT (20%)</span><span>£${vat.toFixed(2)}</span></div>
   <div class="row grand"><span>Total</span><span>£${total.toFixed(2)}</span></div>
 </div>
 

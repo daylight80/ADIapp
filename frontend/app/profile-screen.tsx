@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChevronRight, ChevronDown, Building2, Mail, Phone, MapPin, Award, Calendar, CalendarClock, Crown, ShieldCheck, Wallet, Copy, IdCard, Car, Navigation as NavIcon, Users, FileSpreadsheet, Download, Trash2, BookOpen, Fingerprint, Gift } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { useAuth } from '../src/AuthContext';
-import { mockDb, instructorProfile } from '../src/mockDb';
+import { mockDb } from '../src/mockDb';
 import { Card, Badge, StatusBadge } from '../src/ui';
 import { BottomNav } from '../src/BottomNav';
 import { useRouter } from 'expo-router';
@@ -17,7 +17,9 @@ import { PaywallModal } from '../src/PaywallModal';
 import { copyToClipboard } from '../src/tools';
 import { useInstructorProfile, useStudentByAuthId, updatePreferredNavApp } from '../src/useSupabaseData';
 import type { NavApp } from '../src/supabaseDb';
-import { submitDeletionRequest, listMyDeletionRequests } from '../src/supabaseDb';
+import { submitDeletionRequest, listMyDeletionRequests, getMyPupilAgreementContext } from '../src/supabaseDb';
+import type { AgreementContext } from '../src/agreementTerms';
+import { StudentInstructorCard } from '../src/StudentInstructorCard';
 import { exportMyDataJson } from '../src/gdprExport';
 import { CalendarFeedCard } from '../src/CalendarFeedCard';
 import { ContactsImportSheet } from '../src/ContactsImportSheet';
@@ -57,6 +59,20 @@ export default function ProfileScreen() {
   const student = user?.email ? mockDb.getStudentByEmail(user.email) : undefined;
   const pro = isPaidTier(user?.tier);
   const { student: myStudent } = useStudentByAuthId(role === 'student' ? user?.id : undefined);
+
+  // A pupil's own instructor: name, contact details and ADI number, read through the
+  // same function the Pupil Agreement uses (a pupil cannot read the instructors table).
+  // This card used to show a hard-coded demo instructor (ADI 123456) from mockDb.
+  const [myInstructor, setMyInstructor] = useState<AgreementContext | null>(null);
+  const [instructorLoadFailed, setInstructorLoadFailed] = useState(false);
+  React.useEffect(() => {
+    if (role !== 'student') return;
+    let cancelled = false;
+    getMyPupilAgreementContext()
+      .then((c) => { if (!cancelled) setMyInstructor(c); })
+      .catch(() => { if (!cancelled) setInstructorLoadFailed(true); });
+    return () => { cancelled = true; };
+  }, [role, user?.id]);
 
   // Preferred navigation app for the diary's one-tap 🧭 button.
   const { profile: sbInstructor } = useInstructorProfile();
@@ -143,15 +159,6 @@ export default function ProfileScreen() {
     } finally {
       setSavingNav(false);
     }
-  };
-
-  const copyAdi = () => {
-    if (!instructorProfile.adi_number) {
-      Alert.alert('Your instructor has not provided an ADI number yet.');
-      return;
-    }
-    const ok = copyToClipboard(instructorProfile.adi_number);
-    Alert.alert(ok ? 'Copied' : 'ADI number', instructorProfile.adi_number);
   };
 
   // Rows shared by the instructor sections and the student layout.
@@ -381,22 +388,7 @@ export default function ProfileScreen() {
           </>
         )}
 
-        {role === 'student' && instructorProfile.adi_number ? (
-          <Card style={{ gap: 10 }}>
-            <View style={styles.contactRow}>
-              <IdCard size={18} color={theme.colors.primary} />
-              <Text style={styles.cardTitle}>Instructor's ADI number</Text>
-            </View>
-            <View style={styles.adiRow}>
-              <Text style={styles.adiValue} testID="adi-value">{instructorProfile.adi_number}</Text>
-              <TouchableOpacity style={styles.adiSave} onPress={copyAdi} testID="btn-copy-adi">
-                <Copy size={14} color="#fff" />
-                <Text style={styles.adiSaveText}>Copy</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.hint}>Paste this into the DVSA booking site to link your instructor.</Text>
-          </Card>
-        ) : null}
+        {role === 'student' && <StudentInstructorCard instructor={myInstructor} loadFailed={instructorLoadFailed} />}
 
         {role === 'student' && (
           <TouchableOpacity
@@ -527,6 +519,7 @@ const styles = StyleSheet.create({
   section: { gap: 10 },
   sectionTitle: { fontSize: 12, fontWeight: '700', color: theme.colors.textMuted, textTransform: 'uppercase', letterSpacing: 1, marginTop: 8, marginLeft: 2 },
   rowValue: { fontSize: 12.5, color: theme.colors.textMuted, marginTop: 1 },
+  instructorName: { fontSize: 20, fontWeight: '700', color: theme.colors.text, marginTop: 2 },
   adiRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   adiSave: { backgroundColor: theme.colors.primary, paddingHorizontal: 16, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 },
   adiSaveText: { color: '#fff', fontWeight: '700' },

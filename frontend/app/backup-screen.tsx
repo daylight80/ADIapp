@@ -28,7 +28,7 @@ const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || '';
 //   3. Configure the OAuth consent screen (External, app name, support
 //      email — Testing mode is fine while this is only used by Grant)
 //   4. Credentials -> Create Credentials -> OAuth client ID -> Android
-//      (and/or iOS) -> package name uk.co.drivingschoolsolutions.adipro
+//      (and/or iOS) -> package name uk.co.drivingschoolsolutions.adi
 //      -> for Android, also needs the SHA-1 fingerprint from the EAS
 //      build credentials (eas credentials)
 //   5. Set the resulting client ID as EXPO_PUBLIC_GOOGLE_CLIENT_ID in

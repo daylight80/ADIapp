@@ -1657,6 +1657,19 @@ export async function getStudentByEmail(email: string): Promise<Student | undefi
   return data ? fromRow(data) : undefined;
 }
 
+// A pupil's own mobile number, pickup address, postcode and provisional licence number.
+// A function rather than a table update: pupils have no UPDATE policy on students (they could
+// then change their own rate or status), so migration 059 gives them this narrow write.
+export async function updateMyStudentDetails(input: {
+  phone: string; address: string; postcode: string; licence: string;
+}): Promise<{ phone: string; address: string; postcode: string; provisional_licence: string }> {
+  const { data, error } = await supabase.rpc('update_my_student_details', {
+    p_phone: input.phone, p_address: input.address, p_postcode: input.postcode, p_licence: input.licence,
+  });
+  if (error) throw error;
+  return data as any;
+}
+
 // Resolve the current learner via Supabase Auth uid (Migration 004 adds the
 // auth_user_id column). Falls back gracefully if the column doesn't exist yet.
 export async function getStudentByAuthId(authUserId: string): Promise<Student | undefined> {

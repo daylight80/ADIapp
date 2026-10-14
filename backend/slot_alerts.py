@@ -16,6 +16,10 @@ How it works
   lessons.slot_alert_sent_at before sending, so two ticks (or two servers) cannot both announce it.
 * Only recent cancellations (changed in the last RECENT_MIN minutes), for slots at least
   MIN_NOTICE_MIN minutes away and no more than LOOKAHEAD_DAYS ahead.
+* Told by push notification; a pupil whose push cannot be delivered (no device registered, or the
+  push service refused it) gets an email instead if they have an address and email is configured.
+  Email only goes to pupils with an app login: they are the ones who have seen the Slot alerts
+  switch and can turn it off.
 * Not told: the pupil whose lesson it was, pupils who switched alerts off, pupils with no app login,
   Passed or Inactive pupils, pupils who have a lesson at that time, and pupils who have already had
   MAX_PER_PUPIL_PER_WEEK alerts in the last 7 days.
@@ -27,6 +31,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+import email_service
 import lesson_reminders as lr
 
 log = logging.getLogger("slot_alerts")
@@ -128,7 +133,7 @@ async def _find_cancelled(now: datetime) -> List[Dict[str, Any]]:
     return await _get("lessons", {
         "select": (
             "id,start_time,end_time,instructor_id,student_id,"
-            "instructors(id,full_name,driving_schools!instructors_school_id_fkey(tier))"
+            "instructors(id,full_name,mobile_number,driving_schools!instructors_school_id_fkey(tier))"
         ),
         "status": "eq.Cancelled",
         "slot_alert_sent_at": "is.null",
@@ -173,7 +178,7 @@ async def _slot_taken(lesson: Dict[str, Any]) -> bool:
 
 async def _pupils_of(instructor_id: str) -> List[Dict[str, Any]]:
     return await _get("students", {
-        "select": "id,auth_user_id,full_name,status,slot_alerts",
+        "select": "id,auth_user_id,full_name,email,status,slot_alerts",
         "instructor_id": f"eq.{instructor_id}",
         "slot_alerts": "eq.true",
         "auth_user_id": "not.is.null",
@@ -227,6 +232,38 @@ async def _log_sent(student_id: str, lesson_id: str, push_count: int) -> None:
                   student_id, lesson_id, r.status_code, r.text[:200])
 
 
+async def _send_email(pupil: Dict[str, Any], lesson: Dict[str, Any], instructor: Dict[str, Any]) -> bool:
+    """Email the slot alert to a pupil. True only if Resend accepted it."""
+    to = (pupil.get("email") or "").strip()
+    if not email_service.looks_like_email(to) or not email_service.is_configured():
+        return False
+    try:
+        start = lr._to_uk_time(lesson["start_time"])
+        end = lr._to_uk_time(lesson["end_time"])
+    except Exception:
+        return False
+    subject, html_body, text_body = email_service.render_slot_alert_email(
+        student_name=pupil.get("full_name"),
+        instructor_name=instructor.get("full_name"),
+        weekday=start.strftime("%A"),
+        date_text=f"{start.day} {start.strftime('%B')}",
+        start_text=f"{start:%H:%M}",
+        end_text=f"{end:%H:%M}",
+        instructor_phone=instructor.get("mobile_number"),
+    )
+    payload = email_service.build_payload(
+        to=to, subject=subject, html_body=html_body, text_body=text_body,
+        from_display_name=instructor.get("full_name") or "Your instructor",
+    )
+    try:
+        async with lr._client() as client:
+            await email_service.send_email(payload, client=client)
+    except email_service.EmailSendError as e:
+        log.warning("[slot-alerts] email to pupil %s failed: %s", pupil.get("id"), e)
+        return False
+    return True
+
+
 async def _announce(lesson: Dict[str, Any], now: datetime) -> Dict[str, int]:
     """Tell the right pupils about one freed slot. Returns what happened."""
     instructor = lesson.get("instructors") or {}
@@ -237,20 +274,25 @@ async def _announce(lesson: Dict[str, Any], now: datetime) -> Dict[str, int]:
     chosen = choose_recipients(pupils, lesson, busy, recent)
 
     msg = slot_message(lesson["start_time"], lesson["end_time"], instructor.get("full_name"))
-    told = 0
+    by_push = by_email = 0
     for p in chosen:
         tokens = await lr._push_tokens_for_user(p["auth_user_id"])
-        if not tokens:
-            continue
-        result = await lr._send_push([
-            {"to": t, "title": msg["title"], "body": msg["body"], "sound": "default",
-             "data": {"kind": "slot_alert", "lessonId": lesson["id"]}}
-            for t in tokens
-        ])
-        if result["accepted"] > 0:
-            await _log_sent(p["id"], lesson["id"], result["accepted"])
-            told += 1
-    return {"candidates": len(pupils), "chosen": len(chosen), "told": told}
+        if tokens:
+            result = await lr._send_push([
+                {"to": t, "title": msg["title"], "body": msg["body"], "sound": "default",
+                 "data": {"kind": "slot_alert", "lessonId": lesson["id"]}}
+                for t in tokens
+            ])
+            if result["accepted"] > 0:
+                await _log_sent(p["id"], lesson["id"], result["accepted"])
+                by_push += 1
+                continue
+        # No device, or the push was refused: email instead.
+        if await _send_email(p, lesson, instructor):
+            await _log_sent(p["id"], lesson["id"], 0)
+            by_email += 1
+    told = by_push + by_email
+    return {"candidates": len(pupils), "chosen": len(chosen), "told": told, "by_push": by_push, "by_email": by_email}
 
 
 async def dispatch_slot_alerts() -> Dict[str, Any]:
@@ -259,7 +301,7 @@ async def dispatch_slot_alerts() -> Dict[str, Any]:
         return {"ok": False, "reason": "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing"}
     now = datetime.now(timezone.utc)
     lessons = await _find_cancelled(now)
-    summary = {"ok": True, "cancelled": len(lessons), "announced": 0, "pupils_told": 0,
+    summary = {"ok": True, "cancelled": len(lessons), "announced": 0, "pupils_told": 0, "by_push": 0, "by_email": 0,
                "skipped_tier": 0, "skipped_taken": 0, "skipped_claimed": 0}
     for lesson in lessons:
         tier = ((lesson.get("instructors") or {}).get("driving_schools") or {}).get("tier")
@@ -276,6 +318,8 @@ async def dispatch_slot_alerts() -> Dict[str, Any]:
         result = await _announce(lesson, now)
         summary["announced"] += 1
         summary["pupils_told"] += result["told"]
+        summary["by_push"] += result["by_push"]
+        summary["by_email"] += result["by_email"]
     if summary["pupils_told"] > 0:
         log.info("[slot-alerts] %s", summary)
     return summary

@@ -20,6 +20,7 @@ import type { NavApp } from '../src/supabaseDb';
 import { submitDeletionRequest, listMyDeletionRequests, getMyPupilAgreementContext } from '../src/supabaseDb';
 import type { AgreementContext } from '../src/agreementTerms';
 import { StudentInstructorCard } from '../src/StudentInstructorCard';
+import { StudentDetailsCard } from '../src/StudentDetailsCard';
 import { exportMyDataJson } from '../src/gdprExport';
 import { CalendarFeedCard } from '../src/CalendarFeedCard';
 import { ContactsImportSheet } from '../src/ContactsImportSheet';
@@ -389,6 +390,7 @@ export default function ProfileScreen() {
         )}
 
         {role === 'student' && <StudentInstructorCard instructor={myInstructor} loadFailed={instructorLoadFailed} />}
+        {role === 'student' && myStudent && <StudentDetailsCard student={myStudent} />}
 
         {role === 'student' && (
           <TouchableOpacity

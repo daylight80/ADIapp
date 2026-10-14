@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/AuthContext';
 import { BottomNav } from '../src/BottomNav';
+import { SlotAlertsCard } from '../src/SlotAlertsCard';
 import { isPaidTier, tierById } from '../src/tiers';
 import {
   useStudentByAuthId, useStudentByEmail, useCompetencies, useLessonsForStudent,
@@ -106,7 +107,6 @@ export default function StudentAppV2Screen() {
   const [reflectTricky, setReflectTricky] = useState('');
   const [reflectFocus, setReflectFocus] = useState('');
   const [saving, setSaving] = useState(false);
-  const [slotAlerts, setSlotAlerts] = useState(true);
 
   const completedLessons = lessons.filter((l) => l.status === 'Completed');
   // Was completedLessons[0] || lessons[0] — completedLessons[0] is the OLDEST
@@ -348,23 +348,7 @@ export default function StudentAppV2Screen() {
             </View>
           )}
 
-          <View style={s.alertsCard}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={s.alertsTitle}>Slot alerts</Text>
-                <Text style={s.alertsSub}>Short-notice cancellations</Text>
-              </View>
-              <Switch
-                value={slotAlerts}
-                onValueChange={setSlotAlerts}
-                trackColor={{ true: C.primary, false: '#D6CFC1' }}
-                testID="v2-slot-alerts-toggle"
-              />
-            </View>
-            <Text style={s.alertsCopy}>
-              {slotAlerts ? "You'll be notified if an earlier slot opens up with your instructor." : "You won't be notified about newly available slots."}
-            </Text>
-          </View>
+          <SlotAlertsCard enabled={supabaseStudent?.slot_alerts !== false} />
 
           <View style={{ flexDirection: 'row', gap: 9, marginHorizontal: 20, marginTop: 12 }}>
             <TouchableOpacity style={[s.actionBtn, { backgroundColor: C.primary }]} onPress={() => router.push('/theory-test-screen' as any)} testID="v2-student-theory">

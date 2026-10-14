@@ -664,6 +664,9 @@ def start_lesson_reminder_scheduler() -> None:
     # the top of the file, because admin_reminders imports this module.
     import admin_reminders
     admin_reminders.register_jobs(_scheduler)
+    # Slot alerts (pupils told when a lesson is cancelled) share it too.
+    import slot_alerts
+    slot_alerts.register_jobs(_scheduler)
     _scheduler.start()
     log.info(
         "[reminders] scheduler started — ticks every %s min (offsets: 48h, 25h, 1h, window ±%s min); "

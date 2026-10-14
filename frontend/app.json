@@ -20,7 +20,7 @@
           "location"
         ]
       },
-      "bundleIdentifier": "uk.co.drivingschoolsolutions.adipro"
+      "bundleIdentifier": "uk.co.drivingschoolsolutions.adi"
     },
     "android": {
       "adaptiveIcon": {
@@ -43,7 +43,7 @@
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_LOCATION"
       ],
-      "package": "uk.co.drivingschoolsolutions.adipro"
+      "package": "uk.co.drivingschoolsolutions.adi"
     },
     "androidStatusBar": {
       "backgroundColor": "#000000",

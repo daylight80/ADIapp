@@ -290,6 +290,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 4, paddingVertical: 2,
   },
   monthLessonChipText: { fontSize: 10, color: theme.colors.text },
+  holidayWarning: { fontSize: 12.5, fontWeight: '600', color: '#92400E', marginTop: 4 },
   monthMoreText: { fontSize: 10, color: theme.colors.textMuted, fontWeight: '600' },
 
   // ---- Lesson type legend ----

@@ -14,6 +14,8 @@ import { DraggableLessonBlock } from '../src/diary/DraggableLessonBlock';
 import { UnavailabilityModal } from '../src/UnavailabilityModal';
 import { useAuth } from '../src/AuthContext';
 import { isPaidTier } from '../src/tiers';
+import { useBankHolidays } from '../src/useBankHolidays';
+import { holidayBanner, holidayOn, shortLabel } from '../src/bankHolidays';
 
 /**
  * Lesson Diary — redesigned visual direction from the Claude Design
@@ -106,6 +108,8 @@ export default function LessonDiaryV2Screen() {
   // here to gate on, and reusing this existing (if broken) prop is
   // cleaner than adding a second, parallel tier check to the same sheet.
   const paid = isPaidTier(user?.tier);
+  // Bank holidays (GOV.UK) for the instructor's region, marked in every view.
+  const { holidays } = useBankHolidays();
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('day');
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return d;
@@ -460,6 +464,11 @@ export default function LessonDiaryV2Screen() {
                             {cellDate.getDate()}
                           </Text>
                         </View>
+                        {!!holidayOn(holidays, cellKey) && (
+                          <Text style={s.holidayChip} numberOfLines={1} testID={`v2-holiday-${cellKey}`}>
+                            {shortLabel(holidayOn(holidays, cellKey)!)}
+                          </Text>
+                        )}
                         <View style={{ marginTop: 3, gap: 2 }}>
                           {visibleLessons.map((l) => (
                             <View key={l.id} style={[s.monthLessonChip, { backgroundColor: colorForLessonType(l.lesson_type) + '33' }]}>
@@ -491,6 +500,9 @@ export default function LessonDiaryV2Screen() {
                     >
                       <Text style={[s.weekColDow, isToday && { color: C.accent }]}>{d}</Text>
                       <Text style={s.weekColDate}>{dayDate.getDate()}</Text>
+                      {!!holidayOn(holidays, localDateKey(dayDate)) && (
+                        <Text style={s.holidayChip} testID={`v2-week-holiday-${i}`}>BH</Text>
+                      )}
                       <View style={s.weekColTrack}>
                         {dayLessons.map((l) => {
                           const sMin = toMinutesOfDay(l.start_time);
@@ -561,6 +573,12 @@ export default function LessonDiaryV2Screen() {
                   })}
                 </View>
               </ScrollView>
+
+              {!!holidayOn(holidays, localDateKey(selectedDate)) && (
+                <View style={s.holidayBanner} testID="v2-day-holiday">
+                  <Text style={s.holidayBannerText}>{holidayBanner(holidayOn(holidays, localDateKey(selectedDate))!)}</Text>
+                </View>
+              )}
 
               <View style={{ paddingHorizontal: 14 }}>
                 <View style={{ position: 'relative', height: (BOTTOM_MIN - TOP_MIN) / 60 * HOUR_H }}>
@@ -852,6 +870,9 @@ const s = StyleSheet.create({
   monthLessonChip: { borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2 },
   monthLessonChipText: { fontFamily: 'Barlow_500Medium', fontSize: 10, color: C.text },
   monthMoreText: { fontFamily: 'Barlow_700Bold', fontSize: 10, color: C.textMuted },
+  holidayChip: { fontSize: 9, fontWeight: '700', color: '#92400E', backgroundColor: '#FEF3C7', borderRadius: 4, paddingHorizontal: 3, paddingVertical: 1, marginTop: 2, overflow: 'hidden', alignSelf: 'flex-start' },
+  holidayBanner: { marginHorizontal: 14, marginBottom: 10, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A' },
+  holidayBannerText: { fontSize: 13, fontWeight: '700', color: '#92400E' },
 
   dragConfirmBackdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
   dragConfirmCard: { width: '100%', maxWidth: 360, backgroundColor: '#fff', borderRadius: 18, padding: 20 },

@@ -70,7 +70,7 @@ export default function SyncStatusScreen() {
           {isOnline === false ? (
             <>
               <WifiOff size={20} color={C.warnText} />
-              <Text style={s.statusOfflineText}>You're currently offline</Text>
+              <Text style={s.statusOfflineText}>You&apos;re currently offline</Text>
             </>
           ) : (
             <>

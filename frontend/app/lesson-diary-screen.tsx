@@ -766,7 +766,7 @@ export default function LessonDiaryV2Screen() {
             <Text style={s.dragConfirmTitle}>Move this lesson?</Text>
             {dragConfirm && (
               <Text style={s.dragConfirmLine}>
-                {studentName(dragConfirm.lesson.student_id)}'s lesson to {dragConfirm.newStart}–{dragConfirm.newEnd}
+                {studentName(dragConfirm.lesson.student_id)}&apos;s lesson to {dragConfirm.newStart}–{dragConfirm.newEnd}
               </Text>
             )}
             <View style={{ flexDirection: 'row', gap: 9, marginTop: 16 }}>

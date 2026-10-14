@@ -195,7 +195,7 @@ export default function DeadlinesScreen() {
 
         <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} keyboardShouldPersistTaps="handled">
           <Text style={styles.subtitle}>
-            Keep track of the dates you can't afford to miss. We'll email you and send a notification{' '}
+            Keep track of the dates you can&apos;t afford to miss. We&apos;ll email you and send a notification{' '}
             {REMIND_DAYS.slice(0, -1).join(', ')} and {REMIND_DAYS[REMIND_DAYS.length - 1]} days before each one,
             and once more if it slips past.
           </Text>
@@ -248,7 +248,7 @@ export default function DeadlinesScreen() {
               <DateField value={dueDate} onChange={setDueDate} placeholder="Choose a date" testID="input-deadline-date" />
               {isEdit && (
                 <Text style={styles.helper}>
-                  Currently {formatDueDate(form.item.due_date)}. Enter the new date once you've renewed it.
+                  Currently {formatDueDate(form.item.due_date)}. Enter the new date once you&apos;ve renewed it.
                 </Text>
               )}
               {datePreview && (
@@ -292,7 +292,7 @@ export default function DeadlinesScreen() {
               <CalendarClock size={28} color={theme.colors.textMuted} />
               <Text style={styles.emptyTitle}>No deadlines yet</Text>
               <Text style={styles.emptyText}>
-                Add your MOT, insurance, road tax, ADI badge and dual-control service dates, and we'll remind you before each one.
+                Add your MOT, insurance, road tax, ADI badge and dual-control service dates, and we&apos;ll remind you before each one.
               </Text>
               <TouchableOpacity style={[styles.saveBtn, { paddingHorizontal: 20, alignSelf: 'stretch' }]} onPress={openAdd} testID="btn-add-first-deadline">
                 <Text style={styles.saveBtnText}>Add your first deadline</Text>
@@ -358,7 +358,7 @@ export default function DeadlinesScreen() {
                 <Text style={styles.itemName}>DVSA standards check</Text>
               </View>
               <Text style={styles.helper}>
-                Log your most recent check and we'll work out when the next one is due, then remind you. No date to type in.
+                Log your most recent check and we&apos;ll work out when the next one is due, then remind you. No date to type in.
               </Text>
               <TouchableOpacity onPress={() => router.push('/standards-check-screen' as any)} testID="btn-log-first-standards-check">
                 <Text style={styles.actionLink}>Log a standards check</Text>

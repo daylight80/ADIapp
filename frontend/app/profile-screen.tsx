@@ -276,7 +276,7 @@ export default function ProfileScreen() {
             />
             {navOpen && (
               <Card style={{ gap: 10 }}>
-                <Text style={styles.hint}>The diary's one-tap 🧭 button and Lesson tools will launch this app.</Text>
+                <Text style={styles.hint}>The diary&apos;s one-tap 🧭 button and Lesson tools will launch this app.</Text>
                 <View style={{ flexDirection: 'row', gap: 6 }}>
                   {(Object.keys(NAV_APP_LABELS) as NavApp[]).map((key) => (
                     <TouchableOpacity

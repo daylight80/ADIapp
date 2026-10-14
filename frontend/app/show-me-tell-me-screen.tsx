@@ -36,7 +36,7 @@ export default function ShowMeTellMeScreen() {
       </View>
 
       <Text style={styles.subtitle}>
-        The examiner asks one 'tell me' question before you drive off, and one 'show me' question while
+        The examiner asks one &apos;tell me&apos; question before you drive off, and one &apos;show me&apos; question while
         driving — picked at random from these {TELL_ME_QUESTIONS.length + SHOW_ME_QUESTIONS.length} official DVSA questions.
       </Text>
 
@@ -96,9 +96,9 @@ export default function ShowMeTellMeScreen() {
           );
         })}
         <Text style={styles.footnote}>
-          Source: gov.uk "Car 'show me, tell me' vehicle safety questions" — Driver and Vehicle Standards
+          Source: gov.uk &quot;Car &apos;show me, tell me&apos; vehicle safety questions&quot; — Driver and Vehicle Standards
           Agency. An incorrect answer counts as one minor fault, not an automatic failure — unless the
-          examiner has to intervene during a "show me" demonstration.
+          examiner has to intervene during a &quot;show me&quot; demonstration.
         </Text>
       </ScrollView>
     </SafeAreaView>

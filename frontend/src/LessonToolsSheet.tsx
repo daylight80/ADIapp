@@ -575,7 +575,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
                 {/* I'm Here */}
                 <TouchableOpacity style={styles.imHereBtn} onPress={onArrived} testID="btn-im-here">
                   <MessageSquare size={18} color="#fff" />
-                  <Text style={styles.imHereText}>I've arrived — Text {student.name.split(' ')[0]}</Text>
+                  <Text style={styles.imHereText}>I&apos;ve arrived — Text {student.name.split(' ')[0]}</Text>
                 </TouchableOpacity>
 
                 {/* Record route — tags the recording with this lesson + student
@@ -722,7 +722,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
               <>
                 <Text style={cancelModalStyles.title}>Cancel this lesson?</Text>
                 <Text style={cancelModalStyles.body}>
-                  Choose how to handle the charge for {student.name.split(' ')[0]}'s lesson.
+                  Choose how to handle the charge for {student.name.split(' ')[0]}&apos;s lesson.
                   {lesson?.amount_paid
                     ? `\n\nAgreed price: £${Number(lesson.amount_paid).toFixed(2)}.`
                     : '\n\nNo agreed price recorded on this lesson.'}

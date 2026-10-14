@@ -204,7 +204,7 @@ export default function VehiclesScreen() {
         {!loading && vehicles.length === 0 && !error && (
           <Card style={{ alignItems: 'center', gap: 10, paddingVertical: 28 }}>
             <Car size={32} color={theme.colors.textMuted} />
-            <Text style={styles.emptyText}>You haven't added any vehicles yet.</Text>
+            <Text style={styles.emptyText}>You haven&apos;t added any vehicles yet.</Text>
             <TouchableOpacity style={styles.primaryBtn} onPress={openAdd} testID="btn-add-first">
               <Plus size={16} color="#fff" />
               <Text style={styles.primaryBtnText}>Add your first vehicle</Text>

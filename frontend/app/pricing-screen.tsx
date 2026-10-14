@@ -144,7 +144,7 @@ export default function PricingScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.pdiTitle}>Training towards your ADI qualification?</Text>
             <Text style={styles.pdiBody}>
-              Starter is genuinely free for the whole time you're a PDI — however long that takes.
+              Starter is genuinely free for the whole time you&apos;re a PDI — however long that takes.
               No card required, no trial countdown.
             </Text>
           </View>

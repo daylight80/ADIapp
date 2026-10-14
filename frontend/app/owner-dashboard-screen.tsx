@@ -726,7 +726,7 @@ export default function OwnerDashboardV2Screen() {
               </TouchableOpacity>
             </View>
             <Text style={s.formHint}>
-              Share this link with {inviteResult?.name.split(' ')[0]} — they'll set their own password and be added to your school automatically.
+              Share this link with {inviteResult?.name.split(' ')[0]} — they&apos;ll set their own password and be added to your school automatically.
             </Text>
             <View style={s.linkBox} testID="invite-link-value">
               <Text style={s.linkText} numberOfLines={2}>{inviteResult?.link}</Text>

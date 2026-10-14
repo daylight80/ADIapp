@@ -219,7 +219,7 @@ export default function ResetPasswordScreen() {
               </View>
               <Text style={s.heading}>Link expired or invalid</Text>
               <Text style={s.body}>
-                The reset link may have already been used, or it's older than an hour. Request a fresh one to continue.
+                The reset link may have already been used, or it&apos;s older than an hour. Request a fresh one to continue.
               </Text>
               <TouchableOpacity
                 style={s.cta}
@@ -245,7 +245,7 @@ export default function ResetPasswordScreen() {
               </View>
               <Text style={s.heading}>Password updated</Text>
               <Text style={s.body}>
-                You'll be redirected to sign in with your new password in a moment.
+                You&apos;ll be redirected to sign in with your new password in a moment.
               </Text>
             </>
           )}

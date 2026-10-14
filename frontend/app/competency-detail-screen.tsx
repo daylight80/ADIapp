@@ -112,7 +112,7 @@ export default function CompetencyDetailScreen() {
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 8 }}>
           <Text style={{ ...theme.font.h3, textAlign: 'center' }}>Not tracked yet</Text>
           <Text style={{ color: theme.colors.textMuted, textAlign: 'center' }}>
-            This category hasn't been assessed for this student yet.
+            This category hasn&apos;t been assessed for this student yet.
           </Text>
         </View>
       </SafeAreaView>

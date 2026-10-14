@@ -693,16 +693,16 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
                   {(pendingClashPlan || []).filter((p) => p.clash).map((p, i) => (
                     <Text key={i} style={styles.clashLine} testID={`clash-line-${i}`}>
                       {new Date(`${p.date}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
-                      {' — '}{p.clash!.name}'s lesson ({p.clash!.start}–{p.clash!.end}) is already booked
+                      {' — '}{p.clash!.name}&apos;s lesson ({p.clash!.start}–{p.clash!.end}) is already booked
                     </Text>
                   ))}
                 </ScrollView>
                 <Text style={styles.clashHint}>
-                  An instructor can only have one lesson at a time. Confirming will cancel the existing lesson(s) above and replace them with this new booking — you'll choose how to handle the charge for each one next.
+                  An instructor can only have one lesson at a time. Confirming will cancel the existing lesson(s) above and replace them with this new booking — you&apos;ll choose how to handle the charge for each one next.
                 </Text>
                 <View style={{ flexDirection: 'row', gap: 9, marginTop: 14, alignSelf: 'stretch' }}>
                   <TouchableOpacity style={styles.clashCancelBtn} onPress={cancelClash} testID="clash-cancel">
-                    <Text style={styles.clashCancelBtnText}>Don't replace</Text>
+                    <Text style={styles.clashCancelBtnText}>Don&apos;t replace</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.clashConfirmBtn} onPress={beginClashDecisions} testID="clash-confirm">
                     <Text style={styles.clashConfirmBtnText}>Cancel & replace</Text>
@@ -713,7 +713,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
 
             {clashStep === 'decide' && currentClash && (
               <>
-                <Text style={styles.clashTitle}>Cancel {currentClash.name}'s lesson?</Text>
+                <Text style={styles.clashTitle}>Cancel {currentClash.name}&apos;s lesson?</Text>
                 <Text style={styles.clashHint}>
                   {clashList.length > 1 ? `Clash ${clashDecisionIndex + 1} of ${clashList.length}. ` : ''}
                   Choose how to handle the charge.

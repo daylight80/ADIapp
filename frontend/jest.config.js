@@ -3,6 +3,10 @@ const jestExpoPreset = require('jest-expo/jest-preset.js');
 module.exports = {
   preset: 'jest-expo',
   testPathIgnorePatterns: ['/node_modules/', '/.expo/'],
+  // The screen tests compile a whole screen on their first render, which can take longer than
+  // Jest's default 5 seconds when many suites run at once (a busy laptop or a CI runner). That
+  // made four suites fail now and then with nothing wrong in them.
+  testTimeout: 30000,
   // react-native's own preset needs its own setup.js — a top-level
   // setupFiles array REPLACES the preset's, it doesn't merge with it, so
   // it needs listing explicitly or RN's own native-module mocking never

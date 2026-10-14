@@ -12,7 +12,7 @@
 # Python version instead of failing on a mismatch.
 
 fastapi~=0.110
-uvicorn[standard]~=0.25
+uvicorn[standard]~=0.54
 starlette~=0.37
 pydantic~=2.13
 email-validator~=2.3

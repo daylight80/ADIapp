@@ -373,8 +373,9 @@ const s = StyleSheet.create({
 
   brand: { alignItems: 'center', gap: 9, paddingVertical: 26 },
   logoRing: {
-    width: 78, height: 78, borderRadius: 999, backgroundColor: '#fff',
-    borderWidth: 1, borderColor: C.border, overflow: 'hidden',
+    // The logo is now the app icon artwork (a square), so it sits in a rounded square, not a white circle.
+    width: 84, height: 84, borderRadius: 20, backgroundColor: '#0A2147',
+    overflow: 'hidden',
     alignItems: 'center', justifyContent: 'center',
   },
   brandTitle: { fontFamily: 'Archivo_800ExtraBold', fontSize: 34, letterSpacing: -1, color: C.text },

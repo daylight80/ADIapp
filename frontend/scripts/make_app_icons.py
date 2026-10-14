@@ -10,6 +10,7 @@ Writes into assets/images/:
   adaptive-icon.png        1024  Android adaptive foreground: the artwork inside the launcher's safe zone
   adaptive-monochrome.png  1024  Android 13 themed icon: a white silhouette
   splash-icon.png          1024  the artwork with rounded corners, shown on the black splash screen
+  adi-pro-logo.png          512  the logo on the sign-in screen
   favicon.png               256  browser tab icon
   notification-icon.png     256  Android status-bar icon: white on transparent (Android tints it)
 
@@ -45,6 +46,9 @@ mask = mask.resize((W, W), Image.LANCZOS)
 rounded = art.convert('RGBA')
 rounded.putalpha(mask)
 rounded.resize((1024, 1024), Image.LANCZOS).save(OUT + 'splash-icon.png', optimize=True)
+
+# 3b. The logo on the sign-in screen
+art.resize((512, 512), Image.LANCZOS).save(OUT + 'adi-pro-logo.png', optimize=True)
 
 # 4. Favicon
 art.resize((256, 256), Image.LANCZOS).save(OUT + 'favicon.png', optimize=True)

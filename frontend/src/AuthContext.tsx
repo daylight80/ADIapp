@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabaseClient';
 import { signOutThisDevice } from './signOutLocal';
-import { registerExpoPushToken, setUpReminderReadListener } from './notifications';
+import { registerExpoPushToken, unregisterExpoPushToken, setUpReminderReadListener } from './notifications';
 import { stampStudentActivity } from './supabaseDb';
 import { instructorBootstrapArgsFromAuthUser } from './authBootstrap';
 
@@ -451,6 +451,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    // While still signed in, so the database lets us remove this phone's push token for this account.
+    await unregisterExpoPushToken();
     // This device only: see signOutLocal.ts for why the default (global) was a problem.
     await signOutThisDevice(supabase);
     setUser(null);

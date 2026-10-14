@@ -48,7 +48,8 @@ export async function ensureNotificationPermission(): Promise<boolean> {
 import { supabase } from './supabaseClient';
 import Constants from 'expo-constants';
 
-let _lastRegisteredToken: string | null = null;
+let _lastRegisteredKey: string | null = null; // "<auth user id>:<expo token>"
+let _lastToken: string | null = null;
 // Each kind of "no token" outcome is reported once per app session, not on every sign-in.
 const _reportedNotes = new Set<string>();
 function noteOnce(message: string): void {
@@ -77,12 +78,16 @@ export async function registerExpoPushToken(): Promise<string | null> {
       noteOnce('Push token not registered: Expo returned no token');
       return null;
     }
-    if (token === _lastRegisteredToken) return token; // skip re-uploads
-    _lastRegisteredToken = token;
-
     const { data: sessionData } = await supabase.auth.getSession();
     const uid = sessionData.session?.user?.id;
     if (!uid) return token;
+
+    // Skip re-uploads, but per account: a different person signing in on the same phone (without the
+    // app being closed) still needs their own row, or pushes addressed to them would never be sent.
+    const registeredKey = `${uid}:${token}`;
+    if (registeredKey === _lastRegisteredKey) return token;
+    _lastRegisteredKey = registeredKey;
+    _lastToken = token;
 
     // Upsert on (auth_user_id, expo_token) — unique index makes this idempotent.
     const { error } = await supabase.from('push_tokens').upsert(
@@ -107,6 +112,25 @@ export async function registerExpoPushToken(): Promise<string | null> {
     // The usual cause on Android is missing Firebase setup; Sentry then shows the exact error.
     reportError(e, 'push-token');
     return null;
+  }
+}
+
+// Called when someone signs out: stops this phone receiving that account's pushes (a pupil's lesson
+// alert, an instructor's booking), which matters if the phone is then handed to someone else.
+// Best effort: it never blocks signing out.
+export async function unregisterExpoPushToken(): Promise<void> {
+  if (Platform.OS === 'web') return;
+  const token = _lastToken;
+  _lastRegisteredKey = null;
+  _lastToken = null;
+  if (!token) return;
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const uid = sessionData.session?.user?.id;
+    if (!uid) return;
+    await supabase.from('push_tokens').delete().eq('auth_user_id', uid).eq('expo_token', token);
+  } catch {
+    // Ignored: the next sign-in registers again, and the backend drops tokens Expo rejects.
   }
 }
 

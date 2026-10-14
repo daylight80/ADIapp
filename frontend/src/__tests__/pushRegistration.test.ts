@@ -5,6 +5,8 @@ const mockReportError = jest.fn();
 const mockReportNote = jest.fn();
 const mockUpsert = jest.fn();
 const mockGetToken = jest.fn();
+const mockDelete = jest.fn();
+const mockSession = { uid: 'u1' as string | null };
 const mockPermissions = { existing: 'granted', requested: 'granted' };
 
 jest.mock('react-native', () => ({ Platform: { OS: 'android' } }));
@@ -23,8 +25,11 @@ jest.mock('expo-notifications', () => ({
 jest.mock('../supabaseDb', () => ({}));
 jest.mock('../supabaseClient', () => ({
   supabase: {
-    auth: { getSession: async () => ({ data: { session: { user: { id: 'u1' } } } }) },
-    from: () => ({ upsert: (...a: unknown[]) => mockUpsert(...a) }),
+    auth: { getSession: async () => ({ data: { session: mockSession.uid ? { user: { id: mockSession.uid } } : null } }) },
+    from: () => ({
+      upsert: (...a: unknown[]) => mockUpsert(...a),
+      delete: () => ({ eq: (c1: string, v1: string) => ({ eq: (c2: string, v2: string) => mockDelete({ [c1]: v1, [c2]: v2 }) }) }),
+    }),
   },
 }));
 
@@ -36,7 +41,9 @@ function fresh() {
 }
 
 beforeEach(() => {
-  [mockReportError, mockReportNote, mockUpsert, mockGetToken].forEach((m) => m.mockReset());
+  [mockReportError, mockReportNote, mockUpsert, mockGetToken, mockDelete].forEach((m) => m.mockReset());
+  mockDelete.mockResolvedValue({ error: null });
+  mockSession.uid = 'u1';
   mockPermissions.existing = 'granted';
   mockPermissions.requested = 'granted';
   mockGetToken.mockResolvedValue({ data: 'ExpoPushToken[abc]' });
@@ -79,6 +86,23 @@ describe('registering for push', () => {
     expect(mockReportNote).toHaveBeenCalledWith('Push token not registered: Expo returned no token', 'push-token');
   });
 
+  it('does not upload the same token twice for the same account', async () => {
+    const { registerExpoPushToken } = fresh();
+    await registerExpoPushToken();
+    await registerExpoPushToken();
+    expect(mockUpsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('registers again when someone else signs in on the same phone, without the app being closed', async () => {
+    const { registerExpoPushToken } = fresh();
+    await registerExpoPushToken(); // the instructor
+    mockSession.uid = 'u2';
+    await registerExpoPushToken(); // the pupil, same phone, same token
+    expect(mockUpsert).toHaveBeenCalledTimes(2);
+    expect(mockUpsert.mock.calls[0][0]).toMatchObject({ auth_user_id: 'u1', expo_token: 'ExpoPushToken[abc]' });
+    expect(mockUpsert.mock.calls[1][0]).toMatchObject({ auth_user_id: 'u2', expo_token: 'ExpoPushToken[abc]' });
+  });
+
   it('reports it when the token cannot be saved to the database', async () => {
     mockUpsert.mockResolvedValue({ error: { message: 'permission denied for table push_tokens' } });
     const { registerExpoPushToken } = fresh();
@@ -86,5 +110,29 @@ describe('registering for push', () => {
     expect(mockReportError).toHaveBeenCalledTimes(1);
     expect((mockReportError.mock.calls[0][0] as Error).message).toBe('Could not save push token: permission denied for table push_tokens');
     expect(mockReportError.mock.calls[0][1]).toBe('push-token');
+  });
+});
+
+describe('signing out', () => {
+  it("removes this phone's token for the account that is signing out", async () => {
+    const { registerExpoPushToken, unregisterExpoPushToken } = fresh();
+    await registerExpoPushToken();
+    await unregisterExpoPushToken();
+    expect(mockDelete).toHaveBeenCalledWith({ auth_user_id: 'u1', expo_token: 'ExpoPushToken[abc]' });
+  });
+
+  it('does nothing if this phone never registered', async () => {
+    const { unregisterExpoPushToken } = fresh();
+    await unregisterExpoPushToken();
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it('lets the next sign-in register again, and never blocks signing out if the delete fails', async () => {
+    mockDelete.mockRejectedValue(new Error('offline'));
+    const { registerExpoPushToken, unregisterExpoPushToken } = fresh();
+    await registerExpoPushToken();
+    await expect(unregisterExpoPushToken()).resolves.toBeUndefined();
+    await registerExpoPushToken();
+    expect(mockUpsert).toHaveBeenCalledTimes(2);
   });
 });

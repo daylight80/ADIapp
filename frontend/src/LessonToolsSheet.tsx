@@ -29,6 +29,7 @@ import { countUpcomingInSeries, cancelSeriesFromDate } from './useSupabaseData';
 import { useAuth } from './AuthContext';
 import { isPaidTier, tierById } from './tiers';
 import { PaywallModal } from './PaywallModal';
+import { SlotAlertLine } from './SlotAlertLine';
 import { queueLessonWrite, useIsOnline } from './offlineSync';
 import { openNavigation, openSmsComposer } from './tools';
 import { fireInstantNotification } from './notifications';
@@ -529,6 +530,14 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
                   <Text style={styles.cancelInfoLine}>{lesson.cancellation_note}</Text>
                 ) : null}
               </View>
+            )}
+
+            {lesson.status === 'Cancelled' && (
+              <SlotAlertLine
+                lessonId={lesson.id}
+                lessonStartMs={new Date(`${lesson.date}T${lesson.start_time}:00`).getTime()}
+                paid={isPaidTier(user?.tier)}
+              />
             )}
 
             {/* Active-lesson panel — navigation, arrival text, route

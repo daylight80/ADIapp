@@ -84,6 +84,13 @@
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
         }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "grant-robery",
+          "project": "adi-pro"
+        }
       ]
     ],
     "experiments": {

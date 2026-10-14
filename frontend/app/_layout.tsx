@@ -9,8 +9,12 @@ import { needsBiometricUnlock } from '../src/biometricGate';
 import { isBiometricEnabled, authenticateWithBiometrics, isBiometricAvailable, setBiometricEnabled } from '../src/biometrics';
 import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, AppState } from 'react-native';
 import { theme } from '../src/theme';
+import { initErrorReporting, setReportingUser, withErrorReporting } from '../src/errorReporting';
 import { useFonts, Archivo_800ExtraBold, Archivo_700Bold } from '@expo-google-fonts/archivo';
 import { Barlow_400Regular, Barlow_500Medium, Barlow_600SemiBold, Barlow_700Bold } from '@expo-google-fonts/barlow';
+
+// Crash and error reporting (phone apps only; the web version does nothing).
+initErrorReporting();
 
 const AUTH_ROUTE = 'sign-up-login-screen';
 // Routes that don't require an authenticated session. The forgot/reset
@@ -32,6 +36,7 @@ function AuthGate() {
   const router = useRouter();
   const segments = useSegments();
   const params = useLocalSearchParams();
+  useEffect(() => { setReportingUser(user?.id ?? null, user?.role); }, [user?.id, user?.role]);
   const inviteToken = (params.invite as string) || '';
 
   // Biometric app-unlock (3 Sept 2026), per Grant directly — opt-in,
@@ -225,7 +230,7 @@ function AuthGate() {
   return null;
 }
 
-export default function RootLayout() {
+function RootLayout() {
   // Archivo + Barlow — loaded app-wide for the redesigned Lesson Diary
   // trial (a Claude Design handoff, 23 Aug 2026). Every other screen still
   // uses the system font via theme.ts; this doesn't change anything
@@ -286,3 +291,5 @@ const styles = StyleSheet.create({
   promptEnableBtn: { marginTop: 24, paddingVertical: 12, paddingHorizontal: 32, borderRadius: 12, backgroundColor: theme.colors.primary },
   promptEnableBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
 });
+
+export default withErrorReporting(RootLayout);

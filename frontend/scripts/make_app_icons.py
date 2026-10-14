@@ -1,66 +1,104 @@
-"""Builds the app's icon files from the master artwork (a 2000x2000 image of the icon tile on a
-dark surround). Run from frontend/:
+"""Builds the app's icon files from the master artwork: a square image that runs edge to edge
+(assets/images/app-icon-master.jpg, 2000x2000). Run from frontend/:
 
-    python scripts/make_app_icons.py path/to/master.jpg
+    python scripts/make_app_icons.py assets/images/app-icon-master.jpg
 
 Writes into assets/images/:
-  icon.png                 1024  full-bleed square (iOS and Android round or mask it themselves)
-  adaptive-icon.png        1024  Android adaptive foreground: the art inside the safe zone
+  icon.png                 1024  the artwork, edge to edge (iOS and Android round or mask it themselves)
+  adaptive-icon.png        1024  Android adaptive foreground: the artwork inside the launcher's safe zone
   adaptive-monochrome.png  1024  Android 13 themed icon: a white silhouette
-  splash-icon.png          1024  the tile with rounded corners, shown on the black splash screen
+  splash-icon.png          1024  the artwork with rounded corners, shown on the black splash screen
   favicon.png               256  browser tab icon
   notification-icon.png     256  Android status-bar icon: white on transparent (Android tints it)
+
+app.json's adaptiveIcon.backgroundColor should match the artwork's edge colour (#0A2147).
 """
 import sys
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 SRC = sys.argv[1]
 OUT = 'assets/images/'
-TILE = (150, 150, 1850, 1850)  # the rounded tile inside the master image
-EDGE = (20, 30, 55)            # the tile's outer navy, used to fill the corners
-RADIUS = 365                   # the tile's corner radius in the master image
 
-master = Image.open(SRC).convert('RGB')
-tile = master.crop(TILE)  # 1700 x 1700
-w = tile.width
+art = Image.open(SRC).convert('RGB')
+W = art.width  # 2000
+assert art.width == art.height, 'the master must be square'
 
-# Rounded-corner mask for the tile
-mask = Image.new('L', (w * 2, w * 2), 0)
-ImageDraw.Draw(mask).rounded_rectangle((0, 0, w * 2 - 1, w * 2 - 1), radius=RADIUS * 2, fill=255)
-mask = mask.resize((w, w), Image.LANCZOS)
+# 1. The artwork, edge to edge
+art.resize((1024, 1024), Image.LANCZOS).save(OUT + 'icon.png', optimize=True)
 
-# 1. Full-bleed square: corners filled with the tile's edge colour
-square = Image.new('RGB', (w, w), EDGE)
-square.paste(tile, (0, 0), mask)
-square.resize((1024, 1024), Image.LANCZOS).save(OUT + 'icon.png', optimize=True)
-
-# 2. Adaptive foreground: the full-bleed square at 740 px, centred on a transparent 1024 canvas.
-#    The launcher shows roughly the middle 676-740 px, so the wheel (about 91% of the tile) fits
-#    and the tile's own edge is never visible. backgroundColor in app.json matches the tile.
+# 2. Adaptive foreground: the artwork at 840 px, centred on a transparent 1024 canvas. The launcher
+#    shows roughly the middle 676-740 px; the wheel is about 80% of the artwork, so it fits, and the
+#    artwork's own edge is never visible. backgroundColor in app.json continues the edge colour.
 fg = Image.new('RGBA', (1024, 1024), (0, 0, 0, 0))
-inner = square.resize((740, 740), Image.LANCZOS).convert('RGBA')
-fg.paste(inner, ((1024 - 740) // 2, (1024 - 740) // 2))
+inner = art.resize((840, 840), Image.LANCZOS).convert('RGBA')
+fg.paste(inner, ((1024 - 840) // 2, (1024 - 840) // 2))
 fg.save(OUT + 'adaptive-icon.png', optimize=True)
 
-# 3. Splash: the rounded tile on transparent
-rounded = tile.convert('RGBA')
+# 3. Splash: rounded corners on transparent
+mask = Image.new('L', (W * 2, W * 2), 0)
+ImageDraw.Draw(mask).rounded_rectangle((0, 0, W * 2 - 1, W * 2 - 1), radius=int(W * 0.18) * 2, fill=255)
+mask = mask.resize((W, W), Image.LANCZOS)
+rounded = art.convert('RGBA')
 rounded.putalpha(mask)
 rounded.resize((1024, 1024), Image.LANCZOS).save(OUT + 'splash-icon.png', optimize=True)
 
 # 4. Favicon
-square.resize((256, 256), Image.LANCZOS).save(OUT + 'favicon.png', optimize=True)
+art.resize((256, 256), Image.LANCZOS).save(OUT + 'favicon.png', optimize=True)
 
-# 5. Silhouettes from the orange parts (the pin and the wheel's base)
-arr = np.asarray(tile).astype(int)
+# 5. Silhouettes from the orange pin and the base of the wheel. Only the middle of the artwork is
+#    used: the small orange dots in the background must not end up in the silhouette.
+arr = np.asarray(art).astype(int)
 r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
-orange = (r > 190) & (g > 70) & (g < 190) & (b < 90)
-sil = np.zeros((w, w, 4), dtype=np.uint8)
-sil[orange] = (255, 255, 255, 255)
+# Orange by hue, so the darker shaded parts of the pin and base count too (a plain brightness
+# cut-off left holes in them).
+orange = (r > 100) & (r - b > 70) & (r > g * 1.15)
+keep = np.zeros_like(orange)
+keep[int(W * 0.27):int(W * 0.9), int(W * 0.22):int(W * 0.78)] = True
+mask_img = Image.fromarray(((orange & keep) * 255).astype(np.uint8), 'L')
+# Close small gaps (the embossed "ADI" lettering, cracks in the shading) without filling the
+# pin's hole: grow, then shrink by the same amount.
+mask_img = mask_img.filter(ImageFilter.MaxFilter(15)).filter(ImageFilter.MinFilter(15))
+solid = np.asarray(mask_img) > 127
+
+
+def drop_specks(solid, min_fraction=0.05):
+    """Keeps the big shapes (the pin and the base) and drops small stray bits, such as the
+    background's orange dots that fall inside the cropped area. Labels on a half-size copy."""
+    small = solid[::2, ::2]
+    h, w = small.shape
+    label = np.zeros((h, w), dtype=np.int32)
+    sizes = {}
+    next_label = 0
+    for y0 in range(h):
+        for x0 in range(w):
+            if small[y0, x0] and not label[y0, x0]:
+                next_label += 1
+                stack = [(y0, x0)]
+                label[y0, x0] = next_label
+                n = 0
+                while stack:
+                    y, x = stack.pop()
+                    n += 1
+                    for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        yy, xx = y + dy, x + dx
+                        if 0 <= yy < h and 0 <= xx < w and small[yy, xx] and not label[yy, xx]:
+                            label[yy, xx] = next_label
+                            stack.append((yy, xx))
+                sizes[next_label] = n
+    biggest = max(sizes.values())
+    keep_labels = [k for k, n in sizes.items() if n >= biggest * min_fraction]
+    kept_small = np.isin(label, keep_labels)
+    # back to full size
+    return np.kron(kept_small, np.ones((2, 2), dtype=bool))[:solid.shape[0], :solid.shape[1]] & solid
+
+
+solid = drop_specks(solid)
+sil = np.zeros((W, W, 4), dtype=np.uint8)
+sil[solid] = (255, 255, 255, 255)
 sil_img = Image.fromarray(sil, 'RGBA')
-box = sil_img.getbbox()
-sil_img = sil_img.crop(box)
+sil_img = sil_img.crop(sil_img.getbbox())
 
 
 def fit(img, size, fill_fraction):

@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 import stripe
 from lesson_reminders import start_lesson_reminder_scheduler, stop_lesson_reminder_scheduler, close_http_client as close_lesson_reminder_http_client
 import email_service
+from referral_rules import referral_eligible
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -670,6 +671,8 @@ async def stripe_webhook(request: FastAPIRequest):
                         "current_period_end": datetime.fromtimestamp(sub["current_period_end"], tz=timezone.utc).isoformat() if sub.get("current_period_end") else None,
                         "stripe_customer_id": data.get("customer"),
                     }
+                    if school and not school.get("subscribed_since"):
+                        patch["subscribed_since"] = datetime.now(timezone.utc).isoformat()
                     await sb_update_school(school_id, patch)
                     updated_school = await sb_get_school_by_id(school_id)
                     if updated_school:
@@ -689,6 +692,8 @@ async def stripe_webhook(request: FastAPIRequest):
                         "seat_count": _seat_qty_from_subscription(data),
                         "current_period_end": datetime.fromtimestamp(data["current_period_end"], tz=timezone.utc).isoformat() if data.get("current_period_end") else None,
                     }
+                    if patch["subscription_status"] == "active" and not school.get("subscribed_since"):
+                        patch["subscribed_since"] = datetime.now(timezone.utc).isoformat()
                     await sb_update_school(school["id"], patch)
 
         elif etype == "customer.subscription.deleted":
@@ -737,7 +742,7 @@ async def _get_own_instructor(sb_user: dict) -> dict:
     async with httpx.AsyncClient(timeout=10.0) as client_http:
         r = await client_http.get(
             f"{_sb_rest_base}/instructors",
-            params={"auth_user_id": f"eq.{sb_user['auth_user_id']}", "select": "id,referral_code"},
+            params={"auth_user_id": f"eq.{sb_user['auth_user_id']}", "select": "id,referral_code,school_id"},
             headers=_sb_headers(),
         )
     if r.status_code >= 400:
@@ -748,11 +753,19 @@ async def _get_own_instructor(sb_user: dict) -> dict:
     return rows[0]
 
 
+async def _require_referral_eligible(instructor: dict) -> None:
+    """Referring opens once the school has been a paying subscriber for a month (referral_rules.py)."""
+    school = await sb_get_school_by_id(instructor["school_id"]) if instructor.get("school_id") else None
+    if not referral_eligible(school):
+        raise HTTPException(status_code=403, detail="Referrals open once you've been subscribed for a month.")
+
+
 @api_router.get("/referrals/my-code", response_model=ReferralCodeResponse)
 async def get_my_referral_code(sb_user: dict = Depends(get_current_supabase_user)):
     """Lazily generates the caller's referral code on first request, rather
     than backfilling one onto every existing instructor row up front."""
     instructor = await _get_own_instructor(sb_user)
+    await _require_referral_eligible(instructor)
     code = instructor.get("referral_code")
     if not code:
         # Retry on the rare collision rather than trusting a single

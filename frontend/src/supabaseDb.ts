@@ -6,6 +6,7 @@
 import type { AgreementContext } from './agreementTerms';
 import { supabase } from './supabaseClient';
 import type { InstructorCardData } from './instructorCard';
+import type { SlotAlertStatus } from './slotAlertStatus';
 import type { DeadlineItem, EditableDeadlineKind } from './deadlines';
 
 // ---------------------------------------------------------------------------
@@ -1505,6 +1506,15 @@ export async function setMySlotAlerts(on: boolean): Promise<boolean> {
   const { data, error } = await supabase.rpc('set_my_slot_alerts', { p_on: on });
   if (error) throw error;
   return data === true;
+}
+
+// What happened to the slot alert for one of the instructor's cancelled lessons: when it was
+// handled and how many pupils were told. A function because slot_alert_log is backend-only
+// (migrations 064 and 065). null when the lesson is not the caller's.
+export async function getSlotAlertStatus(lessonId: string): Promise<SlotAlertStatus> {
+  const { data, error } = await supabase.rpc('slot_alert_status', { p_lesson_id: lessonId });
+  if (error) throw error;
+  return (data as SlotAlertStatus) ?? null;
 }
 
 // A pupil passing the in-app theory practice test. A function rather than an insert: pupils

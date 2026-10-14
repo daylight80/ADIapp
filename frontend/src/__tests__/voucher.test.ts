@@ -1,6 +1,7 @@
 import {
   parseVoucherHours, formatHoursLabel, addMonths, todayKey, voucherStatus,
   formatVoucherDate, isSafeImageUrl, buildVoucherHtml, MAX_VOUCHER_HOURS,
+  formatVoucherCodeInput, looksLikeVoucherCode, redeemErrorMessage, redeemSuccessMessage,
 } from '../voucher';
 
 describe('parseVoucherHours', () => {
@@ -56,6 +57,34 @@ describe('voucherStatus', () => {
 
   it('reports an active voucher past its expiry as expired', () => {
     expect(voucherStatus({ status: 'active', expires_at: '2026-09-29' }, today)).toBe('expired');
+  });
+
+  it('tidies a typed voucher code as it goes', () => {
+    expect(formatVoucherCodeInput('k7xm4pqd9rta')).toBe('K7XM-4PQD-9RTA');
+    expect(formatVoucherCodeInput('k7xm 4pqd')).toBe('K7XM-4PQD');
+    expect(formatVoucherCodeInput('K7X')).toBe('K7X');
+    expect(formatVoucherCodeInput('K7XM-4PQD-9RTA-EXTRA')).toBe('K7XM-4PQD-9RTA');
+    expect(formatVoucherCodeInput('')).toBe('');
+  });
+
+  it('only accepts a complete code', () => {
+    expect(looksLikeVoucherCode('K7XM-4PQD-9RTA')).toBe(true);
+    expect(looksLikeVoucherCode('k7xm 4pqd 9rta')).toBe(true);
+    expect(looksLikeVoucherCode('K7XM-4PQD')).toBe(false);
+    expect(looksLikeVoucherCode('')).toBe(false);
+  });
+
+  it('shows the database’s own message for a code problem, and a plain one for anything else', () => {
+    expect(redeemErrorMessage({ code: 'P0001', message: 'This voucher has already been used.' })).toBe('This voucher has already been used.');
+    expect(redeemErrorMessage({ code: 'P0002', message: 'That code is not recognised. Check it and try again.' })).toMatch(/not recognised/);
+    expect(redeemErrorMessage({ code: '28000' })).toMatch(/sign in again/);
+    expect(redeemErrorMessage(new Error('fetch failed'))).toMatch(/Check your connection/);
+    expect(redeemErrorMessage(null)).toMatch(/Check your connection/);
+  });
+
+  it('says what was added and the new total', () => {
+    expect(redeemSuccessMessage(2, 5)).toBe('2 hours added to your wallet. You now have 5 hours to use.');
+    expect(redeemSuccessMessage(1, 1)).toBe('1 hour added to your wallet. You now have 1 hour to use.');
   });
 
   it('keeps redeemed and cancelled as they are, even after the expiry date', () => {

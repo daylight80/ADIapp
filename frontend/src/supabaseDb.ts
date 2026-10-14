@@ -3263,9 +3263,13 @@ export type GiftVoucher = {
   expires_at: string;
   status: GiftVoucherStatus;
   redeemed_at: string | null;
+  /** Who redeemed it in the app (null if the instructor marked it redeemed by hand). */
+  redeemed_by_name?: string | null;
 };
 
-const VOUCHER_COLUMNS = 'id, school_id, instructor_id, code, hours, recipient_name, message, issued_at, expires_at, status, redeemed_at';
+const VOUCHER_COLUMNS =
+  'id, school_id, instructor_id, code, hours, recipient_name, message, issued_at, expires_at, status, redeemed_at, ' +
+  'redeemed_by:students!gift_vouchers_redeemed_by_student_id_fkey(full_name)';
 
 function voucherFromRow(r: any): GiftVoucher {
   return {
@@ -3280,7 +3284,21 @@ function voucherFromRow(r: any): GiftVoucher {
     expires_at: r.expires_at,
     status: r.status as GiftVoucherStatus,
     redeemed_at: r.redeemed_at ?? null,
+    redeemed_by_name: r.redeemed_by?.full_name ?? null,
   };
+}
+
+/**
+ * A pupil redeems a voucher by its code. The database does it all in one step (checks the code,
+ * adds the hours to the pupil's wallet, marks the voucher used) so a code can never be used twice
+ * (migration 069). The error messages it raises are written for the pupil to read.
+ */
+export async function redeemGiftVoucher(code: string): Promise<{ hours: number; balance: number }> {
+  const { data, error } = await supabase.rpc('redeem_gift_voucher', { p_code: code });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw new Error('Could not redeem the voucher. Please try again.');
+  return { hours: Number(row.voucher_hours), balance: Number(row.new_balance) };
 }
 
 /** Newest first. Row security limits this to the caller's own vouchers (a school owner also sees the school's). */

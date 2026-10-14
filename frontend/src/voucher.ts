@@ -81,6 +81,30 @@ export function formatVoucherDate(ymdStr: string): string {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
+/** True once what's typed has the 12 letters/digits of a voucher code (dashes and spaces don't count). */
+export function looksLikeVoucherCode(input: string): boolean {
+  return (input || '').replace(/[^A-Za-z0-9]/g, '').length === 12;
+}
+
+/** Tidies what a pupil types into XXXX-XXXX-XXXX as they go: upper case, no stray characters, dashes added. */
+export function formatVoucherCodeInput(input: string): string {
+  const clean = (input || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 12);
+  return clean.replace(/(.{4})(?=.)/g, '$1-');
+}
+
+/** What to tell the pupil when redeeming fails. The database's own messages are written to be shown as they are. */
+export function redeemErrorMessage(e: unknown): string {
+  const err = e as { code?: string; message?: string } | null;
+  if (err?.code === 'P0001' || err?.code === 'P0002') return err.message || 'That code could not be used.';
+  if (err?.code === '28000') return 'Please sign in again, then try your code.';
+  return "Couldn't redeem the voucher. Check your connection and try again.";
+}
+
+/** "2 hours added to your wallet. You now have 5 hours." */
+export function redeemSuccessMessage(hours: number, balance: number): string {
+  return `${formatHoursLabel(hours)} added to your wallet. You now have ${formatHoursLabel(balance)} to use.`;
+}
+
 /** Only ordinary web addresses may be used as the logo, so nothing odd is injected into the PDF. */
 export function isSafeImageUrl(url: string | null | undefined): url is string {
   return typeof url === 'string' && /^https?:\/\/[^\s"'<>]+$/i.test(url.trim());
@@ -148,7 +172,7 @@ export function buildVoucherHtml(v: VoucherPdfInput): string {
   <div class="code"><div class="l">Voucher code</div><div class="c">${e(v.code)}</div></div>
   <div class="valid">Valid until <strong>${e(formatVoucherDate(v.expiresAt))}</strong></div>
   <div class="terms">
-    Redeem by contacting ${e(v.instructorName)}${contact ? ` on ${contact}` : ''} and quoting the code above.
+    If you are already a pupil, enter the code above under Wallet in the app. Otherwise redeem by contacting ${e(v.instructorName)}${contact ? ` on ${contact}` : ''} and quoting the code.
     Lessons are booked subject to availability. This voucher cannot be exchanged for cash and cannot be used after the date shown.
     ${v.address && v.address.trim() ? `<br />${e(v.address.trim())}` : ''}
   </div>

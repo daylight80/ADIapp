@@ -23,6 +23,7 @@ import {
   topUpConfirmation, canAddHours, runTopUp, newAttemptId, type PaymentMethod,
 } from '../src/walletTopUp';
 import { formatHoursLabel } from '../src/voucher';
+import { RedeemVoucherCard } from '../src/RedeemVoucherCard';
 
 export default function WalletScreen() {
   const router = useRouter();
@@ -198,6 +199,8 @@ export default function WalletScreen() {
             <Text style={styles.buyBtnText}>Add hours</Text>
           </TouchableOpacity>
         )}
+
+        {!isInstructorManaging && !!studentId && <RedeemVoucherCard />}
 
         <Text style={styles.section}>Prepaid hours</Text>
         {bookingsLoading ? (

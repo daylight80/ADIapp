@@ -296,6 +296,47 @@ export function useLessonsForMonth(gridStart: Date, gridEnd: Date) {
 // Lesson mutations
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Automatic badges. Paid tiers only (Starter does not get auto-awarded badges), written by the
+// instructor's session, and never allowed to get in the way of the save that triggered them.
+// ---------------------------------------------------------------------------
+
+/** True when the signed-in instructor's school is on a paid plan (Pro or Franchise). */
+export async function instructorHasPaidTier(): Promise<boolean> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const uid = session?.user.id;
+  if (!uid) return false;
+  const { data } = await supabase
+    .from('instructors')
+    .select('driving_schools!instructors_school_id_fkey(tier)')
+    .eq('auth_user_id', uid)
+    .maybeSingle();
+  const tier = ((data as any)?.driving_schools?.tier) || 'starter';
+  return tier === 'pro' || tier === 'franchise';
+}
+
+/** "First Gear": the pupil's first completed lesson. Safe to call every time (once only). */
+export async function awardFirstLessonBadge(studentId: string): Promise<void> {
+  try {
+    if (!studentId || !(await instructorHasPaidTier())) return;
+    await db.awardBadgeIfMissing({
+      student_id: studentId, badge_key: 'first_lesson', badge_name: 'First Gear', description: 'Completed your first lesson',
+    });
+    bump();
+  } catch { /* never block the lesson save */ }
+}
+
+/** "Mock Marvel": a passed mock test. Safe to call every time (once only). */
+export async function awardMockPassBadge(studentId: string): Promise<void> {
+  try {
+    if (!studentId || !(await instructorHasPaidTier())) return;
+    await db.awardBadgeIfMissing({
+      student_id: studentId, badge_key: 'mock_passed', badge_name: 'Mock Marvel', description: 'Passed a DL25 mock test',
+    });
+    bump();
+  } catch { /* never block the mock test save */ }
+}
+
 export async function createLesson(input: db.AddLessonInput) {
   const row = await db.addLesson(input);
   bump();
@@ -305,6 +346,8 @@ export async function createLesson(input: db.AddLessonInput) {
 export async function patchLesson(id: string, patch: db.UpdateLessonInput) {
   const row = await db.updateLesson(id, patch);
   bump();
+  // Marking a lesson Completed can earn the pupil their first badge.
+  if (patch.status === 'Completed' && row?.student_id) void awardFirstLessonBadge(row.student_id);
   return row;
 }
 
@@ -430,21 +473,9 @@ export async function updateCompetency(
 ) {
   const row = await db.upsertCompetency(studentId, category_key, patch);
   // Auto-award a "Confident: <category>" badge once a learner reaches Level 4+.
-  // Gated by tier — Starter plan does NOT get auto-awarded badges (paid tiers only).
+  // Gated by tier: Starter plan does NOT get auto-awarded badges (paid tiers only).
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const uid = session?.user.id;
-    if (uid) {
-      const { data } = await supabase
-        .from('instructors')
-        .select('driving_schools!instructors_school_id_fkey(tier)')
-        .eq('auth_user_id', uid)
-        .maybeSingle();
-      const tier = ((data as any)?.driving_schools?.tier) || 'starter';
-      if (tier === 'pro' || tier === 'franchise') {
-        await db.maybeAwardCompetencyBadge(studentId, row);
-      }
-    }
+    if (await instructorHasPaidTier()) await db.maybeAwardCompetencyBadge(studentId, row);
   } catch {
     // never block the competency save on badge minting
   }

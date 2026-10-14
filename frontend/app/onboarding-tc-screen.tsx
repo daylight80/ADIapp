@@ -53,7 +53,9 @@ export default function OnboardingTcScreen() {
   const saved = recorded.signed || !!justSigned;
 
   // Before signing, the choice is saved with the signature; after signing, a change saves straight away.
+  // Waits for the profile to load first: until then we don't know if they've signed, so a change would not be saved.
   const toggleMediaConsent = async () => {
+    if (loadingProfile) return;
     const next = !mediaConsent;
     setMediaConsent(next);
     if (!saved) return;
@@ -137,8 +139,9 @@ export default function OnboardingTcScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.checkbox}
+          style={[styles.checkbox, loadingProfile && styles.submitDisabled]}
           onPress={toggleMediaConsent}
+          disabled={loadingProfile}
           testID="checkbox-media-consent"
           activeOpacity={0.7}
         >

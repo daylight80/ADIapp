@@ -7,7 +7,7 @@ import { theme } from '../src/theme';
 import { THEORY_BANK } from '../src/mockDb';
 import { useAuth } from '../src/AuthContext';
 import { useStudentByAuthId, useStudentByEmail } from '../src/useSupabaseData';
-import { awardBadge } from '../src/supabaseDb';
+import { awardMyTheoryBadge } from '../src/supabaseDb';
 import { Card, ProgressBar, Badge } from '../src/ui';
 
 export default function TheoryTestScreen() {
@@ -33,24 +33,19 @@ export default function TheoryTestScreen() {
   const passMark = 8; // 80%
   const passed = correct >= passMark;
 
+  // Whether the Theory Champion badge was really saved. The badge is only claimed once it is.
+  const [badge, setBadge] = useState<'none' | 'saved' | 'failed'>('none');
+
   const onSubmit = async () => {
     setSubmitted(true);
-    if (correct >= passMark && student) {
-      if (supabaseStudent) {
-        // Persist live (idempotent — unique (student_id, badge_key) constraint).
-        try {
-          await awardBadge({
-            student_id: supabaseStudent.id,
-            badge_key: 'theory_passed',
-            badge_name: 'Theory Champion',
-            description: 'Passed an in-app theory test',
-          });
-        } catch (e: any) {
-          // Likely the unique-per-student constraint — already awarded. Safe to ignore.
-          if (!/duplicate|unique/i.test(e?.message || '')) {
-            console.warn('[theory-test] awardBadge failed', e);
-          }
-        }
+    setBadge('none');
+    if (correct >= passMark && student && supabaseStudent) {
+      try {
+        await awardMyTheoryBadge();
+        setBadge('saved');
+      } catch (e: any) {
+        console.warn('[theory-test] awardMyTheoryBadge failed', e);
+        setBadge('failed');
       }
     }
   };
@@ -58,6 +53,7 @@ export default function TheoryTestScreen() {
   const reset = () => {
     setAnswers({});
     setSubmitted(false);
+    setBadge('none');
   };
 
   return (
@@ -131,7 +127,8 @@ export default function TheoryTestScreen() {
               {passed ? 'PASS' : 'FAIL'}
             </Text>
             <Text style={styles.resultSub}>Score: {correct} / {total} ({Math.round((correct / total) * 100)}%) · Pass mark: 80%</Text>
-            {passed && <Text style={styles.badgeEarned}>🏆 Badge unlocked: Theory Champion</Text>}
+            {passed && badge === 'saved' && <Text style={styles.badgeEarned} testID="theory-badge-saved">🏆 Badge unlocked: Theory Champion</Text>}
+            {passed && badge === 'failed' && <Text style={styles.badgeFailed} testID="theory-badge-failed">You passed, but we could not save your badge. Please try again later.</Text>}
           </Card>
         )}
 
@@ -163,5 +160,6 @@ const styles = StyleSheet.create({
   resultCard: { alignItems: 'center', gap: 6, borderWidth: 2, marginTop: 8 },
   resultTitle: { fontSize: 28, fontWeight: '800' },
   resultSub: { color: theme.colors.textMuted, fontSize: 14, textAlign: 'center' },
+  badgeFailed: { color: theme.colors.danger, fontWeight: '600', textAlign: 'center' },
   badgeEarned: { color: theme.colors.accent, fontWeight: '700', marginTop: 6 },
 });

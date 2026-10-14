@@ -1496,6 +1496,14 @@ export async function listBadges(studentId: string): Promise<Badge[]> {
   return (data || []) as Badge[];
 }
 
+// A pupil passing the in-app theory practice test. A function rather than an insert: pupils
+// have no INSERT policy on badges_earned, so the old direct insert was always refused
+// (migration 062). Awards only the 'theory_passed' badge, once, for the caller's own record.
+export async function awardMyTheoryBadge(): Promise<void> {
+  const { error } = await supabase.rpc('award_my_theory_badge');
+  if (error) throw error;
+}
+
 export async function awardBadge(input: { student_id: string; badge_key: string; badge_name: string; description?: string }): Promise<Badge> {
   const { data, error } = await supabase
     .from('badges_earned')

@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Share, ActivityIndicator, Tex
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Gift, X } from 'lucide-react-native';
 import { supabase } from './supabaseClient';
+import { referralSubtitle, referralItemLabel, referralUnlockNote, type ReferralSummary, type ReferralStatus } from './referralText';
 
 /**
  * "Refer a driving instructor, get 1 month free" (23 Sept 2026), per
@@ -22,7 +23,7 @@ import { supabase } from './supabaseClient';
 
 const DISMISSED_KEY = 'referral_banner_dismissed_v1';
 
-type Summary = { pending: number; rewarded_this_year: number; capped: number; cap_per_year: number };
+type Summary = ReferralSummary;
 
 // NOTE: read EXPO_PUBLIC_* as the exact expression `process.env.EXPO_PUBLIC_X`.
 // Expo only substitutes that static form at build time; `(process as any).env?.X`
@@ -68,6 +69,8 @@ export function ReferralBanner() {
   const [code, setCode] = useState<string | null>(null);
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [status, setStatus] = useState<ReferralStatus | null>(null);
+  const [listOpen, setListOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
   const [email, setEmail] = useState('');
@@ -85,8 +88,14 @@ export function ReferralBanner() {
   useEffect(() => {
     if (dismissed !== false) return; // only fetch once we know it's genuinely showing
     let cancelled = false;
-    Promise.all([authedGet('/referrals/my-code'), authedGet('/referrals/summary')])
-      .then(([codeRes, summaryRes]) => {
+    // Status first: until the school has been subscribed for a month the server refuses to hand out
+    // a code, and all that shows is the small "unlocks on ..." note.
+    authedGet('/referrals/status')
+      .then(async (statusRes: ReferralStatus) => {
+        if (cancelled) return;
+        setStatus(statusRes);
+        if (!statusRes.eligible) return;
+        const [codeRes, summaryRes] = await Promise.all([authedGet('/referrals/my-code'), authedGet('/referrals/summary')]);
         if (cancelled) return;
         setCode(codeRes.code);
         setShareLink(codeRes.share_link);
@@ -131,9 +140,12 @@ export function ReferralBanner() {
     }
   };
 
-  if (dismissed !== false || !code) return null;
-
-  const hasActivity = !!summary && (summary.pending > 0 || summary.rewarded_this_year > 0);
+  if (dismissed !== false) return null;
+  const unlockNote = referralUnlockNote(status);
+  if (!code) {
+    return unlockNote ? <Text style={s.unlockNote} testID="referral-unlock-note">{unlockNote}</Text> : null;
+  }
+  const referred = summary?.referrals ?? [];
 
   return (
     <View style={s.card} testID="referral-banner">
@@ -142,11 +154,7 @@ export function ReferralBanner() {
       </TouchableOpacity>
       <Gift size={22} color="#fff" />
       <Text style={s.title}>Refer a driving instructor, get 1 month free</Text>
-      <Text style={s.sub}>
-        {hasActivity
-          ? `${summary!.pending} pending · ${summary!.rewarded_this_year} earned this year (cap ${summary!.cap_per_year})`
-          : 'Share your code — you\'re rewarded once they subscribe.'}
-      </Text>
+      <Text style={s.sub}>{referralSubtitle(summary)}</Text>
       <TouchableOpacity style={s.shareBtn} onPress={onShare} disabled={sharing} testID="referral-banner-share">
         {sharing ? <ActivityIndicator color="#fff" /> : <Text style={s.shareBtnText}>Share my code · {code}</Text>}
       </TouchableOpacity>
@@ -177,6 +185,19 @@ export function ReferralBanner() {
       {emailMsg && (
         <Text style={[s.emailMsg, !emailMsg.ok && s.emailMsgError]} testID="referral-banner-email-msg">{emailMsg.text}</Text>
       )}
+      {referred.length > 0 && (
+        <>
+          <TouchableOpacity onPress={() => setListOpen((o) => !o)} testID="referral-banner-list-toggle">
+            <Text style={s.emailLink}>{listOpen ? 'Hide' : 'See'} who you&apos;ve referred ({referred.length})</Text>
+          </TouchableOpacity>
+          {listOpen && referred.map((r, i) => (
+            <View key={`${r.name}-${i}`} style={s.listRow} testID="referral-banner-list-item">
+              <Text style={s.listName}>{r.name}</Text>
+              <Text style={s.listStatus}>{referralItemLabel(r)}</Text>
+            </View>
+          ))}
+        </>
+      )}
     </View>
   );
 }
@@ -194,4 +215,8 @@ const s = StyleSheet.create({
   emailSendBtn: { width: 72, height: 42, borderRadius: 10, backgroundColor: '#FF6B00', alignItems: 'center', justifyContent: 'center' },
   emailMsg: { fontFamily: 'Barlow_500Medium', fontSize: 12.5, color: '#fff' },
   emailMsgError: { color: '#FFD9B8' },
+  listRow: { marginTop: 4, paddingTop: 6, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.18)' },
+  listName: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: '#fff' },
+  listStatus: { fontFamily: 'Barlow_500Medium', fontSize: 12.5, color: 'rgba(255,255,255,0.85)' },
+  unlockNote: { marginHorizontal: 20, marginTop: 12, fontFamily: 'Barlow_500Medium', fontSize: 12.5, color: '#6B7280' },
 });

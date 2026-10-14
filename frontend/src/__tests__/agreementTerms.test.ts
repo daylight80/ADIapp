@@ -60,6 +60,14 @@ describe('standardSections', () => {
     }
   });
 
+  it('covers the code of practice items: expectations, safeguarding, phones, photo consent and test day', () => {
+    const headings = standardSections().map((s) => s.heading);
+    for (const h of ['What to expect from your instructor', 'Conduct & safeguarding', 'Mobile phones']) expect(headings).toContain(h);
+    expect(text).toMatch(/optional tick box/);
+    expect(text).toMatch(/come with you on the test/);
+    expect(text).toMatch(/instructor badge/);
+  });
+
   it('keeps the existing policies: 24-hour cancellation and non-refundable block bookings', () => {
     expect(text).toMatch(/less than 24 hours/);
     expect(text).toMatch(/non-refundable once paid/);

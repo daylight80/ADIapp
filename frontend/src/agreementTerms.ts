@@ -76,6 +76,27 @@ export function standardSections(refundPolicy?: string | null): AgreementSection
         "The vehicle is fully insured for tuition. You agree to follow the instructor's directions at all times. Reckless or wilful misuse may incur charges.",
     },
     {
+      heading: 'What to expect from your instructor',
+      body:
+        'Your instructor is approved by DVSA and will display their instructor badge in the windscreen during paid lessons. ' +
+        'They will teach in line with the national standard for driver training, give you the full lesson time agreed, ' +
+        'tell you how you are progressing and what further training you need, and account for any money you pay in advance.',
+    },
+    {
+      heading: 'Conduct & safeguarding',
+      body:
+        'Your instructor will treat you with respect, keep to professional boundaries, and will not use inappropriate language, ' +
+        'behave in an aggressive way or make unnecessary physical contact. They will not contact you inappropriately outside lessons, ' +
+        'including through personal social media. If you are ever uncomfortable, tell someone you trust and report it to DVSA ' +
+        `at ${DVSA_COMPLAINTS_URL}.`,
+    },
+    {
+      heading: 'Mobile phones',
+      body:
+        'Your instructor will not use a phone or hand-held device while teaching in a moving vehicle, and will park safely before using a tablet ' +
+        'to record your progress or show you something. Please keep your own phone put away during lessons too.',
+    },
+    {
       heading: 'Payments, prepaid hours & refunds',
       body:
         'All fees are payable on or before the lesson. Money you pay in advance (prepaid hours) is used up as your lessons are completed, ' +
@@ -92,13 +113,15 @@ export function standardSections(refundPolicy?: string | null): AgreementSection
       heading: 'Photos, video & recording',
       body:
         'Your instructor will not share your personal information, photos or videos, including any in-car camera footage, without your explicit written consent. ' +
-        'Tell your instructor if you do not want to be recorded.',
+        'Tell your instructor if you do not want to be recorded. The optional tick box below is your consent for your driving test pass ' +
+        "photo or video to be used on social media and the driving school's website. It is not required, and you can change your mind at any time.",
     },
     {
       heading: 'Driving tests',
       body:
         'You book your own driving test with DVSA: instructors cannot book, change or cancel car tests for pupils. ' +
-        'Your instructor will advise you on when you are ready and can help you choose a date.',
+        'Your instructor will advise you on when you are ready and can help you choose a date. Agree with your instructor beforehand whether ' +
+        'they will come with you on the test, and arrive in good time with your licence and the other documents you need.',
     },
     {
       heading: 'Complaints',

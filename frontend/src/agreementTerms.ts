@@ -100,8 +100,7 @@ export function standardSections(refundPolicy?: string | null): AgreementSection
       heading: 'Payments, prepaid hours & refunds',
       body:
         'All fees are payable on or before the lesson. Money you pay in advance (prepaid hours) is used up as your lessons are completed, ' +
-        `and your balance is shown in the app. ${refundOption(refundPolicy).sentence} ${NOT_DELIVERED_SENTENCE} ` +
-        'VAT receipts are available on request.',
+        `and your balance is shown in the app. ${refundOption(refundPolicy).sentence} ${NOT_DELIVERED_SENTENCE}`,
     },
     {
       heading: 'Your personal data (UK GDPR)',

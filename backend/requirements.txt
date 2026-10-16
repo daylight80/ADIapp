@@ -11,7 +11,7 @@
 # pins, so pip can resolve versions that actually work on the host's
 # Python version instead of failing on a mismatch.
 
-fastapi~=0.110
+fastapi~=0.143
 uvicorn[standard]~=0.54
 starlette~=0.37
 pydantic~=2.14

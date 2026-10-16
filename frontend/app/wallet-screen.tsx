@@ -24,6 +24,7 @@ import {
 } from '../src/walletTopUp';
 import { formatHoursLabel } from '../src/voucher';
 import { RedeemVoucherCard } from '../src/RedeemVoucherCard';
+import { PupilPaymentsCard } from '../src/PupilPaymentsCard';
 
 export default function WalletScreen() {
   const router = useRouter();
@@ -201,6 +202,7 @@ export default function WalletScreen() {
         )}
 
         {!isInstructorManaging && !!studentId && <RedeemVoucherCard />}
+        {!isInstructorManaging && !!studentId && <PupilPaymentsCard />}
 
         <Text style={styles.section}>Prepaid hours</Text>
         {bookingsLoading ? (

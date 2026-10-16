@@ -1,0 +1,178 @@
+import React from 'react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+
+jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }));
+
+const mockLedger = { payments: [] as any[], balance: { charged: 100, paid: 54, outstanding: 46 } as any, loading: false, error: null as string | null };
+const mockBump = jest.fn();
+const mockRecord = jest.fn();
+const mockVoid = jest.fn();
+const mockSummary = jest.fn();
+const mockPdf = jest.fn();
+
+jest.mock('../useSupabaseData', () => ({
+  usePaymentLedger: () => mockLedger,
+  bump: (...a: unknown[]) => mockBump(...a),
+  useVersion: () => 0,
+}));
+jest.mock('../supabaseDb', () => ({
+  recordPayment: (...a: unknown[]) => mockRecord(...a),
+  voidPayment: (...a: unknown[]) => mockVoid(...a),
+  getMySchoolProfile: async () => ({ business_name: "Grant's Driving School" }),
+  getMyPaymentSummary: (...a: unknown[]) => mockSummary(...a),
+}));
+jest.mock('../AuthContext', () => ({ useAuth: () => ({ user: { name: 'Grant Robery', email: 'g@example.com' } }) }));
+jest.mock('../invoice', () => ({ generateAndSharePdf: (...a: unknown[]) => mockPdf(...a) }));
+jest.mock('../DateTimeFields', () => {
+  const { TextInput } = require('react-native');
+  return { DateField: ({ value, onChange, testID }: any) => <TextInput value={value} onChangeText={onChange} testID={testID} /> };
+});
+
+import { PaymentsCard, paidAtFor } from '../PaymentsCard';
+import { PupilPaymentsCard } from '../PupilPaymentsCard';
+
+const manual = { id: 'm1', amount: 36, method: 'cash', paid_at: '2026-10-10T10:00:00Z', source: 'manual', reference: null, note: null, voided_at: null };
+const derived = { id: 'd1', amount: 72, method: 'bank_transfer', paid_at: '2026-10-09T10:00:00Z', source: 'lesson', reference: null, note: 'From the lesson', voided_at: null };
+const voided = { id: 'v1', amount: 20, method: 'cash', paid_at: '2026-10-08T10:00:00Z', source: 'manual', reference: null, note: null, voided_at: '2026-10-09T00:00:00Z' };
+
+beforeEach(() => {
+  mockRecord.mockReset().mockResolvedValue({});
+  mockVoid.mockReset().mockResolvedValue({});
+  mockBump.mockReset();
+  mockPdf.mockReset().mockResolvedValue({ ok: true });
+  mockSummary.mockReset();
+  mockLedger.payments = [];
+  mockLedger.balance = { charged: 100, paid: 54, outstanding: 46 };
+  mockLedger.loading = false;
+  mockLedger.error = null;
+});
+
+describe('instructor payments card', () => {
+  const student = { id: 's1', name: 'Test Pupil' };
+
+  it('shows who owes what, and says the app takes no payments', async () => {
+    await render(<PaymentsCard student={student} />);
+    expect(screen.getByTestId('payments-balance')).toHaveTextContent(/Owes £46\.00/);
+    expect(screen.getByTestId('payments-balance')).toHaveTextContent(/Charged £100.00 · Paid £54.00/);
+    expect(screen.getByText(/The app doesn.t take payments/)).toBeTruthy();
+    expect(screen.getByTestId('payments-empty')).toBeTruthy();
+  });
+
+  it('shows credit and up to date', async () => {
+    mockLedger.balance = { charged: 50, paid: 74, outstanding: -24 };
+    const { rerender } = await render(<PaymentsCard student={student} />);
+    expect(screen.getByTestId('payments-balance')).toHaveTextContent(/£24\.00 in credit/);
+    mockLedger.balance = { charged: 50, paid: 50, outstanding: 0 };
+    await rerender(<PaymentsCard student={student} />);
+    expect(screen.getByTestId('payments-balance')).toHaveTextContent(/Up to date/);
+  });
+
+  it('needs an amount and a method before it will save, then records and refreshes', async () => {
+    await render(<PaymentsCard student={student} />);
+    await fireEvent.press(screen.getByTestId('btn-record-payment'));
+    await fireEvent.press(screen.getByTestId('btn-save-payment'));
+    expect(mockRecord).not.toHaveBeenCalled();
+
+    await fireEvent.changeText(screen.getByTestId('input-payment-amount'), '£36.50');
+    await fireEvent.press(screen.getByTestId('payment-method-bank_transfer'));
+    await fireEvent.changeText(screen.getByTestId('input-payment-reference'), ' INV 7 ');
+    await fireEvent.press(screen.getByTestId('btn-save-payment'));
+
+    await waitFor(() => expect(mockRecord).toHaveBeenCalledTimes(1));
+    expect(mockRecord.mock.calls[0][0]).toMatchObject({ studentId: 's1', amount: 36.5, method: 'bank_transfer', reference: 'INV 7', paidAt: null });
+    expect(mockRecord.mock.calls[0][0].id).toEqual(expect.any(String));
+    await waitFor(() => expect(mockBump).toHaveBeenCalled());
+  });
+
+  it('keeps the same attempt id when a failed save is retried, so it can never be recorded twice', async () => {
+    mockRecord.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({});
+    await render(<PaymentsCard student={student} />);
+    await fireEvent.press(screen.getByTestId('btn-record-payment'));
+    await fireEvent.changeText(screen.getByTestId('input-payment-amount'), '10');
+    await fireEvent.press(screen.getByTestId('payment-method-cash'));
+    await fireEvent.press(screen.getByTestId('btn-save-payment'));
+    await waitFor(() => expect(screen.getByTestId('payment-form-error')).toHaveTextContent(/Check your connection/));
+    await fireEvent.press(screen.getByTestId('btn-save-payment'));
+    await waitFor(() => expect(mockRecord).toHaveBeenCalledTimes(2));
+    expect(mockRecord.mock.calls[1][0].id).toBe(mockRecord.mock.calls[0][0].id);
+  });
+
+  it('shows the database’s own message when it refuses', async () => {
+    mockRecord.mockRejectedValue({ code: '22023', message: 'Enter an amount between £0.01 and £10,000.' });
+    await render(<PaymentsCard student={student} />);
+    await fireEvent.press(screen.getByTestId('btn-record-payment'));
+    await fireEvent.changeText(screen.getByTestId('input-payment-amount'), '10');
+    await fireEvent.press(screen.getByTestId('payment-method-card'));
+    await fireEvent.press(screen.getByTestId('btn-save-payment'));
+    await waitFor(() => expect(screen.getByTestId('payment-form-error')).toHaveTextContent(/Enter an amount between/));
+  });
+
+  it('lists payments, offers Void only on ones you recorded, and asks twice before voiding', async () => {
+    mockLedger.payments = [manual, derived, voided];
+    await render(<PaymentsCard student={student} />);
+    expect(screen.getByTestId('payment-m1')).toHaveTextContent(/£36\.00/);
+    expect(screen.getByTestId('payment-d1')).toHaveTextContent(/from the lesson/);
+    expect(screen.getByTestId('payment-v1')).toHaveTextContent(/voided/);
+    expect(screen.queryByTestId('btn-void-d1')).toBeNull();   // edited from the lesson instead
+    expect(screen.queryByTestId('btn-void-v1')).toBeNull();   // already void
+    expect(screen.queryByTestId('btn-receipt-v1')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('btn-void-m1'));
+    expect(mockVoid).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('btn-void-no-m1'));
+    expect(screen.getByTestId('btn-void-m1')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('btn-void-m1'));
+    await fireEvent.press(screen.getByTestId('btn-void-yes-m1'));
+    await waitFor(() => expect(mockVoid).toHaveBeenCalledWith('m1', null));
+    await waitFor(() => expect(mockBump).toHaveBeenCalled());
+  });
+
+  it('makes a receipt as a PDF', async () => {
+    mockLedger.payments = [manual];
+    await render(<PaymentsCard student={student} />);
+    await fireEvent.press(screen.getByTestId('btn-receipt-m1'));
+    await waitFor(() => expect(mockPdf).toHaveBeenCalledTimes(1));
+    expect(mockPdf.mock.calls[0][0]).toContain('Payment receipt');
+    expect(mockPdf.mock.calls[0][0]).toContain("Grant's Driving School");
+    expect(mockPdf.mock.calls[0][0]).not.toMatch(/VAT/i);
+    expect(mockPdf.mock.calls[0][1]).toMatch(/^Receipt-/);
+  });
+});
+
+describe('paidAtFor', () => {
+  it('leaves today to the database and takes an earlier day at midday', () => {
+    expect(paidAtFor('2026-10-15', '2026-10-15')).toBeNull();
+    expect(paidAtFor('', '2026-10-15')).toBeNull();
+    expect(paidAtFor('not a date', '2026-10-15')).toBeNull();
+    expect(paidAtFor('2026-10-10', '2026-10-15')).toEqual(expect.stringMatching(/^2026-10-10T/));
+  });
+});
+
+describe('pupil payments card', () => {
+  it('says what the pupil owes and lists payments and prepaid top-ups', async () => {
+    mockSummary.mockResolvedValue({
+      charged: 100, paid: 54, balance: 46,
+      payments: [{ id: 'a', amount: 36, method: 'cash', paid_at: '2026-10-10T10:00:00Z', reference: null }],
+      topups: [{ id: 'k', amount: 18, hours: 0.5, at: '2026-10-12T10:00:00Z', method: 'cash' }],
+    });
+    await render(<PupilPaymentsCard instructorFirstName="Grant" />);
+    await waitFor(() => expect(screen.getByTestId('pupil-balance')).toHaveTextContent('You owe £46.00 to Grant.'));
+    expect(screen.getByTestId('pupil-payment-p-a')).toHaveTextContent(/£36\.00/);
+    expect(screen.getByTestId('pupil-payment-t-k')).toHaveTextContent(/Prepaid 0\.5 hours/);
+    expect(screen.getByText(/You pay your instructor directly/)).toBeTruthy();
+  });
+
+  it('reassures when all paid up, and never offers a way to pay', async () => {
+    mockSummary.mockResolvedValue({ charged: 0, paid: 0, balance: 0, payments: [], topups: [] });
+    await render(<PupilPaymentsCard />);
+    await waitFor(() => expect(screen.getByTestId('pupil-balance')).toHaveTextContent('You are all paid up.'));
+    expect(screen.getByTestId('pupil-payments-empty')).toBeTruthy();
+    expect(screen.queryByText(/pay now/i)).toBeNull();
+  });
+
+  it('says so when it cannot load', async () => {
+    mockSummary.mockRejectedValue(new Error('offline'));
+    await render(<PupilPaymentsCard />);
+    await waitFor(() => expect(screen.getByText(/Couldn.t load your payments/)).toBeTruthy());
+  });
+});

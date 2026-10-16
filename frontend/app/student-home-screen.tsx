@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '../src/AuthContext';
 import { BottomNav } from '../src/BottomNav';
 import { SlotAlertsCard } from '../src/SlotAlertsCard';
+import { PupilMockResultCard } from '../src/PupilMockResultCard';
 import { isPaidTier, tierById } from '../src/tiers';
 import {
   useStudentByAuthId, useStudentByEmail, useCompetencies, useLessonsForStudent,
@@ -347,6 +348,8 @@ export default function StudentAppV2Screen() {
               </View>
             </View>
           )}
+
+          <PupilMockResultCard attempt={mockTestAttempts[0]} />
 
           <SlotAlertsCard enabled={supabaseStudent?.slot_alerts !== false} />
 

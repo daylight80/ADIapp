@@ -1549,6 +1549,19 @@ export async function setMyDefaultTravelMinutes(minutes: number): Promise<number
   return typeof data === 'number' ? data : minutes;
 }
 
+// Whether the 24-hour lesson reminder mentions a pupil's unpaid balance (off by default; migration 075).
+export async function getMyReminderBalanceSetting(): Promise<boolean> {
+  const { data, error } = await supabase.rpc('get_my_reminder_balance_setting');
+  if (error) throw error;
+  return data === true;
+}
+
+export async function setMyReminderBalanceSetting(on: boolean): Promise<boolean> {
+  const { data, error } = await supabase.rpc('set_my_reminder_balance_setting', { p_on: on });
+  if (error) throw error;
+  return data === true;
+}
+
 // What happened to the slot alert for one of the instructor's cancelled lessons: when it was
 // handled and how many pupils were told. A function because slot_alert_log is backend-only
 // (migrations 064 and 065). null when the lesson is not the caller's.

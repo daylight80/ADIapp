@@ -117,8 +117,13 @@ def render_lesson_reminder_email(
     time_text: str,
     pickup_address: Optional[str] = None,
     instructor_phone: Optional[str] = None,
+    balance_owed_text: Optional[str] = None,
 ) -> Tuple[str, str, str]:
     """Return (subject, html_body, text_body) for a student's lesson reminder.
+
+    `balance_owed_text` (for example "£46.00") adds one paragraph saying the pupil has an outstanding balance.
+    It is the same template either way: the caller passes it only when the instructor has switched that on
+    and the pupil owes money, so there is no second template to choose between.
 
     `kind` is 'h48' or 'h25'. Times must already be UK local time. A plain
     service message about a lesson the student has booked — no marketing
@@ -153,9 +158,18 @@ def render_lesson_reminder_email(
     else:
         contact_line = f"If you need to change or cancel your lesson, please contact {instructor}."
 
+    amount = re.sub(r"[^0-9£.,]", "", balance_owed_text or "")[:16]
+    balance_line = (
+        f"You currently have an outstanding balance of {amount} for your lessons. "
+        f"Please pay at your lesson, or arrange it with {instructor}."
+        if amount else ""
+    )
+
     text_lines = [greeting, "", lead, "", f"When: {when}"]
     if address:
         text_lines.append(f"Pick-up: {address}")
+    if balance_line:
+        text_lines += ["", balance_line]
     text_lines += [
         "",
         contact_line,
@@ -175,6 +189,9 @@ def render_lesson_reminder_email(
         f"If you need to change or cancel your lesson, please contact {esc(instructor)}."
     )
     esc_lesson_support = esc(LESSON_REMINDER_SUPPORT_ADDRESS)
+    balance_html = (
+        f'<p style="font-size:15px;line-height:1.55;margin:14px 0 0;">{esc(balance_line)}</p>' if balance_line else ""
+    )
     body = f"""\
 <!doctype html>
 <html lang="en-GB">
@@ -187,6 +204,7 @@ def render_lesson_reminder_email(
       <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(lead)}</p>
       <p style="font-size:15px;line-height:1.55;margin:0 0 6px;"><strong>When:</strong> {esc(when)}</p>
       {pickup_html}
+      {balance_html}
       <p style="font-size:15px;line-height:1.55;margin:14px 0 20px;">{contact_html}</p>
     </td></tr>
     <tr><td style="padding:16px 28px 24px;border-top:1px solid #e4ded2;">

@@ -6,6 +6,7 @@
 import type { AgreementContext } from './agreementTerms';
 import { supabase } from './supabaseClient';
 import { cleanVehicleColour, type InstructorCardData } from './instructorCard';
+import type { PaymentRow, PaymentMethod } from './payments';
 import type { SlotAlertStatus } from './slotAlertStatus';
 import type { DeadlineItem, EditableDeadlineKind } from './deadlines';
 
@@ -1710,6 +1711,101 @@ export async function addBlockBooking(input: {
     amount: Number(data.amount),
     purchased_at: data.purchased_at,
     notes: data.notes ?? undefined,
+  };
+}
+
+// =============================================================================
+// PAYMENTS (migration 072): money received from a pupil, recorded by hand. There are no in-app card
+// payments. Writes go through functions so the school, the recorder and the rules come from the database.
+// =============================================================================
+
+const paymentFromRow = (r: any): PaymentRow => ({
+  id: r.id,
+  amount: Number(r.amount),
+  method: r.method,
+  paid_at: r.paid_at,
+  reference: r.reference ?? null,
+  note: r.note ?? null,
+  source: r.source,
+  voided_at: r.voided_at ?? null,
+  void_reason: r.void_reason ?? null,
+});
+
+/** Newest first, including voided ones (they show struck through). Row security limits this to your own pupils. */
+export async function listPayments(studentId: string): Promise<PaymentRow[]> {
+  const { data, error } = await supabase
+    .from('payments')
+    .select('id, amount, method, paid_at, reference, note, source, voided_at, void_reason')
+    .eq('student_id', studentId)
+    .order('paid_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(paymentFromRow);
+}
+
+export type PupilBalance = { charged: number; paid: number; outstanding: number };
+
+export async function getPupilBalance(studentId: string): Promise<PupilBalance> {
+  const { data, error } = await supabase
+    .from('students_with_balance')
+    .select('charged_gbp, paid_gbp, outstanding_gbp')
+    .eq('student_id', studentId)
+    .maybeSingle();
+  if (error) throw error;
+  return {
+    charged: Number(data?.charged_gbp ?? 0),
+    paid: Number(data?.paid_gbp ?? 0),
+    outstanding: Number(data?.outstanding_gbp ?? 0),
+  };
+}
+
+export async function recordPayment(input: {
+  /** A retry of the same attempt reuses this id, so the payment can't be recorded twice. */
+  id?: string;
+  studentId: string;
+  amount: number;
+  method: PaymentMethod;
+  paidAt?: string | null;
+  reference?: string | null;
+  note?: string | null;
+}): Promise<PaymentRow> {
+  const { data, error } = await supabase.rpc('record_payment', {
+    p_student_id: input.studentId,
+    p_amount: input.amount,
+    p_method: input.method,
+    p_paid_at: input.paidAt ?? null,
+    p_reference: input.reference ?? null,
+    p_note: input.note ?? null,
+    p_id: input.id ?? null,
+  });
+  if (error) throw error;
+  return paymentFromRow(data);
+}
+
+export async function voidPayment(id: string, reason?: string | null): Promise<PaymentRow> {
+  const { data, error } = await supabase.rpc('void_payment', { p_id: id, p_reason: reason ?? null });
+  if (error) throw error;
+  return paymentFromRow(data);
+}
+
+export type MyPaymentSummary = {
+  charged: number;
+  paid: number;
+  balance: number;
+  payments: { id: string; amount: number; method: string; paid_at: string; reference: string | null }[];
+  topups: { id: string; amount: number; hours: number; at: string; method: string | null }[];
+};
+
+/** The signed-in pupil's own balance and history, or null when the login isn't linked to a pupil. */
+export async function getMyPaymentSummary(): Promise<MyPaymentSummary | null> {
+  const { data, error } = await supabase.rpc('my_payment_summary');
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    charged: Number(data.charged ?? 0),
+    paid: Number(data.paid ?? 0),
+    balance: Number(data.balance ?? 0),
+    payments: (data.payments || []).map((p: any) => ({ id: p.id, amount: Number(p.amount), method: p.method, paid_at: p.paid_at, reference: p.reference ?? null })),
+    topups: (data.topups || []).map((k: any) => ({ id: k.id, amount: Number(k.amount), hours: Number(k.hours), at: k.at, method: k.method ?? null })),
   };
 }
 

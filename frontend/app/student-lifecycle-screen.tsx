@@ -26,6 +26,7 @@ import { manualStatusMoves, statusChangeMessage, type LifecycleStatus } from '..
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { openSmsComposer } from '../src/tools';
 import { colorForLessonType } from '../src/diary/lessonTypes';
+import { PaymentsCard } from '../src/PaymentsCard';
 
 /**
  * Student Profile — redesigned visual direction from the Claude Design
@@ -977,23 +978,7 @@ export default function StudentProfileV2Screen() {
                   <Text style={s.heroSub}>{totalHours.toFixed(1)}h · £{student.hourly_rate || 0}/hr</Text>
                 </View>
               </View>
-              <View style={s.card}>
-                <Text style={s.sectionLabel}>Recent payments</Text>
-                <View style={{ marginTop: 11, gap: 9 }}>
-                  {lessons.filter((l) => l.amount_paid).slice(0, 8).map((l) => (
-                    <View key={l.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                      <View style={{ minWidth: 0 }}>
-                        <Text style={s.paymentWhat} numberOfLines={1}>{l.topic || l.lesson_type}</Text>
-                        <Text style={s.paymentWhen}>{new Date(`${l.date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</Text>
-                      </View>
-                      <Text style={s.paymentAmount}>£{(l.amount_paid || 0).toFixed(2)}</Text>
-                    </View>
-                  ))}
-                  {lessons.filter((l) => l.amount_paid).length === 0 && (
-                    <Text style={s.emptyMuted}>No payments recorded yet.</Text>
-                  )}
-                </View>
-              </View>
+              <PaymentsCard student={{ id: student.id, name: student.name }} />
 
               <TouchableOpacity
                 style={[s.invoiceBtn, !pro && { opacity: 0.55 }]}

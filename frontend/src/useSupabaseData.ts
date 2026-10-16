@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import * as db from './supabaseDb';
+import type { PaymentRow } from './payments';
 import { supabase } from './supabaseClient';
 import { raceTimeout, loadErrorMessage } from './withTimeout';
 
@@ -30,7 +31,7 @@ export function bump() {
   _version += 1;
   _listeners.forEach((l) => l());
 }
-function useVersion(): number {
+export function useVersion(): number {
   const [, setN] = useState(0);
   useEffect(() => {
     const onChange = () => setN((n) => n + 1);
@@ -555,6 +556,28 @@ export function useBlockBookings(studentId: string | undefined) {
   }, [studentId, version]);
 
   return { bookings, loading };
+}
+
+/** A pupil's payments and balance for the instructor's Earnings tab. Refreshes whenever data is bumped (a lesson completed, a payment recorded). */
+export function usePaymentLedger(studentId: string | undefined) {
+  const version = useVersion();
+  const [payments, setPayments] = useState<PaymentRow[]>([]);
+  const [balance, setBalance] = useState<db.PupilBalance | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!studentId) { setPayments([]); setBalance(null); setLoading(false); return; }
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([db.listPayments(studentId), db.getPupilBalance(studentId)])
+      .then(([p, b]) => { if (!cancelled) { setPayments(p); setBalance(b); setError(null); } })
+      .catch((e: any) => { if (!cancelled) setError(e?.message || 'Could not load payments.'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [studentId, version]);
+
+  return { payments, balance, loading, error };
 }
 
 export async function purchaseBlock(input: Parameters<typeof db.addBlockBooking>[0]) {

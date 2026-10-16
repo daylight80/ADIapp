@@ -11,7 +11,7 @@
  * touching any layout code. To change what a section says, edit it here.
  */
 
-export const LEGAL_LAST_UPDATED = '14 October 2026';
+export const LEGAL_LAST_UPDATED = '16 October 2026';
 
 export const OPERATOR = {
   name: 'Driving School Solutions',
@@ -229,7 +229,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
       'Resend: sends our emails, such as sign-up confirmation, password reset, invitations and lesson reminders.',
       'Expo: delivers push notifications to your phone.',
       'Google: when you ask for a travel-time estimate, the pick-up and destination addresses are sent to Google Maps.',
-      'Anthropic: when you scan a receipt, the receipt image is sent to Anthropic so the text can be read.',
+      'Anthropic: when an instructor scans a receipt, the receipt image is sent to Anthropic so the text can be read. When an instructor asks for an AI debrief of a lesson, the pupil\'s name, the lesson topic and the instructor\'s notes for that lesson are sent to Anthropic so it can write a short summary for the pupil.',
       'Postcodes.io: when a pupil enters their postcode, the postcode alone is sent to this free UK postcode service to check that it exists.',
       'Sentry: if the phone app crashes or hits an error, a report is sent to Sentry (stored in the EU, in Germany) so we can fix it. It holds technical details of the error and your phone, and your account number, but not your name, email address or the details in your requests.',
     ],

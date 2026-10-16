@@ -42,6 +42,12 @@ GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 # standard Anthropic API key instead — get one from console.anthropic.com
 # and set it as an env var on Render.
 ANTHROPIC_API_KEY   = os.environ.get("ANTHROPIC_API_KEY", "")
+# Both AI features (receipt scanner, lesson debrief) use Claude Haiku 5.5 (Grant, Oct 2026; Haiku 4.5 before).
+# Haiku 5.5 thinks by default and thinking tokens count against max_tokens, so these short jobs run at
+# "low" effort with room to spare. To go back, set AI_MODEL to "claude-haiku-4-5" and drop AI_OUTPUT_CONFIG.
+AI_MODEL = "claude-haiku-5-5"
+AI_OUTPUT_CONFIG = {"effort": "low"}
+AI_MAX_TOKENS = 600
 
 # Stripe Price IDs per subscription tier (set in backend/.env)
 # STRIPE_PRICE_GROWTH removed (23 Sept 2026) — Growth tier no longer
@@ -2036,7 +2042,7 @@ _RECEIPT_CATEGORIES = [
 
 @api_router.post("/receipts/scan", response_model=ReceiptScanResponse)
 async def receipts_scan(req: ReceiptScanRequest, sb_user: dict = Depends(get_current_supabase_user)):
-    """OCR a receipt image using Claude Haiku 4.5 and return structured fields.
+    """OCR a receipt image using Claude Haiku 5.5 and return structured fields.
     Falls back gracefully if the model returns unparseable JSON.
 
     Replaces the old emergentintegrations/Gemini call (25 Aug 2026) — that
@@ -2045,7 +2051,7 @@ async def receipts_scan(req: ReceiptScanRequest, sb_user: dict = Depends(get_cur
     completely non-functional the whole time, not just outdated. At
     Grant's estimated volume (10-15 receipts/week per instructor), the
     real-world cost of this is negligible — roughly £2/year per instructor
-    at Haiku 4.5's published rates ($1/MTok input, $5/MTok output).
+    at Haiku 5.5's published rates ($0.10/MTok input, $0.50/MTok output).
     """
     if not ANTHROPIC_API_KEY:
         raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured on backend.")
@@ -2096,8 +2102,9 @@ async def receipts_scan(req: ReceiptScanRequest, sb_user: dict = Depends(get_cur
     client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
     try:
         response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=300,
+            model=AI_MODEL,
+            max_tokens=AI_MAX_TOKENS,
+            output_config=AI_OUTPUT_CONFIG,
             system=system_msg,
             messages=[{
                 "role": "user",
@@ -2175,7 +2182,7 @@ class LessonDebriefResponse(BaseModel):
 async def generate_lesson_debrief(lesson_id: str, sb_user: dict = Depends(get_current_supabase_user)):
     """Generates a short, student-facing debrief from an instructor's own
     saved lesson notes (instructor_lesson_notes.answers), using Claude
-    Haiku 4.5. Requires notes to already be saved for this lesson — the
+    Haiku 5.5. Requires notes to already be saved for this lesson — the
     debrief is generated FROM them, not instead of them."""
     if not ANTHROPIC_API_KEY:
         raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured on backend.")
@@ -2265,8 +2272,9 @@ async def generate_lesson_debrief(lesson_id: str, sb_user: dict = Depends(get_cu
     client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
     try:
         response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=300,
+            model=AI_MODEL,
+            max_tokens=AI_MAX_TOKENS,
+            output_config=AI_OUTPUT_CONFIG,
             system=system_msg,
             messages=[{"role": "user", "content": user_msg}],
         )

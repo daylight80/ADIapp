@@ -164,7 +164,8 @@ async def _find_due_lessons(
         "select": (
             "id,start_time,end_time,status,pickup_address,topic,student_id,"
             "students(id,auth_user_id,full_name,email),"
-            "instructors(id,full_name,mobile_number,driving_schools!instructors_school_id_fkey(tier))"
+            "instructors(id,full_name,mobile_number,mention_balance_in_reminders,"
+            "driving_schools!instructors_school_id_fkey(tier))"
         ),
         "start_time": f"gte.{lo.isoformat()}",
         "and": f"(start_time.lte.{hi.isoformat()})",
@@ -313,6 +314,10 @@ def _build_message(lesson: Dict[str, Any], kind: str, label: str) -> Dict[str, s
         body = "Your lesson starts in 1 hour. See you soon!"
     elif kind == "h25":
         body = f"Lesson tomorrow at {hhmm} with {instructor_name}."
+        # Only when the instructor has switched it on and the pupil owes money. No amount: a lock screen
+        # can be read by anyone nearby, so the pupil opens the app (Wallet) to see it.
+        if lesson.get("balance_owed"):
+            body += " You also have a balance to settle. See your Wallet."
     else:
         body = f"Reminder: You have a driving lesson on {day_name} at {hhmm}."
     return {"title": label, "body": body}
@@ -493,6 +498,7 @@ async def _send_email_reminder(lesson: Dict[str, Any], kind: str) -> bool:
         time_text=dt.strftime("%H:%M"),
         pickup_address=lesson.get("pickup_address"),
         instructor_phone=instructor.get("mobile_number"),
+        balance_owed_text=f"£{lesson['balance_owed']:,.2f}" if lesson.get("balance_owed") else None,
     )
     payload = email_service.build_payload(
         to=to,
@@ -524,6 +530,27 @@ async def _send_push_reminder(
     return result if result["accepted"] > 0 else None
 
 
+async def _balance_owed(student_id: str) -> Optional[float]:
+    """What the pupil owes for lessons already taught (payments ledger, migration 072), or None when
+    they owe nothing or it could not be read. A failure to read it must never stop the reminder."""
+    sb_url = _sb_url()
+    if not sb_url or not student_id:
+        return None
+    try:
+        async with _client() as client:
+            r = await client.get(
+                f"{sb_url}/rest/v1/students_with_balance",
+                headers=_sb_headers(),
+                params={"select": "outstanding_gbp", "student_id": f"eq.{student_id}", "limit": "1"},
+            )
+        if r.status_code >= 400:
+            return None
+        owed = float((r.json() or [{}])[0].get("outstanding_gbp") or 0)
+    except Exception:
+        return None
+    return round(owed, 2) if owed > 0.004 else None
+
+
 async def _deliver_reminder(lesson: Dict[str, Any], kind: str, label: str) -> str:
     """Try each channel for this reminder in preference order; log the first
     that delivers. Returns what happened:
@@ -539,6 +566,9 @@ async def _deliver_reminder(lesson: Dict[str, Any], kind: str, label: str) -> st
     global _warned_email_unconfigured
     student = lesson.get("students") or {}
     auth_user_id = student.get("auth_user_id")
+    # The 24-hour reminder can mention an unpaid balance, if this instructor has switched that on.
+    if kind == "h25" and (lesson.get("instructors") or {}).get("mention_balance_in_reminders"):
+        lesson["balance_owed"] = await _balance_owed(lesson.get("student_id") or student.get("id") or "")
     # email_service.is_configured() gates it here so a missing RESEND_API_KEY
     # quietly falls back to push instead of counting as a failed attempt.
     has_address = email_service.looks_like_email(student.get("email"))

@@ -7,12 +7,13 @@ import time
 import logging
 from pathlib import Path
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, Literal, List
+from typing import Optional, Literal, List, Tuple
 from datetime import datetime, timedelta, timezone
 import stripe
 from lesson_reminders import start_lesson_reminder_scheduler, stop_lesson_reminder_scheduler, close_http_client as close_lesson_reminder_http_client
 import email_service
 from referral_rules import referral_eligible, referral_eligible_from, referral_item, referral_reward_due
+import payment_reminders
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -1890,6 +1891,119 @@ async def v2_school_today(sb_user: dict = Depends(get_current_supabase_user)):
             pickup_address=row.get("pickup_address"),
         ))
     return out
+
+
+# =============================================================================
+# Payment reminders (migration 073). An instructor taps "Send payment reminder" on a pupil who owes money:
+# push to their phone, or an email when they have no app. One per pupil every few days, and never automatic.
+# The money side is recorded by hand in the app (payments ledger, migration 072); nothing is taken here.
+# =============================================================================
+
+class PaymentReminderRequest(BaseModel):
+    student_id: str
+
+
+class PaymentReminderStatus(BaseModel):
+    owes: float
+    can_send: bool
+    reachable: bool                       # has an app login or a usable email address
+    last_sent_at: Optional[str] = None
+    next_allowed_at: Optional[str] = None
+
+
+class PaymentReminderResult(BaseModel):
+    sent: bool
+    channel: str
+    owes: float
+
+
+async def _load_manageable_student(sb_user: dict, student_id: str) -> dict:
+    """The pupil's full row if the caller is their instructor or the school owner; 403/404 otherwise."""
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.get(
+            f"{_sb_rest_base}/students",
+            headers=_sb_headers(),
+            params={"select": "id,school_id,instructor_id,auth_user_id,full_name,email", "id": f"eq.{student_id}", "limit": "1"},
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail="Could not read that pupil.")
+    rows = r.json() or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Pupil not found.")
+    row = rows[0]
+    school = sb_user.get("school")
+    if school and school.get("owner_auth_id") == sb_user["auth_user_id"] and school.get("id") == row.get("school_id"):
+        return row
+    instructor = await _get_own_instructor(sb_user)
+    if instructor.get("id") and instructor["id"] == row.get("instructor_id"):
+        return row
+    raise HTTPException(status_code=403, detail="You can only remind your own pupils.")
+
+
+async def _reminder_context(sb_user: dict, student_id: str) -> Tuple[dict, float, Optional[str]]:
+    student = await _load_manageable_student(sb_user, student_id)
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        bal = await client_http.get(
+            f"{_sb_rest_base}/students_with_balance",
+            headers=_sb_headers(),
+            params={"select": "outstanding_gbp", "student_id": f"eq.{student_id}", "limit": "1"},
+        )
+        last = await client_http.get(
+            f"{_sb_rest_base}/payment_reminder_log",
+            headers=_sb_headers(),
+            params={"select": "created_at", "student_id": f"eq.{student_id}", "order": "created_at.desc", "limit": "1"},
+        )
+    if bal.status_code >= 400 or last.status_code >= 400:
+        raise HTTPException(status_code=500, detail="Could not check this pupil's balance.")
+    owes = float((bal.json() or [{}])[0].get("outstanding_gbp") or 0)
+    last_rows = last.json() or []
+    return student, owes, (last_rows[0]["created_at"] if last_rows else None)
+
+
+@api_router.get("/payments/reminder-status", response_model=PaymentReminderStatus)
+async def payment_reminder_status(student_id: str, sb_user: dict = Depends(get_current_supabase_user)):
+    student, owes, last = await _reminder_context(sb_user, student_id)
+    nxt = payment_reminders.next_allowed_at(last)
+    return PaymentReminderStatus(
+        owes=round(owes, 2),
+        can_send=owes > 0.004 and payment_reminders.can_send(last),
+        reachable=bool(student.get("auth_user_id")) or email_service.looks_like_email(student.get("email")),
+        last_sent_at=last,
+        next_allowed_at=nxt.isoformat() if nxt else None,
+    )
+
+
+@api_router.post("/payments/remind", response_model=PaymentReminderResult)
+async def send_payment_reminder(req: PaymentReminderRequest, sb_user: dict = Depends(get_current_supabase_user)):
+    student, owes, last = await _reminder_context(sb_user, req.student_id)
+    first = ((student.get("full_name") or "").split(" ")[0]) or "This pupil"
+    if owes <= 0.004:
+        raise HTTPException(status_code=400, detail=f"{first} doesn't owe anything, so there's nothing to remind them about.")
+    if not payment_reminders.can_send(last):
+        sent_on, next_on = payment_reminders.describe_wait(last)
+        raise HTTPException(status_code=429, detail=f"You reminded {first} on {sent_on}. You can send another from {next_on}.")
+
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        ir = await client_http.get(
+            f"{_sb_rest_base}/instructors",
+            headers=_sb_headers(),
+            params={"select": "id,full_name,mobile_number", "id": f"eq.{student.get('instructor_id')}", "limit": "1"},
+        )
+    instructor = (ir.json() or [{}])[0] if ir.status_code < 400 else {}
+
+    channel = await payment_reminders.send_reminder(student, instructor, owes)
+    if channel is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{first} has no app login or email address I can reach, so the reminder wasn't sent. Please contact them directly.",
+        )
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        await client_http.post(
+            f"{_sb_rest_base}/payment_reminder_log",
+            headers={**_sb_headers(), "Prefer": "return=minimal"},
+            json={"student_id": student["id"], "sent_by_instructor_id": instructor.get("id"), "amount_gbp": round(owes, 2), "channel": channel},
+        )
+    return PaymentReminderResult(sent=True, channel=channel, owes=round(owes, 2))
 
 
 # =============================================================================

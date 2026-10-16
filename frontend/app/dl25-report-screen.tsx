@@ -8,6 +8,7 @@ import { DVSA_CATEGORIES_BASE } from '../src/mockDb';
 import { Card, Badge } from '../src/ui';
 import { useAuth } from '../src/AuthContext';
 import { useStudentByAuthId, useStudentByEmail, useMockTestAttempts, useStudent } from '../src/useSupabaseData';
+import { MockDebriefCard } from '../src/MockDebriefCard';
 
 export default function Dl25ReportScreen() {
   const router = useRouter();
@@ -117,6 +118,15 @@ export default function Dl25ReportScreen() {
             })
           )}
         </Card>
+
+        {/* AI debrief, for the instructor who has just scored the test with this pupil. */}
+        {!!instructorStudentId && !!attempts[0] && (
+          <MockDebriefCard
+            attemptId={attempts[0].id}
+            pupilFirstName={instructorStudent?.name?.split(' ')[0] || ''}
+            existing={attempts[0].ai_debrief}
+          />
+        )}
 
         {/* Past attempts */}
         {supabaseStudent && (

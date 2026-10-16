@@ -2714,6 +2714,9 @@ export type MockTestAttempt = {
   passed: boolean;
   category_breakdown: MockTestCategoryBreakdown;
   created_at: string;
+  /** An AI-written summary the instructor chose to attach (migration 074); the pupil sees it on their home screen. */
+  ai_debrief?: string | null;
+  ai_debrief_generated_at?: string | null;
 };
 
 function isMissingMockTestAttemptsTable(msg: string): boolean {

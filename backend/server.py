@@ -14,6 +14,7 @@ from lesson_reminders import start_lesson_reminder_scheduler, stop_lesson_remind
 import email_service
 from referral_rules import referral_eligible, referral_eligible_from, referral_item, referral_reward_due
 import payment_reminders
+import ai_debriefs
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -2298,6 +2299,102 @@ async def generate_lesson_debrief(lesson_id: str, sb_user: dict = Depends(get_cu
         raise HTTPException(status_code=500, detail=f"Supabase write failed: {patch_resp.text}")
 
     return LessonDebriefResponse(debrief=debrief_text, generated_at=generated_at)
+
+
+# =============================================================================
+# AI debrief for a mock test (DL25) attempt. After the instructor scores a mock test they tap "Write a debrief"; the
+# result is saved on the attempt (migration 074) and the pupil sees it on their home screen. Only the pupil's first
+# name and the scored numbers go to the model (see ai_debriefs.py). The instructor can regenerate or remove it.
+# =============================================================================
+
+class MockDebriefResponse(BaseModel):
+    debrief: Optional[str] = None
+    generated_at: Optional[str] = None
+
+
+async def _load_mock_attempt_for_caller(sb_user: dict, attempt_id: str) -> Tuple[dict, dict]:
+    """The attempt and its pupil, if the caller is that pupil's instructor or the school owner."""
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.get(
+            f"{_sb_rest_base}/mock_test_attempts",
+            headers=_sb_headers(),
+            params={"select": "id,student_id,taken_at,passed,driving_faults,serious_faults,dangerous_faults,category_breakdown",
+                    "id": f"eq.{attempt_id}", "limit": "1"},
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=404, detail="Mock test not found.")
+    rows = r.json() or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Mock test not found.")
+    attempt = rows[0]
+    student = await _load_manageable_student(sb_user, attempt["student_id"])
+    return attempt, student
+
+
+@api_router.post("/v2/mock-tests/{attempt_id}/debrief", response_model=MockDebriefResponse)
+async def generate_mock_test_debrief(attempt_id: str, sb_user: dict = Depends(get_current_supabase_user)):
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured on backend.")
+    attempt, student = await _load_mock_attempt_for_caller(sb_user, attempt_id)
+
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        prev_resp = await client_http.get(
+            f"{_sb_rest_base}/mock_test_attempts",
+            headers=_sb_headers(),
+            params={"select": "passed,driving_faults,serious_faults,dangerous_faults", "student_id": f"eq.{attempt['student_id']}",
+                    "taken_at": f"lt.{attempt['taken_at']}", "order": "taken_at.desc", "limit": "1"},
+        )
+    previous = (prev_resp.json() or [None])[0] if prev_resp.status_code < 400 else None
+    system_msg, user_msg = ai_debriefs.build_mock_debrief_request(student.get("full_name"), attempt, previous)
+
+    try:
+        import anthropic
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"anthropic package not installed: {e}")
+    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    try:
+        response = await client.messages.create(
+            model=AI_MODEL,
+            max_tokens=AI_MAX_TOKENS,
+            output_config=AI_OUTPUT_CONFIG,
+            system=system_msg,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+    except Exception as e:
+        logging.exception("[mock-tests/debrief] Anthropic call failed")
+        raise HTTPException(status_code=502, detail=f"Debrief generation failed: {e}")
+
+    text = "".join(block.text for block in response.content if block.type == "text").strip()
+    if not text:
+        raise HTTPException(status_code=502, detail="The debrief came back empty. Please try again.")
+    text = text[:2000]
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        patch = await client_http.patch(
+            f"{_sb_rest_base}/mock_test_attempts",
+            params={"id": f"eq.{attempt_id}"},
+            headers=_sb_headers(),
+            json={"ai_debrief": text, "ai_debrief_generated_at": generated_at},
+        )
+    if patch.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase write failed: {patch.text[:160]}")
+    return MockDebriefResponse(debrief=text, generated_at=generated_at)
+
+
+@api_router.delete("/v2/mock-tests/{attempt_id}/debrief", response_model=MockDebriefResponse)
+async def remove_mock_test_debrief(attempt_id: str, sb_user: dict = Depends(get_current_supabase_user)):
+    await _load_mock_attempt_for_caller(sb_user, attempt_id)
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        patch = await client_http.patch(
+            f"{_sb_rest_base}/mock_test_attempts",
+            params={"id": f"eq.{attempt_id}"},
+            headers=_sb_headers(),
+            json={"ai_debrief": None, "ai_debrief_generated_at": None},
+        )
+    if patch.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase write failed: {patch.text[:160]}")
+    return MockDebriefResponse()
 
 
 # =============================================================================

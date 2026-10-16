@@ -259,6 +259,63 @@ def render_slot_alert_email(
     return subject, body, text
 
 
+def render_payment_reminder_email(
+    *,
+    student_name: Optional[str],
+    instructor_name: Optional[str],
+    amount_text: str,
+    instructor_phone: Optional[str] = None,
+) -> Tuple[str, str, str]:
+    """Return (subject, html_body, text_body) for a payment reminder a pupil's instructor chose to send.
+
+    `amount_text` is already formatted (for example "£46.00"). A plain service message about lessons the
+    pupil has had, sent only when the instructor taps "Send payment reminder", so it needs no marketing
+    consent. Pupils do not reply to it (instructors have no monitored mailbox), so the instructor's number
+    is the call to action. Every user-supplied string is escaped.
+    """
+    first = clean_display_name(student_name, fallback="").split(" ")[0]
+    instructor = clean_display_name(instructor_name, fallback="your instructor")
+    phone = re.sub(r"\s+", " ", _CONTROL_AND_HEADER_CHARS.sub("", instructor_phone or "")).strip()[:30]
+    amount = re.sub(r"[^0-9£.,]", "", amount_text or "")[:16]
+
+    subject = f"A payment reminder from {instructor}"
+    headline = "Payment reminder"
+    greeting = f"Hi {first}," if first else "Hi,"
+    lead = f"{instructor} has sent you a reminder that you have an outstanding balance of {amount} for your driving lessons."
+    ask = "Please pay at your next lesson, or arrange it with them beforehand."
+    if phone:
+        check = f"If you think this is wrong, or you have already paid, please contact {instructor} on {phone}."
+    else:
+        check = f"If you think this is wrong, or you have already paid, please contact {instructor}."
+    footer = (
+        f"You're receiving this because {instructor} sent you a payment reminder using ADI Pro. "
+        f"Questions about these emails: {LESSON_REMINDER_SUPPORT_ADDRESS}."
+    )
+    esc = html.escape
+    text = "\n".join([greeting, "", lead, "", ask, "", check, "", footer]) + "\n"
+    body = f"""\
+<!doctype html>
+<html lang="en-GB">
+<body style="margin:0;padding:24px;background:#f5f2ec;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;">
+    <tr><td style="padding:28px 28px 8px;">
+      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">ADI PRO</div>
+      <h1 style="font-size:20px;line-height:1.3;margin:10px 0 14px;">{esc(headline)}</h1>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(greeting)}</p>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(lead)}</p>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(ask)}</p>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 20px;">{esc(check)}</p>
+    </td></tr>
+    <tr><td style="padding:16px 28px 24px;border-top:1px solid #e4ded2;">
+      <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">{esc(footer)}</p>
+    </td></tr>
+  </table>
+</body>
+</html>
+"""
+    return subject, body, text
+
+
 def looks_like_email(value: Optional[str]) -> bool:
     """Cheap sanity check on an instructor-typed address before we spend a
     send on it. Deliberately loose — Resend does the real validation."""

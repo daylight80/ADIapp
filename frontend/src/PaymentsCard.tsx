@@ -1,6 +1,9 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
-import { Plus, FileText } from 'lucide-react-native';
+import { Plus, FileText, Bell } from 'lucide-react-native';
+import {
+  getReminderStatus, sendPaymentReminder, reminderErrorMessage, reminderSuccessMessage, reminderHistoryLine, type ReminderStatus,
+} from './paymentReminder';
 import { theme } from './theme';
 import { Card } from './ui';
 import { BottomSheet } from './BottomSheet';
@@ -51,6 +54,32 @@ export function PaymentsCard({ student }: { student: { id: string; name: string 
   const [voidingId, setVoidingId] = useState<string | null>(null);
   const [rowBusy, setRowBusy] = useState<string | null>(null);
   const [rowMessage, setRowMessage] = useState<string | null>(null);
+
+  // Payment reminder: only when the pupil owes money. The backend decides if another may be sent yet.
+  const [reminderStatus, setReminderStatus] = useState<ReminderStatus | null>(null);
+  const [reminding, setReminding] = useState(false);
+  const [reminderMessage, setReminderMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const owing = (balance?.outstanding ?? 0) > 0;
+  useEffect(() => {
+    if (!owing) { setReminderStatus(null); return; }
+    let cancelled = false;
+    getReminderStatus(student.id).then((s) => { if (!cancelled) setReminderStatus(s); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [student.id, owing, balance?.outstanding]);
+
+  const remind = async () => {
+    setReminding(true);
+    setReminderMessage(null);
+    try {
+      const r = await sendPaymentReminder(student.id);
+      setReminderMessage({ ok: true, text: reminderSuccessMessage(student.name.split(' ')[0], r.channel) });
+      setReminderStatus(await getReminderStatus(student.id).catch(() => reminderStatus));
+    } catch (e) {
+      setReminderMessage({ ok: false, text: reminderErrorMessage(e) });
+    } finally {
+      setReminding(false);
+    }
+  };
 
   const bal = describeBalance(balance?.outstanding);
   const tone = TONE[bal.kind];
@@ -157,6 +186,29 @@ export function PaymentsCard({ student }: { student: { id: string; name: string 
         <Text style={styles.hint}>
           For money you have been given outside the app: cash, a bank transfer or a card reader. The app doesn&apos;t take payments.
         </Text>
+
+        {bal.kind === 'owes' && (
+          <View style={{ gap: 6 }} testID="reminder-section">
+            <TouchableOpacity
+              style={[styles.remindBtn, (!reminderStatus?.can_send || reminding) && { opacity: 0.5 }]}
+              onPress={remind}
+              disabled={!reminderStatus?.can_send || reminding}
+              testID="btn-send-reminder"
+            >
+              {reminding ? <ActivityIndicator color={theme.colors.primary} /> : (<><Bell size={16} color={theme.colors.primary} /><Text style={styles.remindBtnText}>Send payment reminder</Text></>)}
+            </TouchableOpacity>
+            {reminderStatus && !reminderStatus.reachable && (
+              <Text style={styles.hint} testID="reminder-unreachable">
+                {student.name.split(' ')[0]} has no app login or email address, so a reminder can&apos;t be sent. Contact them directly.
+              </Text>
+            )}
+            {!!reminderHistoryLine(reminderStatus) && <Text style={styles.hint} testID="reminder-history">{reminderHistoryLine(reminderStatus)}</Text>}
+            {!!reminderMessage && (
+              <Text style={[styles.hint, { color: reminderMessage.ok ? '#047857' : theme.colors.danger }]} testID="reminder-message">{reminderMessage.text}</Text>
+            )}
+            <Text style={styles.hint}>Sends a notification to their phone, or an email if they don&apos;t have the app. It doesn&apos;t show the amount on their lock screen.</Text>
+          </View>
+        )}
 
         {!!error && <Text style={styles.error} testID="payments-error">{error}</Text>}
         {!!rowMessage && <Text style={styles.error} testID="payments-row-error">{rowMessage}</Text>}
@@ -266,6 +318,8 @@ const styles = StyleSheet.create({
   recordBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 46, borderRadius: 12, backgroundColor: theme.colors.primary },
   recordBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   hint: { fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 },
+  remindBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 44, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.primary },
+  remindBtnText: { color: theme.colors.primary, fontWeight: '700', fontSize: 14.5 },
   sectionLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', color: theme.colors.textMuted, marginTop: 4 },
   empty: { fontSize: 13, color: theme.colors.textMuted },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: theme.colors.border },

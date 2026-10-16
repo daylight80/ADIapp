@@ -21,6 +21,14 @@ jest.mock('../supabaseDb', () => ({
   getMySchoolProfile: async () => ({ business_name: "Grant's Driving School" }),
   getMyPaymentSummary: (...a: unknown[]) => mockSummary(...a),
 }));
+const mockStatus = jest.fn();
+const mockRemind = jest.fn();
+jest.mock('../paymentReminder', () => ({
+  ...jest.requireActual('../paymentReminder'),
+  getReminderStatus: (...a: unknown[]) => mockStatus(...a),
+  sendPaymentReminder: (...a: unknown[]) => mockRemind(...a),
+}));
+jest.mock('../api', () => ({ api: {} }));
 jest.mock('../AuthContext', () => ({ useAuth: () => ({ user: { name: 'Grant Robery', email: 'g@example.com' } }) }));
 jest.mock('../invoice', () => ({ generateAndSharePdf: (...a: unknown[]) => mockPdf(...a) }));
 jest.mock('../DateTimeFields', () => {
@@ -41,6 +49,8 @@ beforeEach(() => {
   mockBump.mockReset();
   mockPdf.mockReset().mockResolvedValue({ ok: true });
   mockSummary.mockReset();
+  mockStatus.mockReset().mockResolvedValue({ owes: 46, can_send: true, reachable: true, last_sent_at: null, next_allowed_at: null });
+  mockRemind.mockReset().mockResolvedValue({ sent: true, channel: 'push', owes: 46 });
   mockLedger.payments = [];
   mockLedger.balance = { charged: 100, paid: 54, outstanding: 46 };
   mockLedger.loading = false;
@@ -136,6 +146,56 @@ describe('instructor payments card', () => {
     expect(mockPdf.mock.calls[0][0]).toContain("Grant's Driving School");
     expect(mockPdf.mock.calls[0][0]).not.toMatch(/VAT/i);
     expect(mockPdf.mock.calls[0][1]).toMatch(/^Receipt-/);
+  });
+});
+
+describe('payment reminder button', () => {
+  const student = { id: 's1', name: 'Test Pupil' };
+
+  it('is only there when the pupil owes money', async () => {
+    mockLedger.balance = { charged: 50, paid: 74, outstanding: -24 };
+    await render(<PaymentsCard student={student} />);
+    expect(screen.queryByTestId('btn-send-reminder')).toBeNull();
+    expect(mockStatus).not.toHaveBeenCalled();
+  });
+
+  it('sends a reminder, says how it went, and refreshes the status', async () => {
+    await render(<PaymentsCard student={student} />);
+    await waitFor(() => expect(mockStatus).toHaveBeenCalledWith('s1'));
+    await fireEvent.press(screen.getByTestId('btn-send-reminder'));
+    await waitFor(() => expect(mockRemind).toHaveBeenCalledWith('s1'));
+    await waitFor(() => expect(screen.getByTestId('reminder-message')).toHaveTextContent(/Reminder sent to Test as a notification/));
+    expect(mockStatus.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('says it was an email when the pupil has no app', async () => {
+    mockRemind.mockResolvedValue({ sent: true, channel: 'email', owes: 46 });
+    await render(<PaymentsCard student={student} />);
+    await waitFor(() => expect(mockStatus).toHaveBeenCalled());
+    await fireEvent.press(screen.getByTestId('btn-send-reminder'));
+    await waitFor(() => expect(screen.getByTestId('reminder-message')).toHaveTextContent(/by email/));
+  });
+
+  it('shows the backend’s own reason when it refuses', async () => {
+    mockRemind.mockRejectedValue({ response: { data: { detail: 'You reminded Test on 14 Oct. You can send another from 17 Oct.' } } });
+    await render(<PaymentsCard student={student} />);
+    await waitFor(() => expect(mockStatus).toHaveBeenCalled());
+    await fireEvent.press(screen.getByTestId('btn-send-reminder'));
+    await waitFor(() => expect(screen.getByTestId('reminder-message')).toHaveTextContent(/You can send another from 17 Oct/));
+  });
+
+  it('does not send while a recent reminder is still in the waiting period, and says when', async () => {
+    mockStatus.mockResolvedValue({ owes: 46, can_send: false, reachable: true, last_sent_at: '2026-10-14T09:00:00Z', next_allowed_at: '2026-10-17T09:00:00Z' });
+    await render(<PaymentsCard student={student} />);
+    await waitFor(() => expect(screen.getByTestId('reminder-history')).toHaveTextContent(/Last reminded 14 Oct\. You can send another from 17 Oct\./));
+    await fireEvent.press(screen.getByTestId('btn-send-reminder'));
+    expect(mockRemind).not.toHaveBeenCalled();
+  });
+
+  it('explains when there is no way to reach the pupil', async () => {
+    mockStatus.mockResolvedValue({ owes: 46, can_send: true, reachable: false, last_sent_at: null, next_allowed_at: null });
+    await render(<PaymentsCard student={student} />);
+    await waitFor(() => expect(screen.getByTestId('reminder-unreachable')).toHaveTextContent(/no app login or email address/));
   });
 });
 

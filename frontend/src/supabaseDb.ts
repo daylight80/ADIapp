@@ -624,6 +624,12 @@ export type AddStudentInput = {
 
 export async function addStudent(input: AddStudentInput): Promise<Student> {
   const { schoolId, instructorId } = await ownContext();
+  // A new pupil starts on the instructor's default rate from Pricing & packages (not a fixed figure).
+  // If that can't be read, the database's own default applies.
+  let startingRate = input.hourly_rate;
+  if (startingRate == null) {
+    try { startingRate = await getInstructorHourlyRate(); } catch { startingRate = undefined; }
+  }
   const payload = {
     school_id: schoolId,
     instructor_id: instructorId,
@@ -633,7 +639,7 @@ export async function addStudent(input: AddStudentInput): Promise<Student> {
     address: input.address?.trim() || null,
     postcode: input.postcode?.trim().toUpperCase() || null,
     provisional_licence: (input.provisional_licence || '').trim() || 'PENDING',
-    hourly_rate: input.hourly_rate ?? 36,
+    ...(startingRate != null ? { hourly_rate: startingRate } : {}),
     status: 'New' as StudentStatus,
     progress: 0,
     test_date: input.test_date ?? null,
@@ -2337,32 +2343,33 @@ export async function deleteLessonPackage(id: string): Promise<void> {
 // =============================================================================
 // INSTRUCTOR DEFAULT HOURLY RATE
 // =============================================================================
+// This one value, set on Pricing & packages, is what new pupils start on (addStudent), what the diary's
+// billable figure uses, and what "apply to my pupils" moves pupils to. Read and set through functions
+// (migration 076) because only a school owner can update the instructors table directly.
 export async function getInstructorHourlyRate(): Promise<number> {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const uid = sessionData.session?.user.id;
-  if (!uid) return 36;
-  const { data } = await supabase
-    .from('instructors')
-    .select('default_hourly_rate')
-    .eq('auth_user_id', uid)
-    .maybeSingle();
-  return Number((data as any)?.default_hourly_rate ?? 36);
+  const { data, error } = await supabase.rpc('get_my_default_hourly_rate');
+  if (error) throw error;
+  const n = Number(data);
+  return Number.isFinite(n) && n > 0 ? n : 36;
 }
 
 export async function updateInstructorHourlyRate(rate: number): Promise<void> {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const uid = sessionData.session?.user.id;
-  if (!uid) throw new Error('Not signed in');
-  const { error } = await supabase
-    .from('instructors')
-    .update({ default_hourly_rate: rate })
-    .eq('auth_user_id', uid);
-  if (error) {
-    if (/column .*default_hourly_rate.* does not exist/i.test(error.message || '')) {
-      throw new Error('Please apply Migration 010 first (default_hourly_rate column).');
-    }
-    throw error;
-  }
+  const { error } = await supabase.rpc('set_my_default_hourly_rate', { p_rate: rate });
+  if (error) throw error;
+}
+
+/** How many of the instructor's pupils are on each hourly rate. */
+export async function getPupilRateCounts(): Promise<{ rate: number; pupils: number }[]> {
+  const { data, error } = await supabase.rpc('my_pupil_rate_counts');
+  if (error) throw error;
+  return ((data as any[]) || []).map((r) => ({ rate: Number(r.rate), pupils: Number(r.pupils) }));
+}
+
+/** Moves the instructor's pupils to a rate: only those on `onlyOldRate` when given, otherwise everyone. Returns how many changed. */
+export async function applyDefaultRateToMyPupils(rate: number, onlyOldRate?: number): Promise<number> {
+  const { data, error } = await supabase.rpc('apply_default_rate_to_my_pupils', { p_rate: rate, p_only_old_rate: onlyOldRate ?? null });
+  if (error) throw error;
+  return Number(data) || 0;
 }
 
 

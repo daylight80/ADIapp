@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Mail, CheckCircle2, KeyRound } from 'lucide-react-native';
 import { useAuth } from '../src/AuthContext';
+import { RESEND_WAIT_SECONDS, resendLabel, resendResultMessage } from '../src/resetResend';
 
 /**
  * Restyled (28 Sept 2026) to match the sign-in screen it's reached from.
@@ -49,6 +50,9 @@ export default function ForgotPasswordScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [resending, setResending] = useState(false);
+  const [resendNote, setResendNote] = useState<{ ok: boolean; text: string } | null>(null);
 
   const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
@@ -66,6 +70,25 @@ export default function ForgotPasswordScreen() {
       return;
     }
     setSent(true);
+    setSecondsLeft(RESEND_WAIT_SECONDS);
+    setResendNote(null);
+  };
+
+  // Count down the wait before "Send it again" can be used.
+  useEffect(() => {
+    if (!sent || secondsLeft <= 0) return;
+    const t = setTimeout(() => setSecondsLeft((n) => n - 1), 1000);
+    return () => clearTimeout(t);
+  }, [sent, secondsLeft]);
+
+  const handleResend = async () => {
+    if (secondsLeft > 0 || resending) return;
+    setResending(true);
+    setResendNote(null);
+    const r = await forgotPassword(email);
+    setResending(false);
+    setResendNote(resendResultMessage(r.ok, r.error));
+    if (r.ok) setSecondsLeft(RESEND_WAIT_SECONDS);
   };
 
   return (
@@ -145,9 +168,25 @@ export default function ForgotPasswordScreen() {
                 We&apos;ve sent a reset link to <Text style={{ fontFamily: 'Barlow_700Bold', color: C.text }}>{email.trim()}</Text>.
                 Open it on this device to choose a new password. The link will expire in 1 hour.
               </Text>
-              <Text style={[s.body, { marginTop: 12 }]}>
-                Can&apos;t find it? Have a peek in your spam folder, or double-check the address.
+              <Text style={[s.body, { marginTop: 12 }]} testID="reset-wait-note">
+                It can take a few minutes to arrive. Can&apos;t find it? Have a look in your spam or junk folder, or double-check the address.
               </Text>
+
+              <TouchableOpacity
+                style={[s.resendBtn, (secondsLeft > 0 || resending) && { opacity: 0.5 }]}
+                onPress={handleResend}
+                disabled={secondsLeft > 0 || resending}
+                testID="btn-send-again"
+              >
+                {resending
+                  ? <ActivityIndicator color={C.primary} />
+                  : <Text style={s.resendText}>{resendLabel(secondsLeft)}</Text>}
+              </TouchableOpacity>
+              {!!resendNote && (
+                <Text style={[s.body, { marginTop: 8, color: resendNote.ok ? C.successText : C.errorText }]} testID="reset-resend-note">
+                  {resendNote.text}
+                </Text>
+              )}
 
               <TouchableOpacity
                 style={s.cta}
@@ -212,6 +251,11 @@ const s = StyleSheet.create({
   },
   ctaText: { fontFamily: 'Barlow_700Bold', fontSize: 16.5, color: '#fff' },
 
+  resendBtn: {
+    minHeight: 50, marginTop: 22, borderRadius: 14, borderWidth: 1.5, borderColor: C.primary,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff',
+  },
+  resendText: { fontFamily: 'Barlow_700Bold', fontSize: 15.5, color: C.primary },
   linkBtn: { alignItems: 'center', paddingTop: 16, paddingBottom: 4 },
   linkText: { fontFamily: 'Barlow_600SemiBold', fontSize: 14, color: C.primary },
 });

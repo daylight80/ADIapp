@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -25,6 +25,8 @@ import {
 import { formatHoursLabel } from '../src/voucher';
 import { RedeemVoucherCard } from '../src/RedeemVoucherCard';
 import { PupilPaymentsCard } from '../src/PupilPaymentsCard';
+import { listLessonPackages, type LessonPackage } from '../src/supabaseDb';
+import { usablePackages, packageTopUp, describePackageTopUp } from '../src/pricing';
 
 export default function WalletScreen() {
   const router = useRouter();
@@ -101,9 +103,23 @@ export default function WalletScreen() {
   const attemptId = useRef<string | null>(null);
   const [sheetError, setSheetError] = useState<string | null>(null);
   const resetAttempt = () => { attemptId.current = null; setSheetError(null); };
-  const amountToRecord = topUpAmount(hoursToAdd, student.hourly_rate);
+  // Packages from Pricing & packages (switched on, with a price). Choosing one adds its hours at its price.
+  const [packages, setPackages] = useState<LessonPackage[]>([]);
+  const [packageId, setPackageId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!buyOpen || !isInstructorManaging) return;
+    let alive = true;
+    listLessonPackages({ activeOnly: true })
+      .then((list) => { if (alive) setPackages(usablePackages(list)); })
+      .catch(() => { if (alive) setPackages([]); });
+    return () => { alive = false; };
+  }, [buyOpen, isInstructorManaging]);
+  const chosenPackage = packages.find((p) => p.id === packageId) || null;
+  const packageDeal = chosenPackage ? packageTopUp(chosenPackage) : null;
+  const hoursToRecord = packageDeal ? packageDeal.hours : hoursToAdd;
+  const amountToRecord = packageDeal ? packageDeal.amount : topUpAmount(hoursToAdd, student.hourly_rate);
 
-  const closeSheet = () => { setBuyOpen(false); setPaymentMethod(null); setHoursToAdd(MIN_ADD_HOURS); resetAttempt(); };
+  const closeSheet = () => { setBuyOpen(false); setPaymentMethod(null); setHoursToAdd(MIN_ADD_HOURS); setPackageId(null); resetAttempt(); };
 
   const addHours = async () => {
     if (!studentId) {
@@ -126,10 +142,13 @@ export default function WalletScreen() {
       // Gives up after 15 seconds instead of spinning forever. A save that times out may
       // still land, which is why the attempt id (above) makes a retry safe.
       const result = await runTopUp(() =>
-        purchaseBlock({ id, student_id: studentId, hours_paid: hoursToAdd, amount: amountToRecord, payment_method: paymentMethod }),
+        purchaseBlock({
+          id, student_id: studentId, hours_paid: hoursToRecord, amount: amountToRecord, payment_method: paymentMethod,
+          ...(packageDeal ? { notes: packageDeal.notes } : {}),
+        }),
       );
       if (result.status === 'saved') {
-        const message = topUpConfirmation(student.name, hoursToAdd, amountToRecord, paymentMethod);
+        const message = topUpConfirmation(student.name, hoursToRecord, amountToRecord, paymentMethod);
         closeSheet();
         Alert.alert('Hours added', message);
       } else if (result.status === 'already') {
@@ -248,8 +267,35 @@ export default function WalletScreen() {
       </ScrollView>
 
       <BottomSheet visible={buyOpen} onClose={closeSheet} title={`Add time for ${student.name}`} testID="sheet-add-hours">
-        <Text style={styles.pmLabel}>Add time</Text>
-        <View style={styles.stepperRow}>
+        {packages.length > 0 && (
+          <>
+            <Text style={styles.pmLabel}>Package</Text>
+            <View style={styles.pmRow}>
+              <TouchableOpacity
+                style={[styles.pmChip, !packageId && styles.pmChipActive]}
+                onPress={() => { resetAttempt(); setPackageId(null); }}
+                testID="pkg-custom"
+              >
+                <Text style={[styles.pmChipText, !packageId && { color: '#fff', fontWeight: '700' }]}>Custom hours</Text>
+              </TouchableOpacity>
+              {packages.map((p) => (
+                <TouchableOpacity
+                  key={p.id}
+                  style={[styles.pmChip, packageId === p.id && styles.pmChipActive]}
+                  onPress={() => { resetAttempt(); setPackageId(packageId === p.id ? null : p.id); }}
+                  testID={`pkg-${p.id}`}
+                >
+                  <Text style={[styles.pmChipText, packageId === p.id && { color: '#fff', fontWeight: '700' }]}>{p.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        )}
+        {chosenPackage && (
+          <Text style={styles.pmHelp} testID="package-summary">{describePackageTopUp(chosenPackage)}</Text>
+        )}
+        {!chosenPackage && <Text style={styles.pmLabel}>Add time</Text>}
+        {!chosenPackage && <View style={styles.stepperRow}>
           <TouchableOpacity
             style={[styles.stepBtn, hoursToAdd <= MIN_ADD_HOURS && { opacity: 0.35 }]}
             onPress={() => { resetAttempt(); setHoursToAdd((h) => stepAddHours(h, -1)); }}
@@ -272,10 +318,12 @@ export default function WalletScreen() {
           >
             <Plus size={20} color={theme.colors.primary} />
           </TouchableOpacity>
-        </View>
-        <Text style={styles.pmHelp} testID="top-up-summary">
-          {student.hourly_rate == null ? 'Loading the student\u2019s rate\u2026' : describeTopUp(hoursToAdd, student.hourly_rate)}
-        </Text>
+        </View>}
+        {!chosenPackage && (
+          <Text style={styles.pmHelp} testID="top-up-summary">
+            {student.hourly_rate == null ? 'Loading the student\u2019s rate\u2026' : describeTopUp(hoursToAdd, student.hourly_rate)}
+          </Text>
+        )}
 
         <Text style={styles.pmLabel}>Payment method</Text>
         <View style={styles.pmRow}>
@@ -302,7 +350,7 @@ export default function WalletScreen() {
           disabled={busy || !canAddHours(studentId, paymentMethod) || student.hourly_rate == null}
           testID="btn-confirm-add-hours"
         >
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.confirmBtnText}>Add {formatHoursLabel(hoursToAdd)}</Text>}
+          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.confirmBtnText}>Add {formatHoursLabel(hoursToRecord)}</Text>}
         </TouchableOpacity>
       </BottomSheet>
 

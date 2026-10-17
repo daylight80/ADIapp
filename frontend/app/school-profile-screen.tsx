@@ -25,7 +25,6 @@ export default function SchoolProfileScreen() {
   const [contactEmail, setContactEmail] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [address, setAddress] = useState('');
-  const [hourlyRate, setHourlyRate] = useState('');
   const [googleReviewUrl, setGoogleReviewUrl] = useState('');
   // Instructor-editable T&Cs (2 Sept 2026) — per-school, freeform.
   const [pupilAgreementText, setPupilAgreementText] = useState('');
@@ -48,7 +47,6 @@ export default function SchoolProfileScreen() {
       setContactEmail(p.contact_email || '');
       setContactPhone(p.contact_phone || '');
       setAddress(p.address || '');
-      setHourlyRate(p.default_hourly_rate != null ? String(p.default_hourly_rate) : '');
       setGoogleReviewUrl(p.google_review_url || '');
       setPupilAgreementText(p.pupil_agreement_text || '');
     } catch (e: any) {
@@ -65,15 +63,6 @@ export default function SchoolProfileScreen() {
       Alert.alert('Business name required', "This can't be left empty.");
       return;
     }
-    let rateValue: number | null = null;
-    if (hourlyRate.trim()) {
-      const parsed = Number(hourlyRate.trim());
-      if (!Number.isFinite(parsed) || parsed < 0) {
-        Alert.alert('Invalid rate', 'Enter a valid hourly rate, e.g. 32.50');
-        return;
-      }
-      rateValue = parsed;
-    }
     const reviewUrl = googleReviewUrl.trim();
     const reviewProblem = validateReviewUrl(reviewUrl);
     if (reviewProblem) {
@@ -87,7 +76,6 @@ export default function SchoolProfileScreen() {
         contact_email: contactEmail.trim() || null,
         contact_phone: contactPhone.trim() || null,
         address: address.trim() || null,
-        default_hourly_rate: rateValue,
         google_review_url: reviewUrl || null,
         pupil_agreement_text: pupilAgreementText.trim() || null,
       });
@@ -258,19 +246,12 @@ export default function SchoolProfileScreen() {
           <Card style={{ gap: 10 }}>
             <Text style={styles.cardTitle}>Pricing & reviews</Text>
 
-            <Text style={styles.label}>Lesson price per hour (£)</Text>
-            <TextInput
-              style={styles.input}
-              value={hourlyRate}
-              onChangeText={setHourlyRate}
-              placeholder="e.g. 32.50"
-              placeholderTextColor={theme.colors.textMuted}
-              keyboardType="decimal-pad"
-              testID="input-hourly-rate"
-            />
-            <Text style={styles.hint}>
-              A standard/default rate for reference — doesn&apos;t change what&apos;s already set for individual students.
+            <Text style={styles.hint} testID="rate-moved-note">
+              Your lesson price per hour and your packages are now set on the Pricing &amp; packages page, so there is one place to change them.
             </Text>
+            <TouchableOpacity onPress={() => router.push('/packages-screen')} testID="btn-open-pricing">
+              <Text style={[styles.hint, { color: theme.colors.primary, fontWeight: '700' }]}>Open Pricing &amp; packages</Text>
+            </TouchableOpacity>
 
             <Text style={[styles.label, { marginTop: 10 }]}>Google review link</Text>
             <TextInput

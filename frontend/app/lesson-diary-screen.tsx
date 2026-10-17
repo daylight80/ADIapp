@@ -6,7 +6,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-reac
 import { useLessonsForWeek, useLessonsForMonth, useStudents, patchLesson, useAvailabilityBlocks } from '../src/useSupabaseData';
 import { BottomNav } from '../src/BottomNav';
 import { LessonToolsSheet } from '../src/LessonToolsSheet';
-import { Lesson, AvailabilityBlock } from '../src/supabaseDb';
+import { Lesson, AvailabilityBlock, getInstructorHourlyRate } from '../src/supabaseDb';
 import { startOfWeek, addDays, localDateKey, startOfMonthGrid, endOfMonthGrid, addMonths, isSameMonth, assignOverlapColumns, findClashingLessons, snapMinutes, minutesToTime } from '../src/diary/dateUtils';
 import { colorForLessonType, LESSON_TYPES } from '../src/diary/lessonTypes';
 import { AddLessonSheet } from '../src/diary/AddLessonSheet';
@@ -173,7 +173,13 @@ export default function LessonDiaryV2Screen() {
   const loadError = viewMode === 'month' ? monthError : weekError;
   const retryLoad = viewMode === 'month' ? refreshMonth : refreshWeek;
   const { students } = useStudents();
-  const hourlyRate = 38; // reference rate for the "billable" summary figure only
+  // The "billable" summary figures use the default rate set on Pricing & packages (36 until it loads).
+  const [hourlyRate, setHourlyRate] = useState(36);
+  useEffect(() => {
+    let alive = true;
+    getInstructorHourlyRate().then((r) => { if (alive && r > 0) setHourlyRate(r); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   // Persistent "Fix clash" (2 Sept 2026, per Grant directly) — a safety
   // net for existing schedule conflicts already in the data, independent

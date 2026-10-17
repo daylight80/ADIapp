@@ -12,8 +12,13 @@ import { BottomSheet } from '../src/BottomSheet';
 import {
   listLessonPackages, createLessonPackage, updateLessonPackage, deleteLessonPackage,
   LessonPackage,
-  getInstructorHourlyRate, updateInstructorHourlyRate,
+  getInstructorHourlyRate, updateInstructorHourlyRate, getPupilRateCounts, applyDefaultRateToMyPupils,
 } from '../src/supabaseDb';
+import { bump } from '../src/useSupabaseData';
+import {
+  parseRate, rateChangeOffer, rateChangeQuestion, appliedMessage, packagesNeedingPrice, RATE_CHANGE_NOTE,
+  type RateChangeOffer,
+} from '../src/pricing';
 
 type Form = {
   id?: string;
@@ -35,13 +40,21 @@ export default function PackagesScreen() {
 
   // Hourly rate
   const [rate, setRate] = useState<string>('');
+  const [savedRate, setSavedRate] = useState<number | null>(null);
   const [rateBusy, setRateBusy] = useState(false);
   const [rateDirty, setRateDirty] = useState(false);
+  // After a rate change: offer to move existing pupils to it.
+  const [offer, setOffer] = useState<RateChangeOffer | null>(null);
+  const [applying, setApplying] = useState(false);
+  // Shown on the page, not as an Alert: Alert.alert does nothing in a browser, so on the web app
+  // "Saved" and every error here used to be invisible.
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Form sheet
   const [sheetOpen, setSheetOpen] = useState(false);
   const [form, setForm] = useState<Form>(blankForm);
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -51,6 +64,7 @@ export default function PackagesScreen() {
         getInstructorHourlyRate(),
       ]);
       setItems(pkgs);
+      setSavedRate(hr);
       if (!rateDirty) setRate(String(hr));
     } catch (e: any) {
       setError(e?.message || 'Could not load packages.');
@@ -64,22 +78,48 @@ export default function PackagesScreen() {
   const onRefresh = () => { setRefreshing(true); refresh(); };
 
   const saveRate = async () => {
-    const n = Number(rate);
-    if (!n || n <= 0) { Alert.alert('Invalid rate', 'Enter your default hourly rate in pounds.'); return; }
+    const n = parseRate(rate);
+    if (n == null) {
+      setNotice({ ok: false, text: 'Enter your default hourly rate in pounds, for example 40 or 37.50.' });
+      return;
+    }
     setRateBusy(true);
+    setNotice(null);
+    setOffer(null);
     try {
+      const old = savedRate ?? n;
       await updateInstructorHourlyRate(n);
+      setRate(n.toFixed(2));
       setRateDirty(false);
-      Alert.alert('Saved', `Default hourly rate set to £${n.toFixed(2)}.`);
+      setSavedRate(n);
+      setNotice({ ok: true, text: `Default hourly rate set to £${n.toFixed(2)}. New pupils will start on it.` });
+      try { setOffer(rateChangeOffer(old, n, await getPupilRateCounts())); } catch { /* the rate is saved; the offer is a bonus */ }
     } catch (e: any) {
-      Alert.alert('Could not save', e?.message || 'Try again in a moment.');
+      setNotice({ ok: false, text: e?.message || 'Could not save. Try again in a moment.' });
     } finally {
       setRateBusy(false);
     }
   };
 
-  const openNew = () => { setForm(blankForm); setSheetOpen(true); };
+  const applyRate = async (everyone: boolean) => {
+    if (!offer) return;
+    setApplying(true);
+    setNotice(null);
+    try {
+      const changed = await applyDefaultRateToMyPupils(offer.newRate, everyone ? undefined : offer.oldRate);
+      setNotice({ ok: true, text: appliedMessage(changed, offer.newRate) });
+      bump();
+      try { setOffer(rateChangeOffer(offer.newRate, offer.newRate, await getPupilRateCounts())); } catch { setOffer(null); }
+    } catch (e: any) {
+      setNotice({ ok: false, text: e?.message || 'Could not update your pupils. Try again in a moment.' });
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const openNew = () => { setForm(blankForm); setFormError(null); setSheetOpen(true); };
   const openEdit = (p: LessonPackage) => {
+    setFormError(null);
     setForm({
       id: p.id,
       name: p.name,
@@ -95,14 +135,15 @@ export default function PackagesScreen() {
   const save = async () => {
     const hours = Number(form.hours);
     if (!form.name.trim() || !hours || hours <= 0) {
-      Alert.alert('Name & hours required', 'Please enter a name and a positive number of hours.');
+      setFormError('Please enter a name and a positive number of hours.');
       return;
     }
     const price = form.price.trim() === '' ? null : Number(form.price);
     if (price != null && (isNaN(price) || price < 0)) {
-      Alert.alert('Invalid price', 'Leave blank or enter a non-negative price in pounds.');
+      setFormError('Leave the price blank, or enter it in pounds, for example 380.');
       return;
     }
+    setFormError(null);
     setSaving(true);
     try {
       if (form.id) {
@@ -124,7 +165,7 @@ export default function PackagesScreen() {
       setForm(blankForm);
       refresh();
     } catch (e: any) {
-      Alert.alert('Save failed', e?.message || 'Could not save the package.');
+      setFormError(e?.message || 'Could not save the package.');
     } finally {
       setSaving(false);
     }
@@ -151,11 +192,11 @@ export default function PackagesScreen() {
 
   const toggleActive = async (p: LessonPackage) => {
     try { await updateLessonPackage(p.id, { active: !p.active }); refresh(); }
-    catch (e: any) { Alert.alert('Could not toggle', e?.message); }
+    catch (e: any) { setNotice({ ok: false, text: e?.message || 'Could not change that package. Try again.' }); }
   };
 
   const grouped = useMemo(() => {
-    const incomplete = items.filter((p) => p.price == null);
+    const incomplete = packagesNeedingPrice(items);
     const ready = items.filter((p) => p.price != null);
     return { incomplete, ready };
   }, [items]);
@@ -189,11 +230,20 @@ export default function PackagesScreen() {
           </Card>
         ) : null}
 
+        {!!notice && (
+          <Card
+            style={{ borderWidth: 1, borderColor: notice.ok ? '#10B981' : theme.colors.danger, backgroundColor: notice.ok ? '#ECFDF5' : '#FEF2F2' }}
+            testID="pricing-notice"
+          >
+            <Text style={{ color: notice.ok ? '#047857' : theme.colors.danger, fontWeight: '600', lineHeight: 19 }}>{notice.text}</Text>
+          </Card>
+        )}
+
         {/* Hourly rate */}
         <Card style={styles.rateCard}>
           <Text style={styles.cardTitle}>Default hourly rate</Text>
           <Text style={styles.cardSub}>
-            New students inherit this rate when they&apos;re added. You can still override per student.
+            New pupils start on this rate, and so does the diary&apos;s billable figure. You can still set a different rate for any pupil on their profile.
           </Text>
           <View style={styles.rateRow}>
             <PoundSterling size={18} color={theme.colors.textMuted} />
@@ -216,6 +266,39 @@ export default function PackagesScreen() {
           </View>
         </Card>
 
+        {offer && (
+          <Card style={{ gap: 10, borderWidth: 1, borderColor: theme.colors.primary }} testID="rate-apply-card">
+            <Text style={styles.cardTitle}>Update your pupils?</Text>
+            <Text style={styles.cardSub} testID="rate-apply-question">{rateChangeQuestion(offer)}</Text>
+            {offer.onOld > 0 && (
+              <TouchableOpacity
+                style={[styles.rateSaveBtn, { alignSelf: 'stretch', alignItems: 'center' }, applying && { opacity: 0.5 }]}
+                onPress={() => applyRate(false)}
+                disabled={applying}
+                testID="btn-apply-old"
+              >
+                <Text style={styles.rateSaveText}>
+                  {`Move the ${offer.onOld} on £${offer.oldRate.toFixed(2)} to £${offer.newRate.toFixed(2)}`}
+                </Text>
+              </TouchableOpacity>
+            )}
+            {offer.onOther > 0 && (
+              <TouchableOpacity
+                style={[styles.rateSecondaryBtn, applying && { opacity: 0.5 }]}
+                onPress={() => applyRate(true)}
+                disabled={applying}
+                testID="btn-apply-all"
+              >
+                <Text style={styles.rateSecondaryText}>{`Move all ${offer.total} to £${offer.newRate.toFixed(2)}`}</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity onPress={() => setOffer(null)} disabled={applying} testID="btn-apply-skip">
+              <Text style={styles.skipText}>Leave them as they are</Text>
+            </TouchableOpacity>
+            <Text style={styles.cardSub}>{RATE_CHANGE_NOTE}</Text>
+          </Card>
+        )}
+
         {/* Packages */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Lesson packages</Text>
@@ -225,11 +308,15 @@ export default function PackagesScreen() {
           </TouchableOpacity>
         </View>
 
+        <Text style={styles.cardSub} testID="packages-hint">
+          When you add hours to a pupil&apos;s wallet you can choose one of these packages, and the hours and price are recorded as the package.
+        </Text>
+
         {grouped.incomplete.length > 0 && (
           <Card style={[styles.warnCard, { marginBottom: 12 }]}>
             <Text style={styles.warnTitle}>{grouped.incomplete.length} package{grouped.incomplete.length === 1 ? '' : 's'} need pricing</Text>
             <Text style={styles.warnSub}>
-              Tap a package below to set its price. Packages without a price won&apos;t appear to students in the Wallet.
+              Tap a package below to set its price. A package without a price can&apos;t be chosen yet when you add hours to a pupil&apos;s wallet.
             </Text>
           </Card>
         )}
@@ -344,7 +431,7 @@ export default function PackagesScreen() {
           style={[styles.input, { height: 60 }]}
           value={form.description}
           onChangeText={(t) => setForm({ ...form, description: t })}
-          placeholder="Short description shown to students"
+          placeholder="A short note for yourself"
           placeholderTextColor={theme.colors.textMuted}
           multiline
           textAlignVertical="top"
@@ -360,6 +447,10 @@ export default function PackagesScreen() {
             testID="switch-form-active"
           />
         </View>
+
+        {!!formError && (
+          <Text style={{ color: theme.colors.danger, fontSize: 13, lineHeight: 18, marginTop: 8 }} testID="package-form-error">{formError}</Text>
+        )}
 
         <TouchableOpacity
           style={[styles.saveBtn, saving && { opacity: 0.6 }]}
@@ -388,6 +479,9 @@ const styles = StyleSheet.create({
   rateInput: { flex: 1, fontSize: 15, color: theme.colors.text },
   rateSaveBtn: { backgroundColor: theme.colors.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
   rateSaveText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  rateSecondaryBtn: { alignSelf: 'stretch', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.primary },
+  rateSecondaryText: { color: theme.colors.primary, fontWeight: '700', fontSize: 13 },
+  skipText: { color: theme.colors.textMuted, fontWeight: '600', fontSize: 13, textAlign: 'center' },
 
   sectionHeader: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
   sectionTitle: { fontSize: 16, fontWeight: '800', color: theme.colors.text, flex: 1 },

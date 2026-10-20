@@ -33,6 +33,7 @@ import { colorForLessonType } from '../src/diary/lessonTypes';
 import { PaymentsCard } from '../src/PaymentsCard';
 import { formatDate, todayDayKey } from '../src/dateFormat';
 import { DateField } from '../src/DateTimeFields';
+import { certificateDisplay } from '../src/theoryCertificate';
 
 /**
  * Student Profile — redesigned visual direction from the Claude Design
@@ -761,6 +762,11 @@ export default function StudentProfileV2Screen() {
                           <Text style={s.outcomeMeta} numberOfLines={1}>
                             {formatDate(`${o.test_date}T00:00:00`)}
                           </Text>
+                          {!!o.theory_certificate_number && (
+                            <Text style={s.outcomeMeta} selectable testID={`outcome-certificate-${o.id}`}>
+                              Pass certificate {certificateDisplay(o.theory_certificate_number)}
+                            </Text>
+                          )}
                         </View>
                       </View>
                     ))}

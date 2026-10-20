@@ -1,13 +1,14 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   Modal, View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput,
-  ActivityIndicator, Alert, Platform, KeyboardAvoidingView,
+  ActivityIndicator, Alert, Platform, KeyboardAvoidingView, Linking,
 } from 'react-native';
 import { X, Trophy, CircleX } from 'lucide-react-native';
 import { theme } from './theme';
 import { DateField } from './DateTimeFields';
 import { TEST_RETEST_REASONS, type TestType, type TestResult } from './supabaseDb';
 import { createTestOutcome } from './useSupabaseData';
+import { THEORY_LOOKUP_URL, MAX_CERTIFICATE_CHARS, cleanCertificateInput, certificateToSave, certificateApplies } from './theoryCertificate';
 
 export type TestOutcomeModalProps = {
   visible: boolean;
@@ -39,6 +40,7 @@ export function TestOutcomeModal({ visible, studentId, onClose, onSaved }: TestO
   // Theory
   const [mcScore, setMcScore] = useState('');
   const [hpScore, setHpScore] = useState('');
+  const [certNumber, setCertNumber] = useState('');
   // Both
   const [reasons, setReasons] = useState<Set<string>>(new Set());
   const [notes, setNotes] = useState('');
@@ -52,7 +54,7 @@ export function TestOutcomeModal({ visible, studentId, onClose, onSaved }: TestO
     setTestDate(todayYmd());
     setTestCentre('');
     setDrivingFaults(''); setSeriousFaults(''); setDangerousFaults('');
-    setMcScore(''); setHpScore('');
+    setMcScore(''); setHpScore(''); setCertNumber('');
     setReasons(new Set()); setNotes('');
     setBusy(false); setErr(null);
   }, [visible]);
@@ -81,6 +83,7 @@ export function TestOutcomeModal({ visible, studentId, onClose, onSaved }: TestO
         dangerous_faults: testType === 'practical' ? toIntOrNull(dangerousFaults) : null,
         theory_mc_score: testType === 'theory' ? toIntOrNull(mcScore) : null,
         theory_hp_score: testType === 'theory' ? toIntOrNull(hpScore) : null,
+        theory_certificate_number: certificateApplies(testType, result) ? certificateToSave(certNumber) : null,
       });
       onSaved?.({ testType, result });
       onClose();
@@ -218,6 +221,35 @@ export function TestOutcomeModal({ visible, studentId, onClose, onSaved }: TestO
               </View>
             )}
 
+            {/* The pass certificate number is only for a passed theory test; it is needed to book the practical */}
+            {certificateApplies(testType, result) && (
+              <View testID="certificate-block">
+                <Text style={styles.label}>Theory test pass certificate number (optional)</Text>
+                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                  <TextInput
+                    value={certNumber}
+                    onChangeText={(v) => setCertNumber(cleanCertificateInput(v))}
+                    placeholder="e.g. 12345678"
+                    placeholderTextColor={theme.colors.textMuted}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    maxLength={MAX_CERTIFICATE_CHARS}
+                    style={[styles.input, { flex: 1 }]}
+                    testID="input-certificate-number"
+                  />
+                  <TouchableOpacity
+                    style={styles.lookupBtn}
+                    onPress={() => { Linking.openURL(THEORY_LOOKUP_URL).catch(() => {}); }}
+                    accessibilityLabel="Look up the theory test pass number on GOV.UK"
+                    testID="btn-certificate-lookup"
+                  >
+                    <Text style={styles.lookupBtnText}>Look up</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.subLabel}>Look up opens the DVSA service on GOV.UK in your browser. You will need the pupil&apos;s details.</Text>
+              </View>
+            )}
+
             {/* Retest reason chips — relevant for both types but mostly for fails */}
             {result === 'fail' && (
               <View>
@@ -270,6 +302,11 @@ export function TestOutcomeModal({ visible, studentId, onClose, onSaved }: TestO
 }
 
 const styles = StyleSheet.create({
+  lookupBtn: {
+    height: 44, paddingHorizontal: 18, borderRadius: 10, borderWidth: 1.5, borderColor: theme.colors.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  lookupBtnText: { color: theme.colors.primary, fontWeight: '700', fontSize: 14 },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.55)', justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: theme.colors.surface,

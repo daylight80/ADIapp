@@ -2760,9 +2760,10 @@ export function computeTestKpis(rows: TestOutcome[]): TestKpis {
 // never affects the school's official pass-rate KPI.
 // ===========================================================================
 
+/** Faults by marking line. Newer attempts use the DL25 items (src/dl25Items.ts) and carry the line's name as label. */
 export type MockTestCategoryBreakdown = Record<
   string,
-  { driving: number; serious: number; dangerous: number }
+  { driving: number; serious: number; dangerous: number; label?: string }
 >;
 
 export type MockTestAttempt = {

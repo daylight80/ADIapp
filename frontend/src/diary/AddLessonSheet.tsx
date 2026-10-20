@@ -7,7 +7,8 @@ import { DateField, TimeField } from '../DateTimeFields';
 import { useBankHolidays } from '../useBankHolidays';
 import { holidayBanner, holidayOn } from '../bankHolidays';
 import { supabase } from '../supabaseClient';
-import { createLesson, patchLesson } from '../useSupabaseData';
+import { createLesson, patchLesson, useStudentPlaces } from '../useSupabaseData';
+import { combineAddress } from '../addressLookup';
 import { overlapsAnyBlock, getMyDefaultTravelMinutes, type AvailabilityBlock, type Lesson, type Student } from '../supabaseDb';
 import { cleanBufferMinutes, lessonBuffer, findTightTurnarounds, describeTightTurnaround } from './buffer';
 import { getTravelTime, lessonAddress } from '../maps';
@@ -72,6 +73,12 @@ type Props = {
  */
 export function AddLessonSheet({ visible, onClose, students, lessons, availBlocks, pro, onCreated, initialDate }: Props) {
   const [studentId, setStudentId] = useState('');
+  // Where this lesson starts when it is not the pupil's main address: '' = main, otherwise a saved place id.
+  const [placeId, setPlaceId] = useState('');
+  const places = useStudentPlaces(studentId || undefined, visible && !!studentId);
+  const chosenPlace = places.find((p) => p.id === placeId);
+  const lessonPickup = chosenPlace ? combineAddress(chosenPlace.address, chosenPlace.postcode) : '';
+  useEffect(() => { setPlaceId(''); }, [studentId]);
   const [date, setDate] = useState('');
   const { holidays } = useBankHolidays();
   const [startTime, setStartTime] = useState('09:00');
@@ -125,7 +132,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
       .sort((a, b) => a.end_time.localeCompare(b.end_time));
     const prior = todays.filter((l) => l.end_time <= startTime).pop();
     const newDest = lessonAddress(
-      { pickup_address: '', student_id: newStudent.id } as any,
+      { pickup_address: lessonPickup, student_id: newStudent.id } as any,
       newStudent,
     );
     const origin = prior ? lessonAddress(prior, getStudent(prior.student_id)) : null;
@@ -140,7 +147,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, studentId, date, startTime, lessons, pro]);
+  }, [visible, studentId, date, startTime, lessons, pro, lessonPickup]);
 
   // Suggest a lesson rate from the student's own hourly rate × duration —
   // a genuine head start, not a forced value. Only auto-fills while the
@@ -409,6 +416,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
           travel_minutes: parseInt(travelMinutes, 10) || 0,
           topic,
           lesson_type: lessonType,
+          pickup_address: lessonPickup || undefined,
           amount_paid: undefined,
           quoted_amount: rate.trim() ? Number(rate.trim()) : undefined,
           series_id: seriesId,
@@ -551,6 +559,22 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
           </TouchableOpacity>
         ))}
       </ScrollView>
+
+      {places.length > 0 && (
+        <>
+          <Text style={styles.label}>Pickup from</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+            <TouchableOpacity style={[styles.chip, !placeId && styles.chipActive]} onPress={() => setPlaceId('')} testID="pick-place-main">
+              <Text style={[styles.chipText, !placeId && styles.chipTextActive]}>Main address</Text>
+            </TouchableOpacity>
+            {places.map((p) => (
+              <TouchableOpacity key={p.id} style={[styles.chip, placeId === p.id && styles.chipActive]} onPress={() => setPlaceId(p.id)} testID={`pick-place-${p.id}`}>
+                <Text style={[styles.chipText, placeId === p.id && styles.chipTextActive]}>{p.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </>
+      )}
 
       <Text style={styles.label}>Date</Text>
       <DateField value={date} onChange={setDate} testID="input-lesson-date" />

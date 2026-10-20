@@ -19,6 +19,7 @@ import { useInstructorProfile, useStudentByAuthId, updatePreferredNavApp } from 
 import type { NavApp } from '../src/supabaseDb';
 import { submitDeletionRequest, listMyDeletionRequests } from '../src/supabaseDb';
 import { StudentDetailsCard } from '../src/StudentDetailsCard';
+import { PickupPlacesCard } from '../src/PickupPlacesCard';
 import { exportMyDataJson } from '../src/gdprExport';
 import { CalendarFeedCard } from '../src/CalendarFeedCard';
 import { BankHolidayRegionCard } from '../src/BankHolidayRegionCard';
@@ -383,6 +384,7 @@ export default function ProfileScreen() {
         )}
 
         {role === 'student' && myStudent && <StudentDetailsCard student={myStudent} />}
+        {role === 'student' && myStudent && <PickupPlacesCard />}
 
         {role === 'student' && (
           <TouchableOpacity

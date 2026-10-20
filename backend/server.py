@@ -15,6 +15,7 @@ import email_service
 from referral_rules import referral_eligible, referral_eligible_from, referral_item, referral_reward_due
 import payment_reminders
 import ai_debriefs
+import address_search
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -267,6 +268,67 @@ async def travel_time(req: TravelTimeRequest, current_user: dict = Depends(get_c
         logger.error(f"Failed to parse Distance Matrix response: {e}")
         data = {**_mock_travel(req.origin, req.destination), "status": "error"}
         return TravelTimeResponse(**data)
+
+
+# ============= ADDRESS SEARCH (pickup places) =============
+# Suggestions come from Google Places (New), called from here so the key never reaches the app. If the key
+# is missing or Google fails, the app gets an empty list and falls back to typing the address by hand.
+_address_limiter = address_search.UserLimiter()
+
+
+class AddressSuggestRequest(BaseModel):
+    query: str = Field(..., max_length=300)
+
+
+class AddressDetailsRequest(BaseModel):
+    place_id: str = Field(..., min_length=3, max_length=300)
+
+
+def _address_user_key(current_user: dict) -> str:
+    return str(current_user.get("auth_user_id") or current_user.get("email") or "anon")
+
+
+@api_router.post("/maps/address-suggest")
+async def address_suggest(req: AddressSuggestRequest, current_user: dict = Depends(get_current_user_any)):
+    q = address_search.clean_query(req.query)
+    if q is None or not GOOGLE_MAPS_API_KEY:
+        return {"suggestions": [], "available": bool(GOOGLE_MAPS_API_KEY)}
+    if not _address_limiter.allow(_address_user_key(current_user)):
+        raise HTTPException(status_code=429, detail="Too many address searches. Please wait a few minutes or type the address.")
+    try:
+        async with httpx.AsyncClient(timeout=6.0) as c:
+            r = await c.post(
+                address_search.AUTOCOMPLETE_URL,
+                json=address_search.autocomplete_body(q),
+                headers={"X-Goog-Api-Key": GOOGLE_MAPS_API_KEY},
+            )
+            r.raise_for_status()
+            return {"suggestions": address_search.parse_suggestions(r.json()), "available": True}
+    except Exception as e:
+        logger.warning(f"Address autocomplete failed: {e}")
+        return {"suggestions": [], "available": False}
+
+
+@api_router.post("/maps/address-details")
+async def address_details(req: AddressDetailsRequest, current_user: dict = Depends(get_current_user_any)):
+    if not GOOGLE_MAPS_API_KEY:
+        raise HTTPException(status_code=503, detail="Address search is not available.")
+    if not _address_limiter.allow(_address_user_key(current_user)):
+        raise HTTPException(status_code=429, detail="Too many address searches. Please wait a few minutes or type the address.")
+    try:
+        async with httpx.AsyncClient(timeout=6.0) as c:
+            r = await c.get(
+                address_search.DETAILS_URL.format(place_id=req.place_id),
+                headers={"X-Goog-Api-Key": GOOGLE_MAPS_API_KEY, "X-Goog-FieldMask": "formattedAddress,addressComponents"},
+            )
+            r.raise_for_status()
+            place = address_search.parse_place(r.json())
+    except Exception as e:
+        logger.warning(f"Address details failed: {e}")
+        raise HTTPException(status_code=502, detail="Could not get that address. Please type it instead.")
+    if not place:
+        raise HTTPException(status_code=404, detail="Address not found.")
+    return place
 
 
 # ============= STARTUP =============

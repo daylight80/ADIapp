@@ -887,3 +887,16 @@ export function useTodayLessons() {
     `today_${start.toISOString().slice(0, 10)}`,
   );
 }
+
+// A pupil extra pickup places (own, or an instructor viewing one of theirs).
+export function useStudentPlaces(studentId?: string, enabled: boolean = true) {
+  const version = useVersion();
+  const [places, setPlaces] = useState<db.StudentPlace[]>([]);
+  useEffect(() => {
+    if (!enabled) { setPlaces([]); return; }
+    let alive = true;
+    db.listStudentPlaces(studentId).then((p) => { if (alive) setPlaces(p); }).catch(() => { if (alive) setPlaces([]); });
+    return () => { alive = false; };
+  }, [studentId, enabled, version]);
+  return places;
+}

@@ -7,11 +7,14 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider, useAuth } from '../src/AuthContext';
 import { needsBiometricUnlock, isUnlockExpired } from '../src/biometricGate';
 import { isBiometricEnabled, authenticateWithBiometrics, isBiometricAvailable, setBiometricEnabled } from '../src/biometrics';
-import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, AppState } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, AppState, Platform } from 'react-native';
 import { theme } from '../src/theme';
 import { initErrorReporting, setReportingUser, withErrorReporting } from '../src/errorReporting';
 import { useFonts, Archivo_800ExtraBold, Archivo_700Bold } from '@expo-google-fonts/archivo';
 import { Barlow_400Regular, Barlow_500Medium, Barlow_600SemiBold, Barlow_700Bold } from '@expo-google-fonts/barlow';
+import { createAuthLifecycle } from '../src/appLifecycle';
+import { supabase } from '../src/supabaseClient';
+import { bump } from '../src/useSupabaseData';
 
 // Crash and error reporting (phone apps only; the web version does nothing).
 initErrorReporting();
@@ -118,6 +121,15 @@ function AuthGate() {
     });
     return () => { cancelled = true; sub.remove(); };
   }, [user?.id]);
+
+  // Keep the sign-in alive across backgrounding (phones only). Without this, coming back to the app after a while
+  // could leave it holding an expired login, so Diary and Students stayed blank or spinning. See appLifecycle.ts.
+  useEffect(() => {
+    if (Platform.OS === 'web') return undefined;
+    const lifecycle = createAuthLifecycle({ auth: supabase.auth, onResume: bump });
+    const sub = AppState.addEventListener('change', (state) => { void lifecycle.onChange(state); });
+    return () => sub.remove();
+  }, []);
 
   // Biometric SETUP prompt (10 Sept 2026), per Grant directly — a
   // proactive nudge right after a brand-new sign-up/invite-acceptance,

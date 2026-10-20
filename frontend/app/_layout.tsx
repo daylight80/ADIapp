@@ -1,11 +1,11 @@
 import Head from 'expo-router/head';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Stack, useRouter, useSegments, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider, useAuth } from '../src/AuthContext';
-import { needsBiometricUnlock } from '../src/biometricGate';
+import { needsBiometricUnlock, isUnlockExpired } from '../src/biometricGate';
 import { isBiometricEnabled, authenticateWithBiometrics, isBiometricAvailable, setBiometricEnabled } from '../src/biometrics';
 import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, AppState } from 'react-native';
 import { theme } from '../src/theme';
@@ -49,6 +49,10 @@ function AuthGate() {
   // re-evaluates cleanly on every fresh sign-in too, not just a cold app
   // launch.
   const [biometricLocked, setBiometricLocked] = useState<boolean | null>(null);
+  // When the app was last unlocked (by fingerprint, or by typing the password). Coming back from the
+  // background only asks again once this is over 4 hours old. It lives in memory, so a full close of
+  // the app, which starts fresh, always asks; signing out clears it.
+  const unlockedAtRef = useRef<number | null>(null);
 
   // Extracted (11 Sept 2026) so the exact same check runs both on a fresh
   // sign-in/cold launch (below) and whenever the app returns to the
@@ -62,11 +66,12 @@ function AuthGate() {
   const runBiometricCheck = async (isStale: () => boolean, freshPasswordSignIn = false) => {
     const enabled = await isBiometricEnabled();
     if (isStale()) return;
-    if (!needsBiometricUnlock(enabled, freshPasswordSignIn)) { setBiometricLocked(false); return; }
+    if (!needsBiometricUnlock(enabled, freshPasswordSignIn)) { unlockedAtRef.current = Date.now(); setBiometricLocked(false); return; }
     setBiometricLocked(true);
     const ok = await authenticateWithBiometrics();
     if (isStale()) return;
     if (ok) {
+      unlockedAtRef.current = Date.now();
       setBiometricLocked(false);
     } else {
       // Per Grant's direct choice — fall back to normal email/password
@@ -77,7 +82,7 @@ function AuthGate() {
   };
 
   useEffect(() => {
-    if (!user) { setBiometricLocked(null); return; }
+    if (!user) { unlockedAtRef.current = null; setBiometricLocked(null); return; }
     let cancelled = false;
     // A sign-in with the password just now already proved identity; don't ask for the
     // fingerprint on top of it (and sign them out if that prompt fails). See biometricGate.ts.
@@ -107,6 +112,8 @@ function AuthGate() {
     let cancelled = false;
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState !== 'active' || !user || cancelled) return;
+      // Only lock again after the 4-hour window, not on every app switch.
+      if (!isUnlockExpired(unlockedAtRef.current, Date.now())) return;
       runBiometricCheck(() => cancelled);
     });
     return () => { cancelled = true; sub.remove(); };

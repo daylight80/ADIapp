@@ -927,6 +927,8 @@ export type Lesson = {
   pickup_address?: string;
   /** Practical Test entries: the driving test centre. */
   test_centre?: string;
+  /** Practical Test entries: when the test itself starts (HH:mm), inside the lesson block. */
+  test_time?: string;
   topic: string;
   lesson_type: string;
   notes?: string;
@@ -978,6 +980,7 @@ const lessonFromRow = (r: any): Lesson => {
     travel_minutes: r.travel_minutes ?? undefined,
     pickup_address: r.pickup_address ?? undefined,
     test_centre: r.test_centre ?? undefined,
+    test_time: r.test_start ? tsToParts(r.test_start).time : undefined,
     topic: r.topic ?? '',
     lesson_type: r.lesson_type ?? 'Standard',
     notes: r.notes ?? undefined,
@@ -1050,6 +1053,7 @@ export type AddLessonInput = {
   lesson_type?: string; // defaults to 'Standard' in the DB if omitted
   pickup_address?: string;
   test_centre?: string; // Practical Test entries only
+  test_time?: string;   // HH:mm, Practical Test entries only
   travel_minutes?: number;
   notes?: string;
   amount_paid?: number;
@@ -1081,6 +1085,7 @@ export async function addLesson(input: AddLessonInput): Promise<Lesson> {
     lesson_type: input.lesson_type || 'Standard',
     pickup_address: input.pickup_address || null,
     test_centre: input.test_centre || null,
+    test_start: input.test_time ? combineToISO(input.date, input.test_time) : null,
     notes: input.notes || null,
     amount_paid: input.amount_paid ?? null,
     quoted_amount: input.quoted_amount ?? null,
@@ -1126,6 +1131,8 @@ export type UpdateLessonInput = Partial<{
   lesson_type: string;
   pickup_address: string;
   test_centre: string;
+  /** The test's start as a timestamp; null clears it. */
+  test_start: string | null;
   travel_minutes: number;
   notes: string;
   driving_faults: number;
@@ -1147,6 +1154,7 @@ export async function updateLesson(id: string, patch: UpdateLessonInput): Promis
   if (patch.lesson_type !== undefined) dbPatch.lesson_type = patch.lesson_type;
   if (patch.pickup_address !== undefined) dbPatch.pickup_address = patch.pickup_address || null;
   if (patch.test_centre !== undefined) dbPatch.test_centre = patch.test_centre || null;
+  if (patch.test_start !== undefined) dbPatch.test_start = patch.test_start;
   if (patch.travel_minutes !== undefined) dbPatch.travel_minutes = patch.travel_minutes;
   if (patch.notes !== undefined) dbPatch.notes = patch.notes;
   if (patch.driving_faults !== undefined) dbPatch.driving_faults = patch.driving_faults;

@@ -15,6 +15,7 @@ import { DVSA_SYLLABUS } from '../src/supabaseDb';
 import { agreementStatus } from '../src/pupilAgreement';
 import { nextUpcomingLesson, describeLessonWhen, mostRecentCompletedLesson } from '../src/nextLesson';
 import { formatDate } from '../src/dateFormat';
+import { testSummary } from '../src/diary/testBooking';
 
 /**
  * Student App home — redesigned visual direction from the Claude Design
@@ -230,9 +231,10 @@ export default function StudentAppV2Screen() {
                 <Text style={s.nextLessonSub} numberOfLines={2}>
                   {[
                     nextLesson.topic || nextLesson.lesson_type,
-                    nextLesson.lesson_type === 'Practical Test' && nextLesson.test_centre
-                      ? `Test centre: ${nextLesson.test_centre}`
-                      : nextLesson.pickup_address ? `Pick-up: ${nextLesson.pickup_address}` : '',
+                    nextLesson.lesson_type === 'Practical Test' && (nextLesson.test_centre || nextLesson.test_time)
+                      ? testSummary(nextLesson.test_time, nextLesson.test_centre)
+                      : '',
+                    nextLesson.pickup_address ? `Pick-up: ${nextLesson.pickup_address}` : '',
                   ].filter(Boolean).join(' · ')}
                 </Text>
               </>

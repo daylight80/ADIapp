@@ -1,4 +1,5 @@
 import { StudentRoutesCard } from '../src/StudentRoutesCard';
+import { PickupPlacesCard } from '../src/PickupPlacesCard';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, TextInput, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -680,6 +681,8 @@ export default function StudentProfileV2Screen() {
                   </TouchableOpacity>
                 )}
               </View>
+
+              <PickupPlacesCard studentId={student.id} />
 
               <StudentRoutesCard studentId={student.id} />
 

@@ -7,6 +7,7 @@ import { updateMyStudentDetails } from './supabaseDb';
 import { bump } from './useSupabaseData';
 import { validatePupilDetails } from './pupilDetails';
 import { formatPostcode, lookupPostcode, looksLikePostcode } from './postcodeLookup';
+import { AddressSearch } from './AddressSearch';
 
 type Student = {
   email?: string | null; phone?: string | null; address?: string | null;
@@ -81,6 +82,7 @@ export function StudentDetailsCard({ student }: { student: Student }) {
     <Card style={{ gap: 14 }} testID="student-details-card">
       <Text style={styles.title}>My details</Text>
       <Field icon={<Phone size={16} color={theme.colors.textMuted} />} label="Mobile number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" testID="input-pupil-phone" />
+      <AddressSearch onPick={(a) => { setAddress(a.address); setPostcode(a.postcode); setPostcodeNote(null); }} testID="pupil-address-search" />
       <Field icon={<MapPin size={16} color={theme.colors.textMuted} />} label="Pickup address" value={address} onChangeText={setAddress} testID="input-pupil-address" />
       <Field
         icon={<MapPin size={16} color={theme.colors.textMuted} />} label="Postcode" value={postcode}

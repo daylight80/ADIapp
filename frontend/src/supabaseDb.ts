@@ -3483,3 +3483,29 @@ export async function setGiftVoucherStatus(id: string, status: GiftVoucherStatus
     .eq('id', id);
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// Extra pickup places for a pupil (the main address stays on the student row).
+// ---------------------------------------------------------------------------
+export type StudentPlace = { id: string; student_id: string; label: string; address: string; postcode: string | null };
+
+/** The pupil extra places. Pass no id to read the signed-in pupil own. */
+export async function listStudentPlaces(studentId?: string): Promise<StudentPlace[]> {
+  const { data, error } = await supabase.rpc('list_student_places', { p_student_id: studentId ?? null });
+  if (error) throw error;
+  return (Array.isArray(data) ? data : []) as StudentPlace[];
+}
+
+export async function saveStudentPlace(input: { label: string; address: string; postcode?: string | null; studentId?: string; id?: string }): Promise<StudentPlace> {
+  const { data, error } = await supabase.rpc('save_student_place', {
+    p_label: input.label, p_address: input.address, p_postcode: input.postcode ?? null,
+    p_student_id: input.studentId ?? null, p_id: input.id ?? null,
+  });
+  if (error) throw error;
+  return data as StudentPlace;
+}
+
+export async function deleteStudentPlace(id: string): Promise<void> {
+  const { error } = await supabase.rpc('delete_student_place', { p_id: id });
+  if (error) throw error;
+}

@@ -31,7 +31,7 @@ import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { openSmsComposer } from '../src/tools';
 import { colorForLessonType } from '../src/diary/lessonTypes';
 import { PaymentsCard } from '../src/PaymentsCard';
-import { formatDate } from '../src/dateFormat';
+import { formatDate, todayDayKey } from '../src/dateFormat';
 import { DateField } from '../src/DateTimeFields';
 
 /**
@@ -384,7 +384,7 @@ export default function StudentProfileV2Screen() {
     setAAddress(student.address || '');
     setAPostcode(student.postcode || '');
     setAHourlyRate(String(student.hourly_rate));
-    setATestDate(student.test_date ? student.test_date.slice(0, 10) : '');
+    setATestDate(student.test_date ? todayDayKey(new Date(student.test_date)) : '');
     setALicence(student.provisional_licence || '');
     setAGuardName(student.guardian_name || '');
     setAGuardPhone(student.guardian_phone || '');
@@ -615,7 +615,7 @@ export default function StudentProfileV2Screen() {
                     <Text style={s.readyLabel}>Driving readiness</Text>
                     {!!student.test_date && (
                       <Text style={s.testFlag}>
-                        Test {new Date(`${student.test_date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                        Test {formatDate(student.test_date)}
                       </Text>
                     )}
                   </View>

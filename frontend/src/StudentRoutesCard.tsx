@@ -6,6 +6,7 @@ import { theme } from './theme';
 import { Card } from './ui';
 import { listRoutesForStudent, fmtDistance, fmtDuration, type SavedRoute } from './routeRecorder';
 import { openRouteInMaps, shareRouteGpx } from './routeShare';
+import { formatDate } from './dateFormat';
 
 /**
  * Routes recorded for this pupil's lessons. They are stored encrypted on the phone that recorded them,
@@ -31,7 +32,7 @@ export function StudentRoutesCard({ studentId }: { studentId: string }) {
           <View style={{ flex: 1 }}>
             <Text style={styles.name} numberOfLines={1}>{r.name}</Text>
             <Text style={styles.meta}>
-              {new Date(r.startedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+              {formatDate(r.startedAt)}
               {' · '}{fmtDistance(r.distanceMeters)} · {fmtDuration(r.durationSec)}
             </Text>
             {!!r.notes && <Text style={styles.notes} numberOfLines={3} testID={`route-notes-${r.id}`}>{r.notes}</Text>}

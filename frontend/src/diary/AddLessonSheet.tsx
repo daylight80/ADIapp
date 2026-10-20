@@ -221,7 +221,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
       return;
     }
     if (!date) {
-      Alert.alert('Pick a date', 'Please choose the lesson date (YYYY-MM-DD).');
+      Alert.alert('Pick a date', 'Please choose the lesson date.');
       return;
     }
 

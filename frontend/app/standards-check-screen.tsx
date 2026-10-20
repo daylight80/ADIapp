@@ -11,6 +11,7 @@ import {
   listMyStandardsChecks, addStandardsCheck, removeStandardsCheck, computeAdiGrade,
   type AdiStandardsCheck,
 } from '../src/supabaseDb';
+import { formatDate } from '../src/dateFormat';
 
 const GRADE_COLORS: Record<string, { bg: string; text: string }> = {
   A: { bg: '#D1FAE5', text: theme.colors.success },
@@ -154,7 +155,7 @@ export default function StandardsCheckScreen() {
                 </Text>
               </View>
               <Text style={styles.dueText}>
-                {nextDueInfo.dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                {formatDate(nextDueInfo.dueDate)}
                 {' '}({RENEWAL_WINDOW_YEARS} years after your last logged check)
               </Text>
             </Card>
@@ -232,7 +233,7 @@ export default function StandardsCheckScreen() {
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.checkDate}>
-                        {new Date(`${check.check_date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                        {formatDate(`${check.check_date}T00:00:00`)}
                       </Text>
                       <Text style={styles.checkScore}>{check.overall_score} / 51 points</Text>
                     </View>

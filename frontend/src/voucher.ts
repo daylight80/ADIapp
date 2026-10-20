@@ -6,6 +6,7 @@
 // name. Redeeming is manual: the instructor adds the hours to the student's
 // wallet and marks the voucher redeemed.
 import { escapeHtml } from './htmlEscape';
+import { formatDate } from './dateFormat';
 
 export const MAX_VOUCHER_HOURS = 100;
 export const HOUR_CHOICES = [1, 2, 5, 10];
@@ -73,12 +74,11 @@ export function voucherStatus(
   return v.expires_at < todayKey(today) ? 'expired' : 'active';
 }
 
-/** "2026-09-30" -> "30 September 2026". Returns the input unchanged if it isn't a date. */
+/** "2026-09-30" -> "30-09-2026". Returns the input unchanged if it isn't a date. */
 export function formatVoucherDate(ymdStr: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymdStr || '');
   if (!m) return ymdStr || '';
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  return formatDate(ymdStr);
 }
 
 /** True once what's typed has the 12 letters/digits of a voucher code (dashes and spaces don't count). */

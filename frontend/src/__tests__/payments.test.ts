@@ -61,8 +61,8 @@ describe('payment rows', () => {
   });
 
   it('describes a payment in one line', () => {
-    expect(paymentSubline(p('a', '2026-10-14T10:00:00Z', { reference: 'ABC' }))).toBe('Cash · 14 Oct 2026 · ref ABC');
-    expect(paymentSubline(p('a', '2026-10-14T10:00:00Z'))).toBe('Cash · 14 Oct 2026');
+    expect(paymentSubline(p('a', '2026-10-14T10:00:00Z', { reference: 'ABC' }))).toBe('Cash · 14-10-2026 · ref ABC');
+    expect(paymentSubline(p('a', '2026-10-14T10:00:00Z'))).toBe('Cash · 14-10-2026');
   });
 
   it('keeps counted payments only, newest first', () => {
@@ -81,10 +81,10 @@ describe('pupilHistory', () => {
       ],
     });
     expect(list.map((e) => e.id)).toEqual(['t-k', 'p-a', 't-j']);
-    expect(list[0]).toMatchObject({ kind: 'topup', title: 'Prepaid 3 hours', amount: 108, sub: 'Bank transfer · 12 Oct 2026' });
-    expect(list[1]).toMatchObject({ kind: 'payment', title: 'Payment', sub: 'Cash · 10 Oct 2026' });
+    expect(list[0]).toMatchObject({ kind: 'topup', title: 'Prepaid 3 hours', amount: 108, sub: 'Bank transfer · 12-10-2026' });
+    expect(list[1]).toMatchObject({ kind: 'payment', title: 'Payment', sub: 'Cash · 10-10-2026' });
     expect(list[2].title).toBe('Prepaid 1 hour');
-    expect(list[2].sub).toBe('1 Aug 2026');
+    expect(list[2].sub).toBe('01-08-2026');
   });
 
   it('is empty when there is nothing yet', () => {

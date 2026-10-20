@@ -3,6 +3,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Student, Lesson } from './supabaseDb';
 import { escapeHtml as escape } from './htmlEscape';
+import { formatDate } from './dateFormat';
 
 export function buildInvoiceHtml(opts: {
   invoiceNo: string;
@@ -26,13 +27,13 @@ export function buildInvoiceHtml(opts: {
   } = opts;
   // No VAT: the total is simply what the lessons cost (Grant, 14 Oct 2026).
   const total = +lessons.reduce((s, l) => s + (l.amount_paid || 0), 0).toFixed(2);
-  const dateStr = issuedAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  const dateStr = formatDate(issuedAt);
 
   const rows = lessons
     .map(
       (l) => `
     <tr>
-      <td>${new Date(l.date).toLocaleDateString('en-GB')}</td>
+      <td>${formatDate(l.date)}</td>
       <td>${escape(l.topic)}</td>
       <td>${l.duration_hours.toFixed(1)}h</td>
       <td style="text-align:right">£${(l.amount_paid || 0).toFixed(2)}</td>

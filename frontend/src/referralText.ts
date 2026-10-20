@@ -1,5 +1,6 @@
 // The wording on the referral banner. The yearly limit comes from the backend
 // (REFERRAL_MAX_REWARDS_PER_YEAR in server.py); 2 is only what's shown before it has loaded.
+import { formatDate } from './dateFormat';
 export type ReferralStage = 'signed_up' | 'subscribed' | 'rewarded' | 'capped';
 export type ReferralListItem = { name: string; stage: ReferralStage; date?: string | null };
 export type ReferralSummary = {
@@ -23,9 +24,6 @@ export function referralSubtitle(summary: ReferralSummary | null | undefined): s
   }
   return `Share your code — your free month comes once they've been subscribed for a month (up to ${cap} a year).`;
 }
-
-const formatDate = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 
 /** One line of "who you've referred": what stage they're at, with the date that stage refers to. */
 export function referralItemLabel(item: ReferralListItem): string {

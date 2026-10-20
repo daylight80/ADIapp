@@ -20,6 +20,7 @@ import {
   type VoucherStatus,
 } from '../src/voucher';
 import { generateAndSharePdf, A4_POINTS } from '../src/invoice';
+import { formatDate } from '../src/dateFormat';
 
 /**
  * Gift vouchers ("Drive Vouchers", 30 Sept 2026, Migration 049). The instructor
@@ -332,7 +333,7 @@ export default function VouchersScreen() {
                     <Text style={styles.itemName}>{formatHoursLabel(v.hours)}{v.recipient_name ? ` · ${v.recipient_name}` : ''}</Text>
                     <Text style={styles.itemDate}>
                       {status === 'redeemed' && v.redeemed_at
-                        ? `Redeemed${v.redeemed_by_name ? ` by ${v.redeemed_by_name}` : ''} ${new Date(v.redeemed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                        ? `Redeemed${v.redeemed_by_name ? ` by ${v.redeemed_by_name}` : ''} ${formatDate(v.redeemed_at)}`
                         : `Valid until ${formatVoucherDate(v.expires_at)}`}
                     </Text>
                   </View>

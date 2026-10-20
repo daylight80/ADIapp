@@ -12,6 +12,7 @@ import { DateField } from '../src/DateTimeFields';
 import { supabase } from '../src/supabaseClient';
 import { listReceipts, type ExpenseReceipt } from '../src/supabaseDb';
 import { rowsToCsv, csvAmount, isoYmd, downloadOrShareCsv, type CsvRow } from '../src/csvExport';
+import { formatDate } from '../src/dateFormat';
 
 // ---- Date helpers ---------------------------------------------------------
 const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
@@ -283,7 +284,7 @@ export default function IncomeExpenseReportScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.previewName} numberOfLines={1}>{r.student}</Text>
                       <Text style={styles.previewMeta} numberOfLines={1}>
-                        {r.date} · {r.topic}{r.status === 'Cancelled' ? ' · Cancellation' : ''}
+                        {formatDate(r.date)} · {r.topic}{r.status === 'Cancelled' ? ' · Cancellation' : ''}
                       </Text>
                     </View>
                     <Text style={styles.previewAmount}>£{r.amount.toFixed(2)}</Text>

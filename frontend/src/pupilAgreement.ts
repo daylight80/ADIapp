@@ -1,6 +1,7 @@
 // The Pupil Agreement is signed by the student (Migration 051). These helpers read
 // the record for both sides: the student's own dashboard and the instructor's view
 // of that student's profile.
+import { formatDate } from './dateFormat';
 
 export type AgreementRecord = {
   tc_signed_at?: string | null;
@@ -13,9 +14,6 @@ export function agreementStatus(student: AgreementRecord | null | undefined): Ag
   const at = student?.tc_signed_at || null;
   return { signed: !!at, signedBy: at ? (student?.tc_signature_name || null) : null, signedAt: at };
 }
-
-const formatDate = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
 /** What the instructor reads on a student's profile. */
 export function instructorAgreementLine(student: AgreementRecord | null | undefined, firstName: string): string {

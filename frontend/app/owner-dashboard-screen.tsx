@@ -13,6 +13,7 @@ import {
   getMySchoolProfile, buildInstructorInviteLink, type InvitedInstructor,
 } from '../src/supabaseDb';
 import { inviteInstructor } from '../src/useSupabaseData';
+import { formatDate } from '../src/dateFormat';
 
 /**
  * Owner Dashboard — redesigned visual direction from the Claude Design
@@ -485,7 +486,7 @@ export default function OwnerDashboardV2Screen() {
                       </Text>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Text style={s.resultTitle} numberOfLines={1}>
-                          {new Date(`${t.test_date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          {formatDate(`${t.test_date}T00:00:00`)}
                         </Text>
                         <Text style={s.resultMeta} numberOfLines={1}>
                           {t.driving_faults != null ? `${t.driving_faults} driving faults` : 'Practical test'}

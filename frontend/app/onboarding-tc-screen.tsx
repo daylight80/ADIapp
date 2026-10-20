@@ -10,6 +10,7 @@ import { getMyPupilAgreementContext, signPupilAgreementAsStudent, getMyMediaCons
 import { buildAgreement, agreementPlainText, type AgreementContext } from '../src/agreementTerms';
 import { useStudentByAuthId, bump } from '../src/useSupabaseData';
 import { agreementStatus, agreementSignError } from '../src/pupilAgreement';
+import { formatDateTime } from '../src/dateFormat';
 
 /**
  * Pupil Agreement — signed by the student from their own dashboard (before
@@ -169,7 +170,7 @@ export default function OnboardingTcScreen() {
           {signature.length >= 3 && (
             <View style={styles.sigPreview} testID="signature-preview">
               <Text style={styles.sigPreviewText}>{signature}</Text>
-              <Text style={styles.sigPreviewDate}>{new Date().toLocaleString('en-GB')}</Text>
+              <Text style={styles.sigPreviewDate}>{formatDateTime(new Date())}</Text>
             </View>
           )}
         </View>
@@ -192,7 +193,7 @@ export default function OnboardingTcScreen() {
         )}
         {saved && (
           <Text style={styles.savedNote} testID="tc-saved-note">
-            Signed by {signedName} on {signedAt ? new Date(signedAt).toLocaleString('en-GB') : ''}
+            Signed by {signedName} on {signedAt ? formatDateTime(signedAt) : ''}
           </Text>
         )}
 

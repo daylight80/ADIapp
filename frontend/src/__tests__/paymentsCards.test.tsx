@@ -171,7 +171,7 @@ describe('instructor payments card', () => {
     mockUpdateDate.mockRejectedValue({ code: '22023', message: 'A voided payment can’t be changed.' });
     mockLedger.payments = [{ ...manual, date_changed_at: '2026-10-12T09:00:00Z', original_paid_at: '2026-10-10T10:00:00Z' }];
     await render(<PaymentsCard student={student} />);
-    expect(screen.getByTestId('payment-date-changed-m1')).toHaveTextContent(/first recorded 10 Oct 2026/);
+    expect(screen.getByTestId('payment-date-changed-m1')).toHaveTextContent(/first recorded 10-10-2026/);
     await fireEvent.press(screen.getByTestId('btn-change-date-m1'));
     await fireEvent.changeText(screen.getByTestId('input-date-edit-m1'), '2026-10-01');
     await fireEvent.press(screen.getByTestId('btn-date-save-m1'));

@@ -9,6 +9,7 @@ import { useAvailabilityBlocks } from '../src/useSupabaseData';
 import type { AvailabilityBlock } from '../src/supabaseDb';
 import { UnavailabilityModal } from '../src/UnavailabilityModal';
 import { BottomNav } from '../src/BottomNav';
+import { formatDate } from '../src/dateFormat';
 
 /**
  * Dedicated Unavailabilities screen. Lists upcoming and past blocks, with a
@@ -122,8 +123,8 @@ function BlockRow({ block, onPress, dim }: { block: AvailabilityBlock; onPress: 
   const end = new Date(block.ends_at);
   const sameDay = start.toDateString() === end.toDateString();
   const dateLabel = sameDay
-    ? start.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
-    : `${start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${end.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+    ? `${start.toLocaleDateString('en-GB', { weekday: 'short' })} ${formatDate(start)}`
+    : `${formatDate(start)} – ${formatDate(end)}`;
   const timeLabel = block.all_day
     ? 'All day'
     : `${start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}–${end.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;

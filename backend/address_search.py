@@ -15,6 +15,11 @@ MAX_SUGGESTIONS = 5
 LIMIT_PER_WINDOW = 120
 WINDOW_SECONDS = 600
 
+# Grant, 20 Oct 2026: an instructor needs about 25 lookups a month, so a day's worth is capped well above
+# that but far below a runaway loop. Each lookup is a few requests (as they type, then the chosen address).
+DAILY_LIMIT = 100
+DAY_SECONDS = 86400
+
 
 def clean_query(raw: Optional[str]) -> Optional[str]:
     """The text to search for, or None when it is too short to be worth a Google call."""
@@ -77,6 +82,10 @@ class UserLimiter:
         self.limit, self.window, self.clock = limit, window, clock
         self._hits: dict = {}
 
+    def would_allow(self, user_id: str) -> bool:
+        now = self.clock()
+        return len([t for t in self._hits.get(user_id, []) if now - t < self.window]) < self.limit
+
     def allow(self, user_id: str) -> bool:
         now = self.clock()
         hits = [t for t in self._hits.get(user_id, []) if now - t < self.window]
@@ -85,4 +94,20 @@ class UserLimiter:
             return False
         hits.append(now)
         self._hits[user_id] = hits
+        return True
+
+
+class AddressLimits:
+    """The burst limit and the daily cap together. A call must pass both; a refused call uses no allowance."""
+
+    def __init__(self, clock=time.monotonic):
+        self.burst = UserLimiter(LIMIT_PER_WINDOW, WINDOW_SECONDS, clock)
+        self.daily = UserLimiter(DAILY_LIMIT, DAY_SECONDS, clock)
+
+    def allow(self, user_id: str) -> bool:
+        # Look before counting, so being refused by one limit does not use up the other.
+        if not (self.burst.would_allow(user_id) and self.daily.would_allow(user_id)):
+            return False
+        self.burst.allow(user_id)
+        self.daily.allow(user_id)
         return True

@@ -1,5 +1,6 @@
 """Building the request for an AI debrief of a mock driving test (DL25). Pure functions, no network, so the
 wording of the request is tested. The model only ever sees the numbers and category names given here."""
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 CATEGORY_NAMES = {
@@ -17,7 +18,7 @@ CATEGORY_NAMES = {
     "other_road_users": "Other road users",
 }
 
-MAX_CATEGORIES = 20  # a real breakdown has 12; anything beyond that is ignored rather than trusted
+MAX_CATEGORIES = 60  # a real breakdown has about 45 lines (the DL25 items) or 12 (older attempts); more is ignored rather than trusted
 
 SYSTEM_PROMPT = (
     "You write short, encouraging debriefs for UK driving pupils after a mock driving test, based on the "
@@ -31,7 +32,20 @@ SYSTEM_PROMPT = (
 )
 
 
-def category_name(key: str) -> str:
+_LABEL_OK = re.compile(r"[^A-Za-z0-9 /&()\-–,.']")
+
+
+def clean_label(label: Any) -> str:
+    """A name saved with the attempt, reduced to plain words so nothing odd reaches the model. Empty if unusable."""
+    if not isinstance(label, str):
+        return ""
+    return " ".join(_LABEL_OK.sub("", label).split())[:60]
+
+
+def category_name(key: str, label: Any = None) -> str:
+    saved = clean_label(label)
+    if saved:
+        return saved
     if key in CATEGORY_NAMES:
         return CATEGORY_NAMES[key]
     pretty = str(key).replace("_", " ").strip().capitalize()
@@ -56,7 +70,7 @@ def faults_by_category(breakdown: Any) -> Tuple[List[Dict[str, Any]], List[str]]
         if not isinstance(f, dict):
             continue
         d, s, x = _count(f.get("driving")), _count(f.get("serious")), _count(f.get("dangerous"))
-        name = category_name(key)
+        name = category_name(key, f.get("label"))
         if d or s or x:
             with_faults.append({"name": name, "driving": d, "serious": s, "dangerous": x})
         else:

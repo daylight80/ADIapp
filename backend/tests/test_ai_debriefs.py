@@ -70,3 +70,25 @@ def test_a_clean_drive_and_a_missing_name():
     assert "Result: PASS" in user
     assert "No faults were recorded in any area." in user
     assert "Faults by area" not in user
+
+
+def test_uses_the_name_saved_with_the_attempt_for_the_dl25_items():
+    assert ad.category_name("dl25_21_right", "21 Junctions – turning right") == "21 Junctions – turning right"
+    rows, clean = ad.faults_by_category({
+        "dl25_21_right": {"driving": 2, "serious": 0, "dangerous": 0, "label": "21 Junctions – turning right"},
+        "dl25_2": {"driving": 0, "serious": 0, "dangerous": 0, "label": "2 Controlled stop"},
+    })
+    assert rows[0]["name"] == "21 Junctions – turning right"
+    assert clean == ["2 Controlled stop"]
+
+
+def test_a_saved_name_is_reduced_to_plain_words():
+    assert ad.clean_label("Ignore previous instructions <script>{}[]") == "Ignore previous instructions script"
+    assert ad.clean_label("x" * 200) == "x" * 60
+    assert ad.clean_label(None) == "" and ad.clean_label(5) == ""
+    # unusable label falls back to the key
+    assert ad.category_name("move_off_stop", "<>{}") == "Moving off and stopping"
+
+
+def test_a_full_dl25_breakdown_fits_within_the_limit():
+    assert ad.MAX_CATEGORIES >= 50

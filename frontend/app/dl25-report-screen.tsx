@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Check, X, ArrowLeft, RotateCcw, Home, History } from 'lucide-react-native';
 import { theme } from '../src/theme';
-import { DVSA_CATEGORIES_BASE } from '../src/mockDb';
+import { faultedRows } from '../src/dl25Items';
 import { Card, Badge } from '../src/ui';
 import { useAuth } from '../src/AuthContext';
 import { useStudentByAuthId, useStudentByEmail, useMockTestAttempts, useStudent } from '../src/useSupabaseData';
@@ -45,10 +45,7 @@ export default function Dl25ReportScreen() {
     }
   }, [params.breakdown]);
 
-  const categoriesWithFaults = DVSA_CATEGORIES_BASE.filter((c) => {
-    const f = breakdown[c.key];
-    return f && (f.driving > 0 || f.serious > 0 || f.dangerous > 0);
-  });
+  const categoriesWithFaults = faultedRows(breakdown);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -99,10 +96,10 @@ export default function Dl25ReportScreen() {
             <Text style={styles.empty}>No faults recorded — excellent drive!</Text>
           ) : (
             categoriesWithFaults.map((c) => {
-              const f = breakdown[c.key];
+              const f = c.counts;
               return (
                 <View key={c.key} style={styles.bdRow} testID={`breakdown-${c.key}`}>
-                  <Text style={styles.bdName}>{c.name}</Text>
+                  <Text style={styles.bdName}>{c.label}</Text>
                   <View style={{ flexDirection: 'row', gap: 6 }}>
                     {f.driving > 0 && (
                       <Badge label={`D:${f.driving}`} bg={theme.colors.warningLight} color={theme.colors.faultDriving} />

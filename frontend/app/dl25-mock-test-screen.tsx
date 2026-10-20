@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, RotateCcw, Flag } from 'lucide-react-native';
 import { theme } from '../src/theme';
-import { DVSA_CATEGORIES_BASE } from '../src/mockDb';
+import { DL25_ITEMS, emptyDl25Faults, type Dl25Faults } from '../src/dl25Items';
 import { BottomNav } from '../src/BottomNav';
 import { useAuth } from '../src/AuthContext';
 import { useStudentByAuthId, useStudentByEmail, useStudent } from '../src/useSupabaseData';
@@ -12,15 +12,9 @@ import { addMockTestAttempt } from '../src/supabaseDb';
 import { awardMockPassBadge } from '../src/useSupabaseData';
 
 type FaultType = 'driving' | 'serious' | 'dangerous';
-type Faults = Record<string, { driving: number; serious: number; dangerous: number }>;
+type Faults = Dl25Faults;
 
-const initialFaults = (): Faults => {
-  const f: Faults = {};
-  DVSA_CATEGORIES_BASE.forEach((c) => {
-    f[c.key] = { driving: 0, serious: 0, dangerous: 0 };
-  });
-  return f;
-};
+const initialFaults = (): Faults => emptyDl25Faults();
 
 export default function Dl25MockTestScreen() {
   const router = useRouter();
@@ -138,40 +132,51 @@ export default function Dl25MockTestScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} testID="categories-scroll">
-        {DVSA_CATEGORIES_BASE.map((c) => {
-          const f = faults[c.key];
-          return (
-            <View key={c.key} style={styles.catCard} testID={`cat-${c.key}`}>
-              <Text style={styles.catName}>{c.name}</Text>
-              <View style={styles.catRow}>
-                <FaultControl
-                  label="Driving"
-                  value={f.driving}
-                  colour={theme.colors.faultDriving}
-                  onAdd={() => addFault(c.key, 'driving')}
-                  onSub={() => removeFault(c.key, 'driving')}
-                  testIDPrefix={`${c.key}-driving`}
-                />
-                <FaultControl
-                  label="Serious"
-                  value={f.serious}
-                  colour={theme.colors.faultSerious}
-                  onAdd={() => addFault(c.key, 'serious')}
-                  onSub={() => removeFault(c.key, 'serious')}
-                  testIDPrefix={`${c.key}-serious`}
-                />
-                <FaultControl
-                  label="Dangerous"
-                  value={f.dangerous}
-                  colour={theme.colors.faultDangerous}
-                  onAdd={() => addFault(c.key, 'dangerous')}
-                  onSub={() => removeFault(c.key, 'dangerous')}
-                  testIDPrefix={`${c.key}-dangerous`}
-                />
-              </View>
-            </View>
-          );
-        })}
+        <Text style={styles.formNote}>Marked on the DVSA DL25 driving test report, car items only.</Text>
+        {DL25_ITEMS.map((item) => (
+          <View key={item.no} style={styles.catCard} testID={`item-${item.no}`}>
+            <Text style={styles.catName}>{item.no} {item.name}</Text>
+            {item.rows.map((row) => {
+              const c = { key: row.key };
+              const f = faults[row.key];
+              return (
+                <View key={row.key} style={styles.subRow} testID={`cat-${row.key}`}>
+                  {!!row.sub && <Text style={styles.subLabel}>{row.sub}</Text>}
+                  <View style={styles.catRow}>
+                    {!row.seriousOnly && (
+                      <FaultControl
+                        label="Driving"
+                        value={f.driving}
+                        colour={theme.colors.faultDriving}
+                        onAdd={() => addFault(c.key, 'driving')}
+                        onSub={() => removeFault(c.key, 'driving')}
+                        testIDPrefix={`${c.key}-driving`}
+                      />
+                    )}
+                    <FaultControl
+                      label="Serious"
+                      value={f.serious}
+                      colour={theme.colors.faultSerious}
+                      onAdd={() => addFault(c.key, 'serious')}
+                      onSub={() => removeFault(c.key, 'serious')}
+                      testIDPrefix={`${c.key}-serious`}
+                    />
+                    {!row.seriousOnly && (
+                      <FaultControl
+                        label="Dangerous"
+                        value={f.dangerous}
+                        colour={theme.colors.faultDangerous}
+                        onAdd={() => addFault(c.key, 'dangerous')}
+                        onSub={() => removeFault(c.key, 'dangerous')}
+                        testIDPrefix={`${c.key}-dangerous`}
+                      />
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ))}
       </ScrollView>
 
       <View style={[styles.footer, instructorStudentId && styles.footerNoNav]}>
@@ -261,6 +266,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   catName: { fontSize: 15, fontWeight: '700', color: theme.colors.text, marginBottom: 10 },
+  formNote: { fontSize: 12, color: theme.colors.textMuted, marginBottom: 4 },
+  subRow: { marginBottom: 10 },
+  subLabel: { fontSize: 13, fontWeight: '600', color: theme.colors.textMuted, marginBottom: 6, textTransform: 'capitalize' },
   catRow: { flexDirection: 'row', gap: 8 },
   ctrl: { flex: 1, alignItems: 'center', gap: 6 },
   ctrlLabel: { fontSize: 11, color: theme.colors.textMuted, fontWeight: '600' },

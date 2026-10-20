@@ -97,3 +97,43 @@ describe('routeRecorder — persistence', () => {
     expect(routes[0].name).toBe('Still here, now encrypted');
   });
 });
+
+describe('routeRecorder — pausing and pupil routes', () => {
+  const { activeSeconds, nextPoint, routeToGPX, listRoutesForStudent } = require('../routeRecorder');
+  const pt = (lat: number, lng: number, extra: object = {}) => ({ lat, lng, t: 1, ...extra });
+
+  it('counts only recording time, not paused time', () => {
+    expect(activeSeconds(0, 1000, 11_000)).toBe(10);          // running for 10s
+    expect(activeSeconds(65_000, null, 999_999)).toBe(65);    // paused: only the banked time
+    expect(activeSeconds(60_000, 5_000, 35_000)).toBe(90);    // banked 60s + 30s since resuming
+  });
+
+  it('drops poor fixes and jitter, keeps real movement', () => {
+    const a = pt(51.0, -0.2);
+    expect(nextPoint(a, pt(51.0, -0.2, { acc: 80 }), false)).toBeNull();
+    expect(nextPoint(a, pt(51.0000001, -0.2), false)).toBeNull();
+    const moved = nextPoint(a, pt(51.001, -0.2), false)!;
+    expect(moved.addedMeters).toBeGreaterThan(100);
+    expect(moved.point.brk).toBeUndefined();
+  });
+
+  it('starts a new segment after a pause, adding no distance across the gap', () => {
+    const res = nextPoint(pt(51.0, -0.2), pt(51.05, -0.2), true)!;
+    expect(res.addedMeters).toBe(0);
+    expect(res.point.brk).toBe(true);
+    expect(nextPoint(undefined, pt(51.0, -0.2), true)!.point.brk).toBeUndefined();
+  });
+
+  it('writes a separate GPX segment after a pause', () => {
+    const gpx = routeToGPX({ ...makeRoute('r', 'Break'), points: [pt(51, -0.2), pt(51.001, -0.2), pt(51.05, -0.2, { brk: true })] });
+    expect(gpx.match(/<trkseg>/g)).toHaveLength(2);
+  });
+
+  it('lists only the routes saved against one pupil', async () => {
+    await AsyncStorage.clear();
+    await saveRoute({ ...makeRoute('a', 'A'), studentId: 's1' });
+    await saveRoute({ ...makeRoute('b', 'B'), studentId: 's2' });
+    expect((await listRoutesForStudent('s1')).map((r: SavedRoute) => r.id)).toEqual(['a']);
+    expect(await listRoutesForStudent('')).toEqual([]);
+  });
+});

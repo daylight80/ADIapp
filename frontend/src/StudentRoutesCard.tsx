@@ -34,6 +34,7 @@ export function StudentRoutesCard({ studentId }: { studentId: string }) {
               {new Date(r.startedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
               {' · '}{fmtDistance(r.distanceMeters)} · {fmtDuration(r.durationSec)}
             </Text>
+            {!!r.notes && <Text style={styles.notes} numberOfLines={3} testID={`route-notes-${r.id}`}>{r.notes}</Text>}
           </View>
           <TouchableOpacity onPress={() => openRouteInMaps(r)} style={styles.btn} accessibilityLabel="Open route in Google Maps" testID={`route-maps-${r.id}`}>
             <NavIcon size={18} color={theme.colors.primary} />
@@ -54,6 +55,7 @@ const styles = StyleSheet.create({
   icon: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
   name: { fontSize: 14, fontWeight: '700', color: theme.colors.text },
   meta: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
+  notes: { fontSize: 12.5, color: theme.colors.text, marginTop: 4, fontStyle: 'italic' },
   btn: { padding: 8 },
   note: { fontSize: 11, color: theme.colors.textMuted },
 });

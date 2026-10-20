@@ -41,7 +41,17 @@ export type SavedRoute = {
   lessonId?: string;
   /** Optional student link. */
   studentId?: string;
+  /** The instructor's own notes, typed during or after the recording. Private: never shown to the pupil. */
+  notes?: string;
 };
+
+export const MAX_ROUTE_NOTES = 2000;
+
+/** Notes as stored: trimmed, capped, and undefined when empty. */
+export function cleanRouteNotes(raw: string | null | undefined): string | undefined {
+  const t = (raw || '').trim().slice(0, MAX_ROUTE_NOTES);
+  return t || undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Math helpers
@@ -172,6 +182,15 @@ export function nextPoint(
   const step = haversineMeters(last, fix);
   if (step < 3) return null;
   return { point: fix, addedMeters: step };
+}
+
+export async function updateRouteNotes(id: string, notes: string): Promise<void> {
+  const all = await listRoutes();
+  const idx = all.findIndex((r) => r.id === id);
+  if (idx >= 0) {
+    all[idx].notes = cleanRouteNotes(notes);
+    await writeAll(all);
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -137,3 +137,29 @@ describe('routeRecorder — pausing and pupil routes', () => {
     expect(await listRoutesForStudent('')).toEqual([]);
   });
 });
+
+describe('routeRecorder — private notes', () => {
+  const { cleanRouteNotes, updateRouteNotes, routeToGPX, MAX_ROUTE_NOTES } = require('../routeRecorder');
+
+  it('tidies notes: trimmed, capped, empty becomes nothing', () => {
+    expect(cleanRouteNotes('  stalled at the roundabout  ')).toBe('stalled at the roundabout');
+    expect(cleanRouteNotes('   ')).toBeUndefined();
+    expect(cleanRouteNotes(null)).toBeUndefined();
+    expect(cleanRouteNotes('x'.repeat(MAX_ROUTE_NOTES + 50))).toHaveLength(MAX_ROUTE_NOTES);
+  });
+
+  it('saves notes with the route and lets them be edited later', async () => {
+    await AsyncStorage.clear();
+    await saveRoute({ ...makeRoute('n1', 'With notes'), notes: 'Good mirror checks' });
+    expect((await listRoutes())[0].notes).toBe('Good mirror checks');
+    await updateRouteNotes('n1', 'Good mirror checks. Work on roundabouts.');
+    expect((await listRoutes())[0].notes).toBe('Good mirror checks. Work on roundabouts.');
+    await updateRouteNotes('n1', '  ');
+    expect((await listRoutes())[0].notes).toBeUndefined();
+  });
+
+  it('keeps the notes private: they are not in the GPX file that gets shared', () => {
+    const gpx = routeToGPX({ ...makeRoute('n2', 'Private'), notes: 'secret feedback' });
+    expect(gpx).not.toContain('secret feedback');
+  });
+});

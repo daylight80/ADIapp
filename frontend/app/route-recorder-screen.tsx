@@ -10,16 +10,17 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import {
-  ArrowLeft, Play, Square, MapPin, Navigation as NavIcon, Share2, Trash2, Route as RouteIcon, Clock, Gauge,
+  ArrowLeft, Play, Pause, Square, MapPin, Navigation as NavIcon, Share2, Trash2, Route as RouteIcon, Clock, Gauge,
 } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import {
-  listRoutes, saveRoute, deleteRoute, renameRoute, routeToGPX, routeToGoogleMapsUrl,
-  fmtDistance, fmtDuration, msToMph, haversineMeters,
+  listRoutes, saveRoute, deleteRoute, renameRoute,
+  fmtDistance, fmtDuration, msToMph, activeSeconds, nextPoint,
   type SavedRoute, type RoutePoint,
 } from '../src/routeRecorder';
+import { openRouteInMaps, shareRouteGpx } from '../src/routeShare';
 import { useAuth } from '../src/AuthContext';
 import { isPaidTier } from '../src/tiers';
 
@@ -70,9 +71,16 @@ export default function RouteRecorderScreen() {
   const [currentSpeed, setCurrentSpeed] = useState(0); // m/s
   const [permissionStatus, setPermissionStatus] = useState<'granted' | 'denied' | 'pending'>('pending');
   const [starting, setStarting] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
 
-  // Persisted across re-renders without triggering them
+  // Persisted across re-renders without triggering them. The GPS callback reads these refs, not state, so
+  // it always sees the latest points and pause state.
   const startedAtRef = useRef<number>(0);
+  const bankedMsRef = useRef(0); // recording time before the current run
+  const runStartedAtRef = useRef<number | null>(null); // when the current run began; null while paused
+  const pointsRef = useRef<RoutePoint[]>([]);
+  const distanceRef = useRef(0);
+  const afterPauseRef = useRef(false);
   const watcherRef = useRef<Location.LocationSubscription | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -95,7 +103,8 @@ export default function RouteRecorderScreen() {
 
   // ---- Helpers ----
   const addPoint = (raw: Location.LocationObject) => {
-    const next: RoutePoint = {
+    if (runStartedAtRef.current == null) return; // paused: ignore any late fix
+    const fix: RoutePoint = {
       lat: raw.coords.latitude,
       lng: raw.coords.longitude,
       t: raw.timestamp,
@@ -103,19 +112,60 @@ export default function RouteRecorderScreen() {
       acc: raw.coords.accuracy ?? undefined,
       speed: raw.coords.speed ?? undefined,
     };
-    // Reject very inaccurate points (>40m) — keeps the trail crisp.
-    if (next.acc != null && next.acc > 40) return;
-    setPoints((prev) => {
-      const last = prev[prev.length - 1];
-      if (last) {
-        const stepMeters = haversineMeters(last, next);
-        // Ignore jitter while stopped (<3m).
-        if (stepMeters < 3) return prev;
-        setDistanceM((d) => d + stepMeters);
-      }
-      setCurrentSpeed(next.speed ?? 0);
-      return [...prev, next];
-    });
+    // Drops inaccurate fixes (>40m) and jitter (<3m); the first fix after a pause starts a new segment.
+    const res = nextPoint(pointsRef.current[pointsRef.current.length - 1], fix, afterPauseRef.current);
+    if (!res) return;
+    afterPauseRef.current = false;
+    pointsRef.current = [...pointsRef.current, res.point];
+    distanceRef.current += res.addedMeters;
+    setPoints(pointsRef.current);
+    setDistanceM(distanceRef.current);
+    setCurrentSpeed(fix.speed ?? 0);
+  };
+
+  const beginWatching = async () => {
+    watcherRef.current = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.Highest,
+        distanceInterval: 5, // metres
+        timeInterval: 2000,  // ms
+      },
+      addPoint,
+    );
+    // Tick the duration counter every second (recording time only, not paused time).
+    tickRef.current = setInterval(() => {
+      setDurationSec(activeSeconds(bankedMsRef.current, runStartedAtRef.current, Date.now()));
+    }, 1000);
+  };
+
+  const endWatching = () => {
+    if (watcherRef.current) { watcherRef.current.remove(); watcherRef.current = null; }
+    if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
+  };
+
+  // ---- Pause / resume (e.g. a break mid-lesson) ----
+  const pause = () => {
+    if (runStartedAtRef.current == null) return;
+    bankedMsRef.current += Date.now() - runStartedAtRef.current;
+    runStartedAtRef.current = null;
+    endWatching();
+    try { deactivateKeepAwake('adipro-route'); } catch { /* ignore */ }
+    setDurationSec(activeSeconds(bankedMsRef.current, null, Date.now()));
+    setCurrentSpeed(0);
+    setIsPaused(true);
+  };
+
+  const resume = async () => {
+    try {
+      afterPauseRef.current = true;
+      runStartedAtRef.current = Date.now();
+      try { await activateKeepAwakeAsync('adipro-route'); } catch { /* not supported on web */ }
+      await beginWatching();
+      setIsPaused(false);
+    } catch (e: any) {
+      runStartedAtRef.current = null;
+      Alert.alert('Could not resume recording', e?.message || String(e));
+    }
   };
 
   // ---- Start recording ----
@@ -134,29 +184,22 @@ export default function RouteRecorderScreen() {
       setPermissionStatus('granted');
 
       // Reset state
+      pointsRef.current = [];
+      distanceRef.current = 0;
+      bankedMsRef.current = 0;
+      afterPauseRef.current = false;
       setPoints([]);
       setDistanceM(0);
       setDurationSec(0);
       setCurrentSpeed(0);
+      setIsPaused(false);
       startedAtRef.current = Date.now();
+      runStartedAtRef.current = Date.now();
 
       // Keep the screen awake during the recording so the watcher keeps ticking.
       try { await activateKeepAwakeAsync('adipro-route'); } catch { /* not supported on web */ }
 
-      const sub = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.Highest,
-          distanceInterval: 5, // metres
-          timeInterval: 2000,  // ms
-        },
-        addPoint,
-      );
-      watcherRef.current = sub;
-
-      // Tick the duration counter every second.
-      tickRef.current = setInterval(() => {
-        setDurationSec(Math.floor((Date.now() - startedAtRef.current) / 1000));
-      }, 1000);
+      await beginWatching();
       setIsRecording(true);
     } catch (e: any) {
       Alert.alert('Could not start recording', e?.message || String(e));
@@ -168,16 +211,15 @@ export default function RouteRecorderScreen() {
   // ---- Stop recording ----
   const stop = async () => {
     try {
-      if (watcherRef.current) {
-        watcherRef.current.remove();
-        watcherRef.current = null;
-      }
-      if (tickRef.current) {
-        clearInterval(tickRef.current);
-        tickRef.current = null;
-      }
+      const durationSec = activeSeconds(bankedMsRef.current, runStartedAtRef.current, Date.now());
+      const points = pointsRef.current;
+      const distanceM = distanceRef.current;
+      runStartedAtRef.current = null;
+      endWatching();
       try { deactivateKeepAwake('adipro-route'); } catch { /* ignore */ }
       setIsRecording(false);
+      setIsPaused(false);
+      setDurationSec(durationSec);
 
       if (points.length < 2) {
         Alert.alert('Route discarded', 'Not enough GPS points captured. Try again outside or near a window.');
@@ -206,7 +248,7 @@ export default function RouteRecorderScreen() {
       await reloadRoutes();
       Alert.alert(
         'Route saved',
-        `${fmtDistance(distanceM)} · ${fmtDuration(durationSec)} · ${points.length} GPS points`,
+        `${fmtDistance(distanceM)} · ${fmtDuration(durationSec)} · ${points.length} GPS points${linkedStudentName ? `\nSaved to ${linkedStudentName}’s profile.` : ''}`,
       );
     } catch (e: any) {
       Alert.alert('Save failed', e?.message || String(e));
@@ -225,17 +267,18 @@ export default function RouteRecorderScreen() {
     if (isRecording) {
       Alert.alert(
         'Stop recording?',
-        'You are currently recording a route. Stop and save it first, or discard?',
+        `You are ${isPaused ? 'part-way through' : 'currently recording'} a route. Stop and save it first, or discard?`,
         [
-          { text: 'Keep recording', style: 'cancel' },
+          { text: isPaused ? 'Stay here' : 'Keep recording', style: 'cancel' },
           {
             text: 'Discard',
             style: 'destructive',
             onPress: () => {
-              if (watcherRef.current) { watcherRef.current.remove(); watcherRef.current = null; }
-              if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
+              runStartedAtRef.current = null;
+              endWatching();
               try { deactivateKeepAwake('adipro-route'); } catch { /* ignore */ }
               setIsRecording(false);
+              setIsPaused(false);
               router.back();
             },
           },
@@ -247,46 +290,8 @@ export default function RouteRecorderScreen() {
   };
 
   // ---- Detail / actions ----
-  const openInMaps = async (r: SavedRoute) => {
-    const url = routeToGoogleMapsUrl(r);
-    if (!url) {
-      Alert.alert('Cannot open', 'This route has too few points.');
-      return;
-    }
-    const ok = await Linking.canOpenURL(url);
-    if (!ok) {
-      Alert.alert('Cannot open', 'Google Maps could not handle this link.');
-      return;
-    }
-    await Linking.openURL(url);
-  };
-
-  const shareGpx = async (r: SavedRoute) => {
-    const gpx = routeToGPX(r);
-    const safeName = (r.name || 'route').replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 40);
-    const fileName = `${safeName || 'route'}.gpx`;
-    if (Platform.OS === 'web') {
-      if (typeof window === 'undefined') return;
-      const blob = new Blob([gpx], { type: 'application/gpx+xml' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = fileName;
-      document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
-      return;
-    }
-    try {
-      const path = `${FileSystem.cacheDirectory}${fileName}`;
-      await FileSystem.writeAsStringAsync(path, gpx, { encoding: FileSystem.EncodingType.UTF8 });
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(path, { mimeType: 'application/gpx+xml', dialogTitle: 'Share GPX route' });
-      } else {
-        Alert.alert('Saved', `GPX saved to ${path}`);
-      }
-    } catch (e: any) {
-      Alert.alert('Share failed', e?.message || String(e));
-    }
-  };
+  const openInMaps = openRouteInMaps;
+  const shareGpx = shareRouteGpx;
 
   const confirmDelete = (r: SavedRoute) => {
     Alert.alert(
@@ -334,13 +339,28 @@ export default function RouteRecorderScreen() {
         <Card style={styles.recPanel}>
           {isRecording ? (
             <>
-              <Text style={styles.recLabel}>RECORDING</Text>
+              <Text style={styles.recLabel} testID="rec-state">{isPaused ? 'PAUSED' : 'RECORDING'}</Text>
               <View style={styles.statsRow}>
                 <Stat icon={<RouteIcon size={18} color={theme.colors.primary} />} label="Distance" value={fmtDistance(distanceM)} />
                 <Stat icon={<Clock size={18} color={theme.colors.primary} />} label="Duration" value={fmtDuration(durationSec)} />
                 <Stat icon={<Gauge size={18} color={theme.colors.primary} />} label="Speed" value={`${msToMph(currentSpeed).toFixed(0)} mph`} />
               </View>
-              <Text style={styles.helperText}>Tracking via GPS · {points.length} points captured</Text>
+              <Text style={styles.helperText}>
+                {isPaused
+                  ? `Paused · ${points.length} points so far. Resume when you are driving again.`
+                  : `Tracking via GPS · ${points.length} points captured`}
+              </Text>
+              {isPaused ? (
+                <TouchableOpacity style={styles.startBtn} onPress={resume} testID="btn-resume-recording">
+                  <Play size={20} color="#fff" />
+                  <Text style={styles.startBtnText}>Resume</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity style={styles.pauseBtn} onPress={pause} testID="btn-pause-recording">
+                  <Pause size={20} color={theme.colors.primary} />
+                  <Text style={styles.pauseBtnText}>Pause</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity style={styles.stopBtn} onPress={stop} testID="btn-stop-recording">
                 <Square size={20} color="#fff" />
                 <Text style={styles.stopBtnText}>Stop & Save</Text>
@@ -353,7 +373,7 @@ export default function RouteRecorderScreen() {
               <Text style={styles.helperText}>
                 {Platform.OS === 'web'
                   ? 'GPS is approximate in browser. For full accuracy, install the app on your phone.'
-                  : 'Keep your phone with you — the route will record until you tap Stop.'}
+                  : 'Keep your phone with you — the route records until you tap Stop. You can pause it for a break.'}
               </Text>
               <TouchableOpacity
                 style={[styles.startBtn, starting && { opacity: 0.6 }]}
@@ -538,6 +558,12 @@ const styles = StyleSheet.create({
     borderRadius: 999, marginTop: 8, alignSelf: 'stretch',
   },
   startBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  pauseBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    borderWidth: 1.5, borderColor: theme.colors.primary, paddingHorizontal: 28, paddingVertical: 12,
+    borderRadius: 999, alignSelf: 'stretch',
+  },
+  pauseBtnText: { color: theme.colors.primary, fontSize: 16, fontWeight: '800' },
   stopBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     backgroundColor: theme.colors.danger, paddingHorizontal: 28, paddingVertical: 14,

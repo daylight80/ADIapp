@@ -1,3 +1,4 @@
+import { StudentRoutesCard } from '../src/StudentRoutesCard';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, TextInput, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -632,7 +633,7 @@ export default function StudentProfileV2Screen() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[s.qaBtn, !pro && { opacity: 0.55, flexDirection: 'row' }]}
-                  onPress={() => pro ? router.push('/route-recorder-screen' as any) : setRoutePaywallOpen(true)}
+                  onPress={() => pro ? router.push({ pathname: '/route-recorder-screen', params: { studentId: student.id, studentName: student.name } } as any) : setRoutePaywallOpen(true)}
                   testID="v2-record-route"
                 >
                   {!pro && <Lock size={12} color={C.textMuted} style={{ marginRight: 4 }} />}
@@ -679,6 +680,8 @@ export default function StudentProfileV2Screen() {
                   </TouchableOpacity>
                 )}
               </View>
+
+              <StudentRoutesCard studentId={student.id} />
 
               <View style={s.card}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>

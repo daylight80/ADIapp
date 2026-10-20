@@ -25,6 +25,8 @@ export type RoutePoint = {
   acc?: number;
   /** Speed in m/s (if available). */
   speed?: number;
+  /** First point after a pause: the line is not joined to the point before it, and no distance is added across the gap. */
+  brk?: boolean;
 };
 
 export type SavedRoute = {
@@ -139,6 +141,39 @@ export async function renameRoute(id: string, name: string): Promise<void> {
   }
 }
 
+/** Routes saved against one pupil (newest first). */
+export async function listRoutesForStudent(studentId: string): Promise<SavedRoute[]> {
+  if (!studentId) return [];
+  return (await listRoutes()).filter((r) => r.studentId === studentId);
+}
+
+// ---------------------------------------------------------------------------
+// Pausing
+// ---------------------------------------------------------------------------
+
+/** Seconds spent actually recording: time banked before the last pause, plus the current run (if not paused). */
+export function activeSeconds(bankedMs: number, runStartedAt: number | null, now: number): number {
+  const running = runStartedAt == null ? 0 : Math.max(0, now - runStartedAt);
+  return Math.floor((Math.max(0, bankedMs) + running) / 1000);
+}
+
+/**
+ * What to do with a new GPS fix. Accuracy worse than 40 m is dropped, and so is jitter under 3 m. The first
+ * fix after a pause is always kept and marked as a break, with no distance added for the gap.
+ */
+export function nextPoint(
+  last: RoutePoint | undefined,
+  fix: RoutePoint,
+  afterPause: boolean,
+): { point: RoutePoint; addedMeters: number } | null {
+  if (fix.acc != null && fix.acc > 40) return null;
+  if (!last) return { point: fix, addedMeters: 0 };
+  if (afterPause) return { point: { ...fix, brk: true }, addedMeters: 0 };
+  const step = haversineMeters(last, fix);
+  if (step < 3) return null;
+  return { point: fix, addedMeters: step };
+}
+
 // ---------------------------------------------------------------------------
 // GPX export — GPX 1.1 spec
 // ---------------------------------------------------------------------------
@@ -160,6 +195,7 @@ export function routeToGPX(r: SavedRoute): string {
   lines.push(`    <name>${xmlEsc(r.name)}</name>`);
   lines.push('    <trkseg>');
   for (const p of r.points) {
+    if (p.brk) { lines.push('    </trkseg>'); lines.push('    <trkseg>'); }
     const attrs = `lat="${p.lat.toFixed(7)}" lon="${p.lng.toFixed(7)}"`;
     const inner: string[] = [];
     if (p.alt != null) inner.push(`<ele>${p.alt.toFixed(1)}</ele>`);

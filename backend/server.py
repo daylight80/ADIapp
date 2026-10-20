@@ -273,7 +273,7 @@ async def travel_time(req: TravelTimeRequest, current_user: dict = Depends(get_c
 # ============= ADDRESS SEARCH (pickup places) =============
 # Suggestions come from Google Places (New), called from here so the key never reaches the app. If the key
 # is missing or Google fails, the app gets an empty list and falls back to typing the address by hand.
-_address_limiter = address_search.UserLimiter()
+_address_limiter = address_search.AddressLimits()
 
 
 class AddressSuggestRequest(BaseModel):

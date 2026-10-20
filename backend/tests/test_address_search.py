@@ -55,3 +55,27 @@ def test_limiter_blocks_after_the_limit_and_recovers_after_the_window():
     assert lim.allow("someone-else") is True
     now[0] = 61
     assert lim.allow("u") is True
+
+
+def test_daily_cap_applies_on_top_of_the_burst_limit():
+    now = [0.0]
+    lim = a.AddressLimits(clock=lambda: now[0])
+    assert a.DAILY_LIMIT == 100
+    allowed = 0
+    for i in range(a.DAILY_LIMIT + 20):
+        now[0] = i * 601  # spaced out so the 10-minute burst limit never bites
+        if lim.allow("u"):
+            allowed += 1
+    # 601s apart, so only the first ~143 fit in a day; the daily cap stops it at 100
+    assert allowed == a.DAILY_LIMIT
+    assert lim.allow("other") is True
+
+
+def test_a_refused_call_does_not_use_up_the_other_allowance():
+    now = [0.0]
+    lim = a.AddressLimits(clock=lambda: now[0])
+    lim.daily.limit = 1000  # out of the way, so this test is only about the burst limit
+    for _ in range(a.LIMIT_PER_WINDOW):
+        assert lim.allow("u")
+    assert lim.allow("u") is False        # burst limit reached
+    assert len(lim.daily._hits["u"]) == a.LIMIT_PER_WINDOW  # the refusal was not counted against the day

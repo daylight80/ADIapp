@@ -16,11 +16,12 @@ import { theme } from '../src/theme';
 import { Card } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import {
-  listRoutes, saveRoute, deleteRoute, renameRoute,
+  listRoutes, saveRoute, deleteRoute, renameRoute, updateRouteNotes, cleanRouteNotes, MAX_ROUTE_NOTES,
   fmtDistance, fmtDuration, msToMph, activeSeconds, nextPoint,
   type SavedRoute, type RoutePoint,
 } from '../src/routeRecorder';
 import { openRouteInMaps, shareRouteGpx } from '../src/routeShare';
+import { useKeyboardHeight } from '../src/useKeyboardHeight';
 import { useAuth } from '../src/AuthContext';
 import { isPaidTier } from '../src/tiers';
 
@@ -81,6 +82,10 @@ export default function RouteRecorderScreen() {
   const pointsRef = useRef<RoutePoint[]>([]);
   const distanceRef = useRef(0);
   const afterPauseRef = useRef(false);
+  // Notes typed during the lesson. Kept in a ref as well so Stop & Save always saves the latest text.
+  const [notes, setNotes] = useState('');
+  const notesRef = useRef('');
+  const keyboardHeight = useKeyboardHeight();
   const watcherRef = useRef<Location.LocationSubscription | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -187,6 +192,8 @@ export default function RouteRecorderScreen() {
       pointsRef.current = [];
       distanceRef.current = 0;
       bankedMsRef.current = 0;
+      notesRef.current = '';
+      setNotes('');
       afterPauseRef.current = false;
       setPoints([]);
       setDistanceM(0);
@@ -241,6 +248,7 @@ export default function RouteRecorderScreen() {
         durationSec,
         distanceMeters: distanceM,
         points,
+        notes: cleanRouteNotes(notesRef.current),
         lessonId: linkedLessonId,
         studentId: linkedStudentId,
       };
@@ -328,7 +336,10 @@ export default function RouteRecorderScreen() {
         <View style={{ width: 38 }} />
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 80 }}>
+      <ScrollView
+        contentContainerStyle={{ padding: 16, paddingBottom: 80 + keyboardHeight }}
+        keyboardShouldPersistTaps="handled"
+      >
         {linkedStudentName && (
           <View style={styles.linkedBanner} testID="linked-lesson-banner">
             <MapPin size={14} color={theme.colors.primary} />
@@ -365,6 +376,18 @@ export default function RouteRecorderScreen() {
                 <Square size={20} color="#fff" />
                 <Text style={styles.stopBtnText}>Stop & Save</Text>
               </TouchableOpacity>
+              <Text style={styles.notesLabel}>Lesson notes (private)</Text>
+              <TextInput
+                value={notes}
+                onChangeText={(v) => { notesRef.current = v; setNotes(v); }}
+                style={styles.notesInput}
+                placeholder="Jot things down as you go, e.g. stalled at the roundabout, good mirror checks"
+                placeholderTextColor={theme.colors.textMuted}
+                multiline
+                maxLength={MAX_ROUTE_NOTES}
+                testID="input-recording-notes"
+              />
+              <Text style={styles.helperText}>Saved with the route. Your pupil never sees these.</Text>
             </>
           ) : (
             <>
@@ -452,6 +475,7 @@ export default function RouteRecorderScreen() {
           onShareGpx={() => shareGpx(detail)}
           onDelete={() => confirmDelete(detail)}
           onRenamed={async (newName) => { await renameRoute(detail.id, newName); await reloadRoutes(); setDetail({ ...detail, name: newName }); }}
+          onNotesSaved={async (text) => { await updateRouteNotes(detail.id, text); await reloadRoutes(); setDetail({ ...detail, notes: cleanRouteNotes(text) }); }}
         />}
       </BottomSheet>
     </SafeAreaView>
@@ -473,15 +497,17 @@ function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; va
 }
 
 function RouteDetail({
-  route, onOpenMaps, onShareGpx, onDelete, onRenamed,
+  route, onOpenMaps, onShareGpx, onDelete, onRenamed, onNotesSaved,
 }: {
   route: SavedRoute;
   onOpenMaps: () => void;
   onShareGpx: () => void;
   onDelete: () => void;
   onRenamed: (newName: string) => void;
+  onNotesSaved: (notes: string) => void;
 }) {
   const [name, setName] = useState(route.name);
+  const [notes, setNotes] = useState(route.notes || '');
   return (
     <View style={{ gap: 12 }}>
       <Text style={styles.detailLabel}>Name</Text>
@@ -496,6 +522,19 @@ function RouteDetail({
           testID="input-route-name"
         />
       </View>
+
+      <Text style={styles.detailLabel}>Notes (private)</Text>
+      <TextInput
+        value={notes}
+        onChangeText={setNotes}
+        onBlur={() => { if (notes.trim() !== (route.notes || '')) onNotesSaved(notes); }}
+        style={[styles.nameInput, styles.notesInput, { alignSelf: 'stretch' }]}
+        placeholder="Add notes about this lesson"
+        placeholderTextColor={theme.colors.textMuted}
+        multiline
+        maxLength={MAX_ROUTE_NOTES}
+        testID="input-route-notes"
+      />
 
       <View style={styles.detailStatsRow}>
         <Stat icon={<RouteIcon size={18} color={theme.colors.primary} />} label="Distance" value={fmtDistance(route.distanceMeters)} />
@@ -570,6 +609,12 @@ const styles = StyleSheet.create({
     borderRadius: 999, marginTop: 4, alignSelf: 'stretch',
   },
   stopBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  notesLabel: { alignSelf: 'stretch', fontSize: 12, color: theme.colors.textMuted, fontWeight: '800', letterSpacing: 0.5, marginTop: 8 },
+  notesInput: {
+    alignSelf: 'stretch', minHeight: 90, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10,
+    paddingHorizontal: 12, paddingTop: 10, textAlignVertical: 'top', fontSize: 15, color: theme.colors.text,
+    backgroundColor: theme.colors.background,
+  },
   listHeader: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 18, marginBottom: 10 },
   sectionTitle: { ...theme.font.h3 },
   sectionMeta: { fontSize: 12, color: theme.colors.textMuted },

@@ -14,6 +14,7 @@ import { cleanBufferMinutes, lessonBuffer, findTightTurnarounds, describeTightTu
 import { getTravelTime, lessonAddress } from '../maps';
 import { scheduleLessonReminders } from '../notifications';
 import { styles } from './diaryStyles';
+import { LESSON_LENGTHS, lengthLabel, endTimeFor, matchingLength, endAfterStartChange } from './lessonLength';
 import { LESSON_TYPES } from './lessonTypes';
 
 export type AddLessonCreatedInfo = {
@@ -587,13 +588,34 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
       <View style={{ flexDirection: 'row', gap: 12 }}>
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>Start</Text>
-          <TimeField value={startTime} onChange={setStartTime} testID="input-lesson-start" />
+          <TimeField
+            value={startTime}
+            onChange={(v) => { setEndTime(endAfterStartChange(v, startTime, endTime)); setStartTime(v); }}
+            testID="input-lesson-start"
+          />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>End</Text>
           <TimeField value={endTime} onChange={setEndTime} testID="input-lesson-end" />
         </View>
       </View>
+
+      <Text style={styles.label}>Length</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+        {LESSON_LENGTHS.map((m) => {
+          const active = matchingLength(startTime, endTime) === m;
+          return (
+            <TouchableOpacity
+              key={m}
+              style={[styles.chip, active && styles.chipActive]}
+              onPress={() => setEndTime(endTimeFor(startTime, m))}
+              testID={`pick-length-${m}`}
+            >
+              <Text style={[styles.chipText, active && styles.chipTextActive]}>{lengthLabel(m)}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
 
       <Text style={styles.label}>Topic</Text>
       <TextInput

@@ -1,5 +1,7 @@
 import { StudentRoutesCard } from '../src/StudentRoutesCard';
 import { PickupPlacesCard } from '../src/PickupPlacesCard';
+import { GuardianCard } from '../src/GuardianCard';
+import { validateGuardian } from '../src/guardianDetails';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, TextInput, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -140,6 +142,9 @@ export default function StudentProfileV2Screen() {
   const [aHourlyRate, setAHourlyRate] = useState('');
   const [aTestDate, setATestDate] = useState('');
   const [aLicence, setALicence] = useState('');
+  const [aGuardName, setAGuardName] = useState('');
+  const [aGuardPhone, setAGuardPhone] = useState('');
+  const [aGuardEmail, setAGuardEmail] = useState('');
   const [savingAmend, setSavingAmend] = useState(false);
 
   const [notesOpen, setNotesOpen] = useState(false);
@@ -379,6 +384,9 @@ export default function StudentProfileV2Screen() {
     setAHourlyRate(String(student.hourly_rate));
     setATestDate(student.test_date ? student.test_date.slice(0, 10) : '');
     setALicence(student.provisional_licence || '');
+    setAGuardName(student.guardian_name || '');
+    setAGuardPhone(student.guardian_phone || '');
+    setAGuardEmail(student.guardian_email || '');
     setAmendOpen(true);
   };
 
@@ -398,9 +406,17 @@ export default function StudentProfileV2Screen() {
       Alert.alert('Invalid licence', 'Provisional licence number must be 16 characters.');
       return;
     }
+    const guardian = validateGuardian({ name: aGuardName, phone: aGuardPhone, email: aGuardEmail });
+    if (!guardian.ok) {
+      Alert.alert('Parent / guardian', guardian.error);
+      return;
+    }
     setSavingAmend(true);
     try {
       await patchStudent(student.id, {
+        guardian_name: guardian.values.name || null,
+        guardian_phone: guardian.values.phone || null,
+        guardian_email: guardian.values.email || null,
         name: aName.trim(),
         email: aEmail.trim(),
         phone: aPhone.trim(),
@@ -681,6 +697,8 @@ export default function StudentProfileV2Screen() {
                   </TouchableOpacity>
                 )}
               </View>
+
+              <GuardianCard student={student} onEdit={openAmend} />
 
               <PickupPlacesCard studentId={student.id} />
 
@@ -1035,6 +1053,13 @@ export default function StudentProfileV2Screen() {
         <TextInput style={s.fieldInput} value={aTestDate} onChangeText={setATestDate} placeholder="Not booked" placeholderTextColor={C.faint} testID="v2-amend-testdate" />
         <Text style={s.fieldLabel}>Provisional licence number *</Text>
         <TextInput style={s.fieldInput} value={aLicence} onChangeText={(v) => setALicence(v.toUpperCase())} autoCapitalize="characters" maxLength={20} placeholderTextColor={C.faint} testID="v2-amend-licence" />
+        <Text style={[s.fieldLabel, { marginTop: 16, fontWeight: '800' }]}>Parent / guardian (optional, for under 18s)</Text>
+        <Text style={[s.fieldLabel, { marginTop: 6 }]}>Name</Text>
+        <TextInput style={s.fieldInput} value={aGuardName} onChangeText={setAGuardName} maxLength={100} placeholderTextColor={C.faint} testID="v2-amend-guardian-name" />
+        <Text style={s.fieldLabel}>Telephone</Text>
+        <TextInput style={s.fieldInput} value={aGuardPhone} onChangeText={setAGuardPhone} keyboardType="phone-pad" maxLength={20} placeholderTextColor={C.faint} testID="v2-amend-guardian-phone" />
+        <Text style={s.fieldLabel}>Email</Text>
+        <TextInput style={s.fieldInput} value={aGuardEmail} onChangeText={setAGuardEmail} autoCapitalize="none" keyboardType="email-address" maxLength={254} placeholderTextColor={C.faint} testID="v2-amend-guardian-email" />
         <TouchableOpacity style={[s.submitBtn, savingAmend && { opacity: 0.6 }]} onPress={saveAmend} disabled={savingAmend} testID="v2-amend-save">
           {savingAmend ? <ActivityIndicator color="#fff" /> : <Text style={s.submitBtnText}>Save changes</Text>}
         </TouchableOpacity>

@@ -57,6 +57,10 @@ export type Student = {
   tc_signature_name?: string | null;
   /** Whether the pupil wants a push notification when their instructor has a free slot. */
   slot_alerts?: boolean;
+  /** Parent or guardian contact, for pupils under 18 (all optional). */
+  guardian_name?: string | null;
+  guardian_phone?: string | null;
+  guardian_email?: string | null;
   /** Pupil's optional OK to use their pass photo/video on social media and the school's website. */
   media_consent?: boolean;
   media_consent_at?: string | null;
@@ -108,6 +112,9 @@ const fromRow = (r: any): Student => ({
   tc_signed_at: r.tc_signed_at ?? null,
   tc_signature_name: r.tc_signature_name ?? null,
   slot_alerts: r.slot_alerts !== false,
+  guardian_name: r.guardian_name ?? null,
+  guardian_phone: r.guardian_phone ?? null,
+  guardian_email: r.guardian_email ?? null,
   media_consent: r.media_consent === true,
   media_consent_at: r.media_consent_at ?? null,
 });
@@ -662,6 +669,9 @@ export type UpdateStudentInput = Partial<{
   next_lesson: string | null;
   notes: string | null;
   provisional_licence: string;
+  guardian_name: string | null;
+  guardian_phone: string | null;
+  guardian_email: string | null;
 }>;
 
 export async function updateStudent(id: string, patch: UpdateStudentInput): Promise<Student | undefined> {
@@ -678,6 +688,9 @@ export async function updateStudent(id: string, patch: UpdateStudentInput): Prom
   if (patch.next_lesson !== undefined) dbPatch.next_lesson = patch.next_lesson;
   if (patch.notes !== undefined) dbPatch.notes = patch.notes;
   if (patch.provisional_licence !== undefined) dbPatch.provisional_licence = patch.provisional_licence.toUpperCase().replace(/\s+/g, '');
+  if (patch.guardian_name !== undefined) dbPatch.guardian_name = patch.guardian_name?.trim() || null;
+  if (patch.guardian_phone !== undefined) dbPatch.guardian_phone = patch.guardian_phone?.trim() || null;
+  if (patch.guardian_email !== undefined) dbPatch.guardian_email = patch.guardian_email?.trim().toLowerCase() || null;
 
   const { data, error } = await supabase
     .from('students')

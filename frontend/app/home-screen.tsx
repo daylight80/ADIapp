@@ -395,7 +395,7 @@ export default function InstructorHomeV2Screen() {
                     action inside Lesson tools. */}
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
                   <OpenInMapsButton
-                    address={sel.pickup_address || [selStudent?.address, selStudent?.postcode].filter(Boolean).join(', ')}
+                    address={(sel.lesson_type === 'Practical Test' && sel.test_centre) ? sel.test_centre : (sel.pickup_address || [selStudent?.address, selStudent?.postcode].filter(Boolean).join(', '))}
                     variant="pill"
                     label="Nav"
                     testID={`v2-home-nav-quick-${sel.id}`}

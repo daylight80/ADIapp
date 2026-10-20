@@ -277,7 +277,9 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   // itself has no pickup_address override — joined so a student with
   // only a postcode on file (no street address) doesn't show a stray
   // leading ", " in front of it.
-  const pickupAddress = lesson.pickup_address || [student.address, student.postcode].filter(Boolean).join(', ');
+  const pickupAddress = (lesson.lesson_type === 'Practical Test' && lesson.test_centre)
+    ? lesson.test_centre
+    : lesson.pickup_address || [student.address, student.postcode].filter(Boolean).join(', ');
 
   const onArrived = async () => {
     const body = `Hi ${student.name.split(' ')[0]}, I've arrived for your ${lesson.start_time} lesson. See you in a moment! — Your instructor.`;

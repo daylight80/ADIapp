@@ -64,3 +64,11 @@ describe('dayToBritish / todayDayKey', () => {
     expect(todayDayKey(new Date(2026, 9, 9, 23, 59))).toBe('2026-10-09');
   });
 });
+
+describe('formatDate with database timestamps', () => {
+  it('reads a timestamptz as the database returns it (a pupil test date)', () => {
+    // students.test_date is a timestamp, e.g. one saved at midday when a test is booked
+    expect(formatDate('2026-11-05T12:00:00+00:00')).toBe('05-11-2026');
+    expect(formatDate('2026-11-05T12:00:00.000Z')).toBe('05-11-2026');
+  });
+});

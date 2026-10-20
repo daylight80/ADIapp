@@ -15,6 +15,7 @@ import { walletDisplay } from '../src/walletDisplay';
 import { copyToClipboard, openSmsComposer } from '../src/tools';
 import { fireInstantNotification } from '../src/notifications';
 import { api } from '../src/api';
+import { formatDate } from '../src/dateFormat';
 
 /**
  * Students list — redesigned visual direction from the Claude Design
@@ -430,7 +431,7 @@ export default function StudentsV2Screen() {
                     <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
                       {!!st.test_date && (
                         <Text style={s.testBadge}>
-                          Test {new Date(`${st.test_date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                          Test {formatDate(st.test_date)}
                         </Text>
                       )}
                       <Text style={s.name} numberOfLines={1}>{st.name}</Text>

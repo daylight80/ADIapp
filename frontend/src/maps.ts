@@ -18,9 +18,12 @@ export function addressForStudent(s: Student | undefined): string {
   return `${s.address || ''}, ${s.postcode || ''}`.trim();
 }
 
-/** Where the instructor is heading for this lesson: the test centre for a Practical Test, otherwise the pickup. */
+/**
+ * Where the instructor is heading at the start of this lesson: the pickup. The one exception is an older
+ * Practical Test entry that is only the test itself (no test time), which heads to the test centre.
+ */
 export function lessonAddress(lesson: Lesson, student: Student | undefined): string {
-  if (lesson.lesson_type === 'Practical Test' && lesson.test_centre) return lesson.test_centre;
+  if (lesson.lesson_type === 'Practical Test' && lesson.test_centre && !lesson.test_time) return lesson.test_centre;
   return lesson.pickup_address || addressForStudent(student);
 }
 

@@ -6,7 +6,14 @@ const student: any = { address: '12 Abbey Road', postcode: 'NW8 9AY' };
 const lesson = (over: object): any => ({ lesson_type: 'Standard', ...over });
 
 describe('lessonAddress', () => {
-  it('heads to the test centre for a Practical Test', () => {
+  it('a test booking starts at the pickup, with the test centre held separately', () => {
+    expect(lessonAddress(lesson({ lesson_type: 'Practical Test', test_centre: 'Morden Test Centre', test_time: '13:00', pickup_address: '1 High St' }), student))
+      .toBe('1 High St');
+    expect(lessonAddress(lesson({ lesson_type: 'Practical Test', test_centre: 'Morden Test Centre', test_time: '13:00' }), student))
+      .toBe('12 Abbey Road, NW8 9AY');
+  });
+
+  it('an older test-only entry (no test time) still heads to the test centre', () => {
     expect(lessonAddress(lesson({ lesson_type: 'Practical Test', test_centre: 'Morden Test Centre', pickup_address: '1 High St' }), student))
       .toBe('Morden Test Centre');
   });
@@ -19,7 +26,7 @@ describe('lessonAddress', () => {
     expect(lessonAddress(lesson({}), student)).toBe('12 Abbey Road, NW8 9AY');
   });
 
-  it('a Practical Test with no centre entered still falls back to the pickup', () => {
+  it('a Practical Test with no centre entered uses the pickup', () => {
     expect(lessonAddress(lesson({ lesson_type: 'Practical Test' }), student)).toBe('12 Abbey Road, NW8 9AY');
   });
 

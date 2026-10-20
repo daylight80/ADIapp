@@ -36,6 +36,10 @@ import { fireInstantNotification } from './notifications';
 import { Badge } from './ui';
 import { getTravelTime, lessonAddress } from './maps';
 import { formatDate } from './dateFormat';
+import { testSummary, testTimesProblem, testStartIso } from './diary/testBooking';
+import { TimeField } from './DateTimeFields';
+import { AddressSearch } from './AddressSearch';
+import { combineAddress } from './addressLookup';
 
 // Moved to module scope (25 Aug 2026) — same defensive fix as the Field
 // component bug found elsewhere in this session, applied here too even
@@ -82,6 +86,12 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   // Starter on Android) — was fully active on every tier with no gating.
   const paid = isPaidTier(user?.tier);
   const [routePaywallOpen, setRoutePaywallOpen] = useState(false);
+  // Practical Test bookings: editing the test centre and test time after booking.
+  const [testEditOpen, setTestEditOpen] = useState(false);
+  const [editCentre, setEditCentre] = useState('');
+  const [editTestTime, setEditTestTime] = useState('');
+  const [testSaving, setTestSaving] = useState(false);
+  const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [precheck, setPrecheck] = useState<{ eye: boolean; fit: boolean; lic: boolean }>({ eye: false, fit: false, lic: false });
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -278,7 +288,30 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   // itself has no pickup_address override — joined so a student with
   // only a postcode on file (no street address) doesn't show a stray
   // leading ", " in front of it.
-  const pickupAddress = (lesson.lesson_type === 'Practical Test' && lesson.test_centre)
+  const isTest = lesson.lesson_type === 'Practical Test';
+  const openTestEdit = () => {
+    setEditCentre(lesson.test_centre || '');
+    setEditTestTime(lesson.test_time || '');
+    setTestMsg(null);
+    setTestEditOpen(true);
+  };
+  const saveTestEdit = async () => {
+    const problem = testTimesProblem(lesson.start_time, editTestTime, lesson.end_time);
+    if (problem) { setTestMsg({ ok: false, text: problem }); return; }
+    setTestSaving(true);
+    setTestMsg(null);
+    try {
+      await patchLesson(lesson.id, { test_centre: editCentre.trim(), test_start: testStartIso(lesson.date, editTestTime) });
+      setTestEditOpen(false);
+      onChanged?.();
+    } catch (e: any) {
+      setTestMsg({ ok: false, text: e?.message || 'Could not save the test details. Please try again.' });
+    } finally {
+      setTestSaving(false);
+    }
+  };
+
+  const pickupAddress = (lesson.lesson_type === 'Practical Test' && lesson.test_centre && !lesson.test_time)
     ? lesson.test_centre
     : lesson.pickup_address || [student.address, student.postcode].filter(Boolean).join(', ');
 
@@ -449,6 +482,9 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
               <Text style={styles.sub}>
                 {lesson.start_time}-{lesson.end_time} · {lesson.topic}
               </Text>
+              {lesson.lesson_type === 'Practical Test' && !!testSummary(lesson.test_time, lesson.test_centre) && (
+                <Text style={[styles.sub, { fontWeight: '700' }]} testID="test-summary">{testSummary(lesson.test_time, lesson.test_centre)}</Text>
+              )}
             </View>
             {/* Quick contact — SMS + Call (10 Sept 2026), per Grant directly,
                 referencing a competitor app (MyDrive Time)'s quick-view
@@ -583,6 +619,48 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
                   onPress={() => openNavigation(resolveNavApp(myProfile?.preferred_nav_app), pickupAddress)}
                   testID="nav-preferred"
                 />
+                {isTest && !!lesson.test_centre && !!lesson.test_time && (
+                  <NavBtn
+                    label="Navigate to test centre"
+                    onPress={() => openNavigation(resolveNavApp(myProfile?.preferred_nav_app), lesson.test_centre as string)}
+                    testID="nav-test-centre"
+                  />
+                )}
+
+                {isTest && (
+                  <View style={{ marginTop: 10, gap: 8 }} testID="test-details-block">
+                    {testEditOpen ? (
+                      <>
+                        <Text style={styles.section}>Test details</Text>
+                        <Text style={styles.sub}>Lesson {lesson.start_time}-{lesson.end_time}</Text>
+                        <TimeField value={editTestTime} onChange={setEditTestTime} testID="input-edit-test-time" />
+                        <AddressSearch onPick={(a) => setEditCentre(combineAddress(a.address, a.postcode))} testID="edit-test-centre-search" />
+                        <TextInput
+                          style={styles.testInput}
+                          value={editCentre}
+                          onChangeText={setEditCentre}
+                          placeholder="Test centre"
+                          placeholderTextColor={theme.colors.textMuted}
+                          maxLength={200}
+                          testID="input-edit-test-centre"
+                        />
+                        {!!testMsg && <Text style={[styles.sub, { color: testMsg.ok ? theme.colors.success : theme.colors.danger }]} testID="test-edit-message">{testMsg.text}</Text>}
+                        <View style={{ flexDirection: 'row', gap: 16 }}>
+                          <TouchableOpacity onPress={saveTestEdit} disabled={testSaving} testID="btn-save-test-details">
+                            <Text style={[styles.recordRouteText, testSaving && { opacity: 0.5 }]}>{testSaving ? 'Saving\u2026' : 'Save test details'}</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => setTestEditOpen(false)} testID="btn-cancel-test-details">
+                            <Text style={[styles.recordRouteText, { color: theme.colors.textMuted }]}>Cancel</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </>
+                    ) : (
+                      <TouchableOpacity onPress={openTestEdit} testID="btn-edit-test-details">
+                        <Text style={styles.recordRouteText}>{lesson.test_time || lesson.test_centre ? 'Edit test details' : 'Add test time and centre'}</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
 
                 {/* I'm Here */}
                 <TouchableOpacity style={styles.imHereBtn} onPress={onArrived} testID="btn-im-here">
@@ -1273,6 +1351,10 @@ function CompleteLessonModal(p: CompleteProps) {
 }
 
 const styles = StyleSheet.create({
+  testInput: {
+    height: 44, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, paddingHorizontal: 12,
+    fontSize: 15, color: theme.colors.text, backgroundColor: theme.colors.background,
+  },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingBottom: 24, paddingTop: 12 },
   handle: { alignSelf: 'center', width: 44, height: 5, borderRadius: 4, backgroundColor: theme.colors.border, marginBottom: 8 },

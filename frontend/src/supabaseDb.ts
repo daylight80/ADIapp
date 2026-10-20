@@ -2575,6 +2575,8 @@ export type TestOutcome = {
   // Theory
   theory_mc_score?: number | null;
   theory_hp_score?: number | null;
+  /** Theory pass certificate number (optional), for a passed theory test. */
+  theory_certificate_number?: string | null;
   // Both
   test_centre?: string | null;
   examiner_notes?: string | null;
@@ -2593,6 +2595,7 @@ export type AddTestOutcomeInput = {
   dangerous_faults?: number | null;
   theory_mc_score?: number | null;
   theory_hp_score?: number | null;
+  theory_certificate_number?: string | null;
   test_centre?: string | null;
   examiner_notes?: string | null;
   retest_reasons?: string[];
@@ -2622,6 +2625,7 @@ export async function addTestOutcome(input: AddTestOutcomeInput): Promise<TestOu
   } else {
     row.theory_mc_score = input.theory_mc_score ?? null;
     row.theory_hp_score = input.theory_hp_score ?? null;
+    row.theory_certificate_number = input.theory_certificate_number ?? null;
   }
   const { data, error } = await supabase
     .from('test_outcomes')

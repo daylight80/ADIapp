@@ -11,7 +11,7 @@
  * touching any layout code. To change what a section says, edit it here.
  */
 
-export const LEGAL_LAST_UPDATED = '20 October 2026';
+export const LEGAL_LAST_UPDATED = '21 October 2026';
 
 export const OPERATOR = {
   name: 'Driving School Solutions',
@@ -178,6 +178,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
     body: ['Entered by your instructor, or by you when you use the app:'],
     bullets: [
       'name, email address, phone number and pick-up address;',
+      'for pupils under 18, the name, phone number and email address of a parent or guardian, which the instructor can add so they can be reached about lessons;',
       'lesson history and notes, progress against the driving syllabus, mock test and theory test results, reflective logs and test outcomes;',
       'payments and balances, and your signed pupil agreement (the name you type as a signature and the time you signed).',
     ],

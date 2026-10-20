@@ -1,7 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, useWindowDimensions } from 'react-native';
 import { theme } from './theme';
 import { X } from 'lucide-react-native';
+import { useKeyboardHeight, sheetBodyMaxHeight } from './useKeyboardHeight';
 
 type Props = {
   visible: boolean;
@@ -12,6 +13,10 @@ type Props = {
 };
 
 export function BottomSheet({ visible, onClose, title, children, testID }: Props) {
+  // On Android the keyboard would sit on top of the sheet, so the sheet is lifted above it and its
+  // scrolling body is shortened to fit. The focused field is then scrolled into view by the body.
+  const keyboardHeight = useKeyboardHeight();
+  const { height: windowHeight } = useWindowDimensions();
   return (
     <Modal
       visible={visible}
@@ -24,7 +29,7 @@ export function BottomSheet({ visible, onClose, title, children, testID }: Props
         <TouchableOpacity style={styles.backdropTouch} activeOpacity={1} onPress={onClose} testID="bottom-sheet-backdrop" />
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.sheetWrap}
+          style={[styles.sheetWrap, keyboardHeight > 0 && { marginBottom: keyboardHeight }]}
         >
           <View style={styles.sheet}>
             <View style={styles.handle} />
@@ -34,7 +39,11 @@ export function BottomSheet({ visible, onClose, title, children, testID }: Props
                 <X size={22} color={theme.colors.text} />
               </TouchableOpacity>
             </View>
-            <ScrollView style={{ maxHeight: 560 }} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              style={{ maxHeight: sheetBodyMaxHeight(windowHeight, keyboardHeight) }}
+              keyboardShouldPersistTaps="handled"
+              automaticallyAdjustKeyboardInsets
+            >
               {children}
             </ScrollView>
           </View>

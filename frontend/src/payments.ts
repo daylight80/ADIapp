@@ -65,7 +65,31 @@ export type PaymentRow = {
   source?: 'manual' | 'lesson' | 'migrated' | string;
   voided_at?: string | null;
   void_reason?: string | null;
+  /** Set when the instructor changed the date by hand. */
+  date_changed_at?: string | null;
+  /** The date as first recorded, kept the first time it is changed. */
+  original_paid_at?: string | null;
 };
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** The local calendar day of a payment, as YYYY-MM-DD, for a date picker. */
+export function paymentDateKey(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** A picked day as the time to store: midday that day, so a timezone shift cannot move it to another day. Null if not a date. */
+export function paidAtForDay(dateKey: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return null;
+  const d = new Date(`${dateKey}T12:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/** Whether a picked day is later than today (a payment can't be dated in the future). */
+export function isFutureDay(dateKey: string, todayKey: string): boolean {
+  return dateKey > todayKey;
+}
 
 export function paymentDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });

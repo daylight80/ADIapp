@@ -128,3 +128,21 @@ describe('buildReceiptHtml', () => {
     expect(buildReceiptHtml({ ...base, schoolLogoUrl: 'https://example.com/l.png' })).toContain('https://example.com/l.png');
   });
 });
+
+describe('payment date helpers', () => {
+  const { paymentDateKey, paidAtForDay, isFutureDay } = require('../payments');
+  it('turns a stored time into the local day for a picker', () => {
+    expect(paymentDateKey(new Date(2026, 9, 9, 10, 0).toISOString())).toBe('2026-10-09');
+  });
+  it('stores a picked day at midday so it cannot slip a day', () => {
+    expect(new Date(paidAtForDay('2026-10-05')).getHours()).toBe(12);
+    expect(paidAtForDay('')).toBeNull();
+    expect(paidAtForDay('5/10/2026')).toBeNull();
+    expect(paidAtForDay('2026-13-45')).toBeNull();
+  });
+  it('knows a day later than today', () => {
+    expect(isFutureDay('2026-10-16', '2026-10-15')).toBe(true);
+    expect(isFutureDay('2026-10-15', '2026-10-15')).toBe(false);
+    expect(isFutureDay('2026-10-01', '2026-10-15')).toBe(false);
+  });
+});

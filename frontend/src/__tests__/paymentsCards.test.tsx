@@ -7,6 +7,7 @@ const mockLedger = { payments: [] as any[], balance: { charged: 100, paid: 54, o
 const mockBump = jest.fn();
 const mockRecord = jest.fn();
 const mockVoid = jest.fn();
+const mockUpdateDate = jest.fn();
 const mockSummary = jest.fn();
 const mockPdf = jest.fn();
 
@@ -18,6 +19,7 @@ jest.mock('../useSupabaseData', () => ({
 jest.mock('../supabaseDb', () => ({
   recordPayment: (...a: unknown[]) => mockRecord(...a),
   voidPayment: (...a: unknown[]) => mockVoid(...a),
+  updatePaymentDate: (...a: unknown[]) => mockUpdateDate(...a),
   getMySchoolProfile: async () => ({ business_name: "Grant's Driving School" }),
   getMyPaymentSummary: (...a: unknown[]) => mockSummary(...a),
 }));
@@ -46,6 +48,7 @@ const voided = { id: 'v1', amount: 20, method: 'cash', paid_at: '2026-10-08T10:0
 beforeEach(() => {
   mockRecord.mockReset().mockResolvedValue({});
   mockVoid.mockReset().mockResolvedValue({});
+  mockUpdateDate.mockReset().mockResolvedValue({});
   mockBump.mockReset();
   mockPdf.mockReset().mockResolvedValue({ ok: true });
   mockSummary.mockReset();
@@ -135,6 +138,44 @@ describe('instructor payments card', () => {
     await fireEvent.press(screen.getByTestId('btn-void-yes-m1'));
     await waitFor(() => expect(mockVoid).toHaveBeenCalledWith('m1', null));
     await waitFor(() => expect(mockBump).toHaveBeenCalled());
+  });
+
+  it('changes the date of a payment, including one that came from a lesson', async () => {
+    mockLedger.payments = [manual, derived, voided];
+    await render(<PaymentsCard student={student} />);
+    expect(screen.queryByTestId('btn-change-date-v1')).toBeNull(); // a voided payment can't be changed
+    await fireEvent.press(screen.getByTestId('btn-change-date-d1'));
+    expect(screen.getByTestId('input-date-edit-d1').props.value).toBe('2026-10-09');
+    await fireEvent.changeText(screen.getByTestId('input-date-edit-d1'), '2026-10-05');
+    await fireEvent.press(screen.getByTestId('btn-date-save-d1'));
+    await waitFor(() => expect(mockUpdateDate).toHaveBeenCalledTimes(1));
+    expect(mockUpdateDate.mock.calls[0][0]).toBe('d1');
+    expect(mockUpdateDate.mock.calls[0][1]).toEqual(expect.stringMatching(/^2026-10-05T/));
+    await waitFor(() => expect(mockBump).toHaveBeenCalled());
+    expect(screen.queryByTestId('date-edit-d1')).toBeNull();
+  });
+
+  it('refuses a future date without calling the server, and can be cancelled', async () => {
+    mockLedger.payments = [manual];
+    await render(<PaymentsCard student={student} />);
+    await fireEvent.press(screen.getByTestId('btn-change-date-m1'));
+    await fireEvent.changeText(screen.getByTestId('input-date-edit-m1'), '2999-01-01');
+    await fireEvent.press(screen.getByTestId('btn-date-save-m1'));
+    expect(screen.getByTestId('date-edit-error-m1')).toHaveTextContent(/future/);
+    expect(mockUpdateDate).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('btn-date-cancel-m1'));
+    expect(screen.queryByTestId('date-edit-m1')).toBeNull();
+  });
+
+  it('shows the database message if the change is refused, and notes a changed date', async () => {
+    mockUpdateDate.mockRejectedValue({ code: '22023', message: 'A voided payment can’t be changed.' });
+    mockLedger.payments = [{ ...manual, date_changed_at: '2026-10-12T09:00:00Z', original_paid_at: '2026-10-10T10:00:00Z' }];
+    await render(<PaymentsCard student={student} />);
+    expect(screen.getByTestId('payment-date-changed-m1')).toHaveTextContent(/first recorded 10 Oct 2026/);
+    await fireEvent.press(screen.getByTestId('btn-change-date-m1'));
+    await fireEvent.changeText(screen.getByTestId('input-date-edit-m1'), '2026-10-01');
+    await fireEvent.press(screen.getByTestId('btn-date-save-m1'));
+    await waitFor(() => expect(screen.getByTestId('date-edit-error-m1')).toHaveTextContent(/can.t be changed/));
   });
 
   it('makes a receipt as a PDF', async () => {

@@ -7,13 +7,16 @@ import { DateField, TimeField } from '../DateTimeFields';
 import { useBankHolidays } from '../useBankHolidays';
 import { holidayBanner, holidayOn } from '../bankHolidays';
 import { supabase } from '../supabaseClient';
-import { createLesson, patchLesson, useStudentPlaces } from '../useSupabaseData';
+import { createLesson, patchLesson, patchStudent, useStudentPlaces } from '../useSupabaseData';
+import { AddressSearch } from '../AddressSearch';
 import { combineAddress } from '../addressLookup';
 import { overlapsAnyBlock, getMyDefaultTravelMinutes, type AvailabilityBlock, type Lesson, type Student } from '../supabaseDb';
 import { cleanBufferMinutes, lessonBuffer, findTightTurnarounds, describeTightTurnaround } from './buffer';
 import { getTravelTime, lessonAddress } from '../maps';
 import { scheduleLessonReminders } from '../notifications';
 import { styles } from './diaryStyles';
+import { isPracticalTest, preTestLesson, fittingPreTestLengths, overlappingLesson, testDateIso, DEFAULT_PRE_TEST_MINUTES } from './testBooking';
+import { LESSON_LENGTHS, lengthLabel, endTimeFor, matchingLength, endAfterStartChange } from './lessonLength';
 import { LESSON_TYPES } from './lessonTypes';
 
 export type AddLessonCreatedInfo = {
@@ -73,6 +76,10 @@ type Props = {
  */
 export function AddLessonSheet({ visible, onClose, students, lessons, availBlocks, pro, onCreated, initialDate }: Props) {
   const [studentId, setStudentId] = useState('');
+  // Practical Test entries: where the test is. After one is saved the sheet offers a lesson before it.
+  const [testCentre, setTestCentre] = useState('');
+  const [offer, setOffer] = useState<{ studentId: string; studentName: string; date: string; testStart: string; pickup: string; minutes: number; rate: number | null } | null>(null);
+  const [offerBusy, setOfferBusy] = useState(false);
   // Where this lesson starts when it is not the pupil's main address: '' = main, otherwise a saved place id.
   const [placeId, setPlaceId] = useState('');
   const places = useStudentPlaces(studentId || undefined, visible && !!studentId);
@@ -177,6 +184,8 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
   // Reset form on close so re-opens start fresh.
   useEffect(() => {
     if (!visible) {
+      setTestCentre('');
+      setOffer(null);
       setTravelInfo(null);
       setRate('');
       rateManuallyEdited.current = false;
@@ -417,6 +426,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
           topic,
           lesson_type: lessonType,
           pickup_address: lessonPickup || undefined,
+          test_centre: isPracticalTest(lessonType) ? (testCentre.trim() || undefined) : undefined,
           amount_paid: undefined,
           quoted_amount: rate.trim() ? Number(rate.trim()) : undefined,
           series_id: seriesId,
@@ -451,11 +461,30 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     const submittedDate = date;
     const submittedStart = startTime;
     const wasRecurring = repeatOn;
+    const wasTest = isPracticalTest(lessonType);
+    const testStudent = getStudent(studentId);
+    // A booked test also becomes the pupil's test date, so their profile shows it.
+    if (wasTest && !wasRecurring && firstCreated) {
+      try { await patchStudent(studentId, { test_date: testDateIso(submittedDate) }); } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[diary] could not set the pupil test date', e);
+      }
+    }
     setStudentId('');
     setDate('');
     setTopic('');
     setRepeatOn(false);
-    onClose();
+    if (wasTest && !wasRecurring && firstCreated) {
+      // Keep the sheet open to offer the usual lesson before the test.
+      setOffer({
+        studentId, studentName: testStudent?.name || 'the pupil', date: submittedDate, testStart: submittedStart,
+        pickup: lessonPickup, minutes: DEFAULT_PRE_TEST_MINUTES, rate: testStudent?.hourly_rate ?? null,
+      });
+      setTestCentre('');
+      setLessonType('Standard');
+    } else {
+      onClose();
+    }
 
     // Tell the parent so it can scroll & jump the visible date. Any clash,
     // single or recurring, was already confirmed up-front via the dialog
@@ -544,8 +573,71 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     setClashPartialInput('');
   };
 
+  const offerPlan = offer ? preTestLesson(offer.testStart, offer.minutes) : null;
+  const offerClash = offer && offerPlan ? overlappingLesson(lessons, offer.date, offerPlan.start, offerPlan.end) : undefined;
+
+  const addPreTestLesson = async () => {
+    if (!offer || !offerPlan) return;
+    setOfferBusy(true);
+    try {
+      await createLesson({
+        student_id: offer.studentId,
+        date: offer.date,
+        start_time: offerPlan.start,
+        end_time: offerPlan.end,
+        travel_minutes: parseInt(travelMinutes, 10) || 0,
+        topic: 'Pre-test lesson',
+        lesson_type: 'Standard',
+        pickup_address: offer.pickup || undefined,
+        quoted_amount: offer.rate ? Number(((offer.minutes / 60) * offer.rate).toFixed(2)) : undefined,
+      });
+      onCreated({ firstDate: offer.date, startTime: offerPlan.start, created: 1, recurring: false });
+      setOffer(null);
+      onClose();
+    } catch (e: any) {
+      Alert.alert('Could not add the lesson', e?.message || 'Please try again.');
+    } finally {
+      setOfferBusy(false);
+    }
+  };
+
   return (
-    <BottomSheet visible={visible} onClose={onClose} title="Add Lesson" testID="sheet-add-lesson">
+    <BottomSheet visible={visible} onClose={onClose} title={offer ? 'Test saved' : 'Add Lesson'} testID="sheet-add-lesson">
+      {offer && (
+        <View style={{ gap: 10 }} testID="pre-test-offer">
+          <Text style={styles.label}>Add a lesson before the test?</Text>
+          <Text style={styles.hint}>
+            {offer.studentName}&apos;s test is at {offer.testStart}. The lesson ends when the test starts.
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {fittingPreTestLengths(offer.testStart).map((m) => (
+              <TouchableOpacity
+                key={m}
+                style={[styles.chip, offer.minutes === m && styles.chipActive]}
+                onPress={() => setOffer({ ...offer, minutes: m })}
+                testID={`pre-test-length-${m}`}
+              >
+                <Text style={[styles.chipText, offer.minutes === m && styles.chipTextActive]}>{lengthLabel(m)}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          {offerPlan && (
+            <Text style={styles.label} testID="pre-test-times">{offerPlan.start} to {offerPlan.end}</Text>
+          )}
+          {!!offerClash && (
+            <Text style={styles.holidayWarning} testID="pre-test-clash">
+              That overlaps a lesson at {offerClash.start_time}. You can still add it.
+            </Text>
+          )}
+          <TouchableOpacity style={[styles.submitBtn, (!offerPlan || offerBusy) && { opacity: 0.5 }]} onPress={addPreTestLesson} disabled={!offerPlan || offerBusy} testID="btn-add-pre-test">
+            <Text style={styles.submitBtnText}>{offerBusy ? 'Adding…' : 'Add lesson before the test'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => { setOffer(null); onClose(); }} style={{ paddingVertical: 12, alignItems: 'center' }} testID="btn-skip-pre-test">
+            <Text style={styles.chipText}>No thanks</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {!offer && (<>
       <Text style={styles.label}>Student</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
         {students.map((s) => (
@@ -587,13 +679,34 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
       <View style={{ flexDirection: 'row', gap: 12 }}>
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>Start</Text>
-          <TimeField value={startTime} onChange={setStartTime} testID="input-lesson-start" />
+          <TimeField
+            value={startTime}
+            onChange={(v) => { setEndTime(endAfterStartChange(v, startTime, endTime)); setStartTime(v); }}
+            testID="input-lesson-start"
+          />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>End</Text>
           <TimeField value={endTime} onChange={setEndTime} testID="input-lesson-end" />
         </View>
       </View>
+
+      <Text style={styles.label}>Length</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+        {LESSON_LENGTHS.map((m) => {
+          const active = matchingLength(startTime, endTime) === m;
+          return (
+            <TouchableOpacity
+              key={m}
+              style={[styles.chip, active && styles.chipActive]}
+              onPress={() => setEndTime(endTimeFor(startTime, m))}
+              testID={`pick-length-${m}`}
+            >
+              <Text style={[styles.chipText, active && styles.chipTextActive]}>{lengthLabel(m)}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
 
       <Text style={styles.label}>Topic</Text>
       <TextInput
@@ -627,6 +740,23 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
           );
         })}
       </ScrollView>
+
+      {isPracticalTest(lessonType) && (
+        <View style={{ gap: 6, marginBottom: 8 }} testID="test-centre-block">
+          <Text style={styles.label}>Test centre</Text>
+          <AddressSearch onPick={(a) => setTestCentre(combineAddress(a.address, a.postcode))} testID="test-centre-search" />
+          <TextInput
+            style={styles.input}
+            value={testCentre}
+            onChangeText={setTestCentre}
+            placeholder="e.g. Morden Driving Test Centre"
+            placeholderTextColor={theme.colors.textMuted}
+            maxLength={200}
+            testID="input-test-centre"
+          />
+          <Text style={styles.hint}>Navigation and the pupil&apos;s next-lesson card use this instead of the pickup address.</Text>
+        </View>
+      )}
 
       <Text style={styles.label}>Lesson rate (£)</Text>
       <TextInput
@@ -710,6 +840,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
           {repeatOn ? `Save ${recurWeeksNum} lessons` : 'Save Lesson'}
         </Text>
       </TouchableOpacity>
+      </>)}
 
       {/* Clash confirmation (25 Aug 2026, updated in a follow-up the same
           day) — the actual missing piece behind this whole flow.

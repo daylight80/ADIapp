@@ -229,7 +229,9 @@ export default function StudentAppV2Screen() {
                 <Text style={s.nextLessonSub} numberOfLines={2}>
                   {[
                     nextLesson.topic || nextLesson.lesson_type,
-                    nextLesson.pickup_address ? `Pick-up: ${nextLesson.pickup_address}` : '',
+                    nextLesson.lesson_type === 'Practical Test' && nextLesson.test_centre
+                      ? `Test centre: ${nextLesson.test_centre}`
+                      : nextLesson.pickup_address ? `Pick-up: ${nextLesson.pickup_address}` : '',
                   ].filter(Boolean).join(' · ')}
                 </Text>
               </>

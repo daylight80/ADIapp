@@ -9,11 +9,11 @@ describe('mediaConsentLine', () => {
   });
   it('says Yes, with the date, when the pupil agreed', () => {
     expect(mediaConsentLine({ media_consent: true, media_consent_at: '2026-10-14T13:00:00.000Z' }))
-      .toBe('Photo/video consent: Yes (updated 14 October 2026)');
+      .toBe('Photo/video consent: Yes (updated 14-10-2026)');
   });
   it('says No, with the date, after the pupil withdrew', () => {
     expect(mediaConsentLine({ media_consent: false, media_consent_at: '2026-10-14T13:00:00.000Z' }))
-      .toBe('Photo/video consent: No (updated 14 October 2026)');
+      .toBe('Photo/video consent: No (updated 14-10-2026)');
   });
 });
 
@@ -36,11 +36,11 @@ describe('instructorAgreementLine', () => {
   });
 
   it('confirms the agreement with name and date once signed', () => {
-    expect(instructorAgreementLine(signed, 'Callum')).toBe('Agreed by Callum Goody on 3 October 2026.');
+    expect(instructorAgreementLine(signed, 'Callum')).toBe('Agreed by Callum Goody on 03-10-2026.');
   });
 
   it('still confirms when the signature name is missing', () => {
-    expect(instructorAgreementLine({ tc_signed_at: signed.tc_signed_at }, 'Callum')).toBe('Agreed on 3 October 2026.');
+    expect(instructorAgreementLine({ tc_signed_at: signed.tc_signed_at }, 'Callum')).toBe('Agreed on 03-10-2026.');
   });
 });
 

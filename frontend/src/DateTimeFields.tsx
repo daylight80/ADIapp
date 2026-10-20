@@ -1,18 +1,20 @@
 // Native + Web cross-platform Date and Time pickers.
 //   • On iOS / Android: tap the field → opens @react-native-community/datetimepicker
 //     in modal mode. iOS gets the spinner UI, Android gets the native dialog.
-//   • On Web: renders a real HTML <input type="date" /> or type="time" so the
-//     browser's native calendar / clock UI surfaces.
+//   • On Web: dates are typed as DD-MM-YYYY (with a calendar button that opens the browser's own
+//     date picker); times use a real HTML <input type="time" />.
+//   • Dates are always shown to people as DD-MM-YYYY. The stored value stays YYYY-MM-DD.
 //
 // Both fields use the same controlled-string contract so existing form state
 // keeps working:
 //     DateField  value="YYYY-MM-DD"  onChange(string)
 //     TimeField  value="HH:mm"       onChange(string)
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Platform, TouchableOpacity, View, Text, StyleSheet, Modal } from 'react-native';
 import { Calendar, Clock } from 'lucide-react-native';
 import { theme } from './theme';
+import { dayToBritish, parseBritishDate } from './dateFormat';
 
 // Native picker is imported lazily (web bundle should not pull it in)
 let DateTimePicker: any = null;
@@ -79,34 +81,73 @@ function FieldShell({
   );
 }
 
-export function DateField({ value, onChange, placeholder = 'YYYY-MM-DD', testID }: FieldProps) {
+export const DATE_PLACEHOLDER = 'DD-MM-YYYY';
+
+/** Web: a text box that takes DD-MM-YYYY, plus a calendar button that opens the browser's own date picker. */
+function WebDateInput({ value, onChange, testID }: { value: string; onChange: (v: string) => void; testID?: string }) {
+  const [draft, setDraft] = useState(dayToBritish(value));
+  const nativeRef = useRef<any>(null);
+
+  // Follow the value when it is changed from outside (e.g. the calendar, or the form resetting).
+  useEffect(() => {
+    setDraft((cur) => (parseBritishDate(cur) === value ? cur : dayToBritish(value)));
+  }, [value]);
+
+  const textInput = React.createElement('input' as any, {
+    type: 'text',
+    inputMode: 'numeric',
+    value: draft,
+    placeholder: DATE_PLACEHOLDER,
+    maxLength: 10,
+    'data-testid': testID ? `${testID}-text` : undefined,
+    onChange: (e: any) => {
+      const text = e.target.value;
+      setDraft(text);
+      const day = parseBritishDate(text);
+      if (day) onChange(day);
+      else if (text.trim() === '') onChange('');
+    },
+    onBlur: () => { if (parseBritishDate(draft)) setDraft(dayToBritish(parseBritishDate(draft))); },
+    style: {
+      border: 'none', outline: 'none', fontSize: 16, background: 'transparent',
+      color: theme.colors.text, flex: 1, minWidth: 0, height: 44, fontFamily: 'inherit',
+    },
+  });
+  const hidden = React.createElement('input' as any, {
+    type: 'date',
+    ref: nativeRef,
+    value: value || '',
+    tabIndex: -1,
+    'aria-hidden': true,
+    onChange: (e: any) => { if (e.target.value) { onChange(e.target.value); setDraft(dayToBritish(e.target.value)); } },
+    style: { position: 'absolute', opacity: 0, width: 1, height: 1, pointerEvents: 'none' },
+  });
+  const openPicker = () => {
+    const el = nativeRef.current;
+    if (el && typeof el.showPicker === 'function') { try { el.showPicker(); } catch { /* not allowed here */ } }
+  };
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+      {textInput}
+      <TouchableOpacity onPress={openPicker} accessibilityLabel="Open calendar" style={{ padding: 6 }}>
+        <Calendar size={16} color={theme.colors.textMuted} />
+      </TouchableOpacity>
+      {hidden}
+    </View>
+  );
+}
+
+export function DateField({ value, onChange, placeholder = DATE_PLACEHOLDER, testID }: FieldProps) {
   const [open, setOpen] = useState(false);
 
   if (Platform.OS === 'web') {
-    // Render a real HTML input via the createElement escape hatch for RN-Web.
-    const input = React.createElement('input' as any, {
-      type: 'date',
-      value: value || '',
-      placeholder,
-      onChange: (e: any) => onChange(e.target.value),
-      style: {
-        border: 'none',
-        outline: 'none',
-        fontSize: 16,
-        background: 'transparent',
-        color: theme.colors.text,
-        width: '100%',
-        height: 44,
-        fontFamily: 'inherit',
-      },
-    });
     return (
       <FieldShell
         iconNode={<Calendar size={18} color={theme.colors.textMuted} />}
-        text={value}
+        text={dayToBritish(value)}
         placeholder={placeholder}
         testID={testID}
-        webInput={input}
+        webInput={<WebDateInput value={value} onChange={onChange} testID={testID} />}
       />
     );
   }
@@ -115,7 +156,7 @@ export function DateField({ value, onChange, placeholder = 'YYYY-MM-DD', testID 
     <>
       <FieldShell
         iconNode={<Calendar size={18} color={theme.colors.textMuted} />}
-        text={value}
+        text={dayToBritish(value)}
         placeholder={placeholder}
         onPress={() => setOpen(true)}
         testID={testID}

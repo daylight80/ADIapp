@@ -80,8 +80,8 @@ def parse_due_date(value: Any) -> Optional[date]:
 
 
 def format_due_date(d: date) -> str:
-    """e.g. 'Thursday 8 October 2026' (no zero-padded day, so no %-d)."""
-    return f"{d.strftime('%A')} {d.day} {d.strftime('%B')} {d.year}"
+    """e.g. 'Thursday 08-10-2026': the weekday, then the date as DD-MM-YYYY."""
+    return f"{d.strftime('%A')} {d.day:02d}-{d.month:02d}-{d.year}"
 
 
 def plan_reminders(

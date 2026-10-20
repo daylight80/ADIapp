@@ -28,9 +28,9 @@ describe('referralSubtitle', () => {
 
 describe('referralItemLabel', () => {
   it('describes each stage', () => {
-    expect(referralItemLabel({ name: 'A', stage: 'signed_up', date: '2026-10-01T09:00:00Z' })).toBe('Signed up 1 Oct 2026 · not subscribed yet');
-    expect(referralItemLabel({ name: 'A', stage: 'subscribed', date: '2026-11-13T00:00:00Z' })).toBe('Subscribed · your free month is released on 13 Nov 2026');
-    expect(referralItemLabel({ name: 'A', stage: 'rewarded', date: '2026-11-13T00:00:00Z' })).toBe('Free month earned 13 Nov 2026');
+    expect(referralItemLabel({ name: 'A', stage: 'signed_up', date: '2026-10-01T09:00:00Z' })).toBe('Signed up 01-10-2026 · not subscribed yet');
+    expect(referralItemLabel({ name: 'A', stage: 'subscribed', date: '2026-11-13T00:00:00Z' })).toBe('Subscribed · your free month is released on 13-11-2026');
+    expect(referralItemLabel({ name: 'A', stage: 'rewarded', date: '2026-11-13T00:00:00Z' })).toBe('Free month earned 13-11-2026');
     expect(referralItemLabel({ name: 'A', stage: 'capped' })).toMatch(/yearly limit/);
   });
 
@@ -43,7 +43,7 @@ describe('referralItemLabel', () => {
 describe('referralUnlockNote', () => {
   it('says when referring opens, while it is still locked', () => {
     expect(referralUnlockNote({ eligible: false, eligible_from: '2026-11-14T12:00:00Z' })).toBe(
-      "Referrals unlock on 14 Nov 2026, once you've been subscribed for a month.",
+      "Referrals unlock on 14-11-2026, once you've been subscribed for a month.",
     );
   });
 

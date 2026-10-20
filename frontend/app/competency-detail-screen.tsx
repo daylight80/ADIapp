@@ -12,6 +12,7 @@ import { BottomSheet } from '../src/BottomSheet';
 import { useAuth } from '../src/AuthContext';
 import { isPaidTier, tierById } from '../src/tiers';
 import { canEditCompetency } from '../src/competencyAccess';
+import { formatDate } from '../src/dateFormat';
 
 type Tab = 'overview' | 'lessons' | 'skills';
 const TABS: { key: Tab; label: string }[] = [
@@ -194,7 +195,7 @@ export default function CompetencyDetailScreen() {
               </View>
               {competency.assessed_at && (
                 <Text style={styles.assessedAt}>
-                  Last assessed: {new Date(competency.assessed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  Last assessed: {formatDate(competency.assessed_at)}
                 </Text>
               )}
             </Card>
@@ -260,7 +261,7 @@ export default function CompetencyDetailScreen() {
                   <Card key={l.id} testID={`comp-lesson-${l.id}`}>
                     <TouchableOpacity onPress={() => setExpanded(isOpen ? null : l.id)} style={styles.lessonHeader}>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.lessonDate}>{new Date(l.date).toLocaleDateString('en-GB')}</Text>
+                        <Text style={styles.lessonDate}>{formatDate(l.date)}</Text>
                         <Text style={styles.lessonTopic}>{l.topic}</Text>
                       </View>
                       <View style={styles.levelArrow}>

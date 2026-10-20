@@ -9,6 +9,7 @@ import { ArrowLeft, CloudUpload, CheckCircle2 } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
 import { supabase } from '../src/supabaseClient';
+import { formatDateTime } from '../src/dateFormat';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -121,7 +122,7 @@ export default function BackupScreen() {
         throw new Error(`Google Drive upload failed (HTTP ${uploadResp.status}): ${errText.slice(0, 200)}`);
       }
 
-      setLastBackupAt(new Date().toLocaleString('en-GB'));
+      setLastBackupAt(formatDateTime(new Date()));
       Alert.alert('Backup complete', `Saved to your Google Drive as ${fileName}.`);
     } catch (e: any) {
       Alert.alert('Backup failed', e?.message || 'Please try again.');

@@ -66,8 +66,8 @@ def test_uk_today_uses_uk_not_utc():
 
 
 def test_format_due_date():
-    assert ar.format_due_date(date(2026, 10, 8)) == "Thursday 8 October 2026"
-    assert ar.format_due_date(date(2027, 3, 1)) == "Monday 1 March 2027"
+    assert ar.format_due_date(date(2026, 10, 8)) == "Thursday 08-10-2026"
+    assert ar.format_due_date(date(2027, 3, 1)) == "Monday 01-03-2027"
 
 
 def test_parse_due_date():

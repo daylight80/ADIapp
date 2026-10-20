@@ -20,6 +20,8 @@ import {
   RECEIPT_CATEGORIES, ExpenseReceipt, ReceiptCategory,
 } from '../src/supabaseDb';
 import { exportReceiptsZip, type ZipProgress } from '../src/receiptsExport';
+import { DateField } from '../src/DateTimeFields';
+import { formatDate, todayDayKey } from '../src/dateFormat';
 
 const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || '';
 
@@ -87,7 +89,7 @@ export default function ReceiptsScreen() {
     vendor: string; occurred_at: string; amount_total: string;
     vat_amount: string; category: ReceiptCategory; notes: string;
   }>({
-    vendor: '', occurred_at: new Date().toISOString().slice(0, 10),
+    vendor: '', occurred_at: todayDayKey(),
     amount_total: '', vat_amount: '', category: 'fuel', notes: '',
   });
 
@@ -134,7 +136,7 @@ export default function ReceiptsScreen() {
   const resetSheet = () => {
     setImageBase64(null); setImagePreview(null); setImageMime('image/jpeg');
     setForm({
-      vendor: '', occurred_at: new Date().toISOString().slice(0, 10),
+      vendor: '', occurred_at: todayDayKey(),
       amount_total: '', vat_amount: '', category: 'fuel', notes: '',
     });
   };
@@ -208,7 +210,7 @@ export default function ReceiptsScreen() {
   const saveReceipt = async () => {
     const amount = Number(form.amount_total);
     if (!amount || amount <= 0) { Alert.alert('Amount required', 'Please enter the receipt total in pounds.'); return; }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(form.occurred_at)) { Alert.alert('Invalid date', 'Use YYYY-MM-DD format for the receipt date.'); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(form.occurred_at)) { Alert.alert('Invalid date', 'Enter the receipt date as DD-MM-YYYY.'); return; }
     setSaving(true);
     try {
       let storagePath: string | null = null;
@@ -259,7 +261,7 @@ export default function ReceiptsScreen() {
     if (rows.length === 0) { Alert.alert('Nothing to export', 'No receipts in the current view.'); return; }
     const header = 'date,category,vendor,amount_gbp,vat_gbp,notes';
     const lines = rows.map((r) => [
-      r.occurred_at, r.category,
+      formatDate(r.occurred_at), r.category,
       (r.vendor || '').replace(/[",\n]/g, ' '),
       r.amount_total.toFixed(2),
       r.vat_amount != null ? r.vat_amount.toFixed(2) : '',
@@ -415,7 +417,7 @@ export default function ReceiptsScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.vendor} numberOfLines={1}>{r.vendor || catLabel(r.category)}</Text>
                   <Text style={styles.subRow}>
-                    {new Date(r.occurred_at).toLocaleDateString('en-GB')} · {catLabel(r.category)}
+                    {formatDate(r.occurred_at)} · {catLabel(r.category)}
                   </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
@@ -503,15 +505,8 @@ export default function ReceiptsScreen() {
 
         <View style={styles.row2}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.label}>Date (YYYY-MM-DD)</Text>
-            <TextInput
-              style={styles.input}
-              value={form.occurred_at}
-              onChangeText={(t) => setForm({ ...form, occurred_at: t })}
-              placeholder="2025-06-12"
-              placeholderTextColor={theme.colors.textMuted}
-              testID="input-date"
-            />
+            <Text style={styles.label}>Date</Text>
+            <DateField value={form.occurred_at} onChange={(d) => setForm({ ...form, occurred_at: d })} testID="input-date" />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.label}>Total £</Text>

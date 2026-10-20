@@ -35,6 +35,7 @@ import { openNavigation, openSmsComposer } from './tools';
 import { fireInstantNotification } from './notifications';
 import { Badge } from './ui';
 import { getTravelTime, lessonAddress } from './maps';
+import { formatDate } from './dateFormat';
 
 // Moved to module scope (25 Aug 2026) — same defensive fix as the Field
 // component bug found elsewhere in this session, applied here too even
@@ -1021,7 +1022,7 @@ function GapBroadcastModal({ visible, onClose, lesson }: { visible: boolean; onC
           <Megaphone size={32} color={theme.colors.accent} />
           <Text style={styles.modalTitle}>{pickerOpen ? 'Choose students' : 'Broadcast the gap'}</Text>
           <Text style={styles.modalSub}>
-            The freed {new Date(lesson.date).toLocaleDateString('en-GB')} {lesson.start_time}–{lesson.end_time} slot. First to respond gets it.
+            The freed {formatDate(lesson.date)} {lesson.start_time}–{lesson.end_time} slot. First to respond gets it.
           </Text>
           {sent ? (
             <View style={styles.sentRow}>

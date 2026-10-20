@@ -14,6 +14,7 @@ import {
 import { DVSA_SYLLABUS } from '../src/supabaseDb';
 import { agreementStatus } from '../src/pupilAgreement';
 import { nextUpcomingLesson, describeLessonWhen, mostRecentCompletedLesson } from '../src/nextLesson';
+import { formatDate } from '../src/dateFormat';
 
 /**
  * Student App home — redesigned visual direction from the Claude Design
@@ -382,7 +383,7 @@ export default function StudentAppV2Screen() {
                   <View key={r.id} style={s.reflectCard}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       {!!r.mood_emoji && <Text style={{ fontSize: 16 }}>{r.mood_emoji}</Text>}
-                      <Text style={s.reflectDate}>{new Date(r.created_at).toLocaleDateString('en-GB')}</Text>
+                      <Text style={s.reflectDate}>{formatDate(r.created_at)}</Text>
                     </View>
                     <Text style={s.reflectText}>&ldquo;{r.what_well}&rdquo;</Text>
                     {(r.understanding_rating || r.ability_rating) ? (

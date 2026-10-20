@@ -3,6 +3,7 @@
 // completed lessons (and cancellation charges), minus what they have paid and any wallet top-ups.
 // Positive means they owe it; negative means they are in credit.
 import { escapeHtml } from './htmlEscape';
+import { formatDate } from './dateFormat';
 
 export type PaymentMethod = 'cash' | 'bank_transfer' | 'card' | 'voucher' | 'other';
 
@@ -92,7 +93,7 @@ export function isFutureDay(dateKey: string, todayKey: string): boolean {
 }
 
 export function paymentDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return formatDate(iso);
 }
 
 /** "Cash · 14 Oct 2026 · ref ABC" */

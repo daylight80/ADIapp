@@ -27,6 +27,7 @@ import { RedeemVoucherCard } from '../src/RedeemVoucherCard';
 import { PupilPaymentsCard } from '../src/PupilPaymentsCard';
 import { listLessonPackages, type LessonPackage } from '../src/supabaseDb';
 import { usablePackages, packageTopUp, describePackageTopUp } from '../src/pricing';
+import { formatDate } from '../src/dateFormat';
 
 export default function WalletScreen() {
   const router = useRouter();
@@ -235,7 +236,7 @@ export default function WalletScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.bookHours}>{formatHoursLabel(b.hours_paid)} added</Text>
                   <Text style={styles.bookMeta}>
-                    Added {new Date(b.purchased_at).toLocaleDateString('en-GB')} · {(b.hours_paid - b.hours_used).toFixed(1)}h left
+                    Added {formatDate(b.purchased_at)} · {(b.hours_paid - b.hours_used).toFixed(1)}h left
                   </Text>
                 </View>
                 <Badge label={`£${b.amount}`} bg={theme.colors.primaryLight} color={theme.colors.primary} />
@@ -255,7 +256,7 @@ export default function WalletScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.bookHours}>{l.topic}</Text>
                   <Text style={styles.bookMeta}>
-                    {new Date(l.date).toLocaleDateString('en-GB')} · £{l.amount_paid} (inc. 20% VAT)
+                    {formatDate(l.date)} · £{l.amount_paid} (inc. 20% VAT)
                   </Text>
                 </View>
               </View>

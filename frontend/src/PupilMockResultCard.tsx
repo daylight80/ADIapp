@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Sparkles } from 'lucide-react-native';
 import { MOCK_DEBRIEF_NOTE_PUPIL } from './mockDebrief';
+import { formatDate } from './dateFormat';
 
 const C = { border: '#E4DED2', text: '#0F172A', muted: '#6B6356', primary: '#00539F', pass: '#047857', passBg: '#ECFDF5', fail: '#B45309', failBg: '#FFF7ED' };
 
@@ -20,7 +21,7 @@ type Attempt = {
  */
 export function PupilMockResultCard({ attempt }: { attempt: Attempt | null | undefined }) {
   if (!attempt || !attempt.ai_debrief) return null;
-  const when = new Date(attempt.taken_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const when = formatDate(attempt.taken_at);
   return (
     <View style={styles.card} testID="pupil-mock-result">
       <View style={styles.head}>

@@ -31,6 +31,8 @@ import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { openSmsComposer } from '../src/tools';
 import { colorForLessonType } from '../src/diary/lessonTypes';
 import { PaymentsCard } from '../src/PaymentsCard';
+import { formatDate } from '../src/dateFormat';
+import { DateField } from '../src/DateTimeFields';
 
 /**
  * Student Profile — redesigned visual direction from the Claude Design
@@ -423,7 +425,7 @@ export default function StudentProfileV2Screen() {
         address: aAddress.trim(),
         postcode: aPostcode.trim().toUpperCase(),
         hourly_rate: Number.isFinite(rate) && rate > 0 ? rate : student.hourly_rate,
-        test_date: aTestDate ? new Date(aTestDate).toISOString() : null,
+        test_date: aTestDate ? new Date(`${aTestDate}T12:00:00`).toISOString() : null,
         provisional_licence: licence,
       });
       setAmendOpen(false);
@@ -721,7 +723,7 @@ export default function StudentProfileV2Screen() {
                     {lessonNotesHistory.slice(0, 3).map((note) => (
                       <View key={note.id} style={{ gap: 6, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: C.divider }}>
                         <Text style={s.lessonNoteDate}>
-                          {new Date(note.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          {formatDate(note.created_at)}
                         </Text>
                         {Object.entries(note.answers)
                           .filter(([, answer]) => answer && answer.trim())
@@ -757,7 +759,7 @@ export default function StudentProfileV2Screen() {
                         <View style={{ flex: 1, minWidth: 0 }}>
                           <Text style={s.outcomeTitle}>{o.test_type === 'practical' ? 'Practical test' : 'Theory test'}</Text>
                           <Text style={s.outcomeMeta} numberOfLines={1}>
-                            {new Date(`${o.test_date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            {formatDate(`${o.test_date}T00:00:00`)}
                           </Text>
                         </View>
                       </View>
@@ -791,7 +793,7 @@ export default function StudentProfileV2Screen() {
                     {mockAttempts.slice(0, 5).map((m) => (
                       <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}>
                         <View style={{ flex: 1, minWidth: 0 }}>
-                          <Text style={s.outcomeTitle}>{new Date(m.taken_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</Text>
+                          <Text style={s.outcomeTitle}>{formatDate(m.taken_at)}</Text>
                           <Text style={s.outcomeMeta}>{m.driving_faults} driving · {m.serious_faults} serious · {m.dangerous_faults} dangerous</Text>
                         </View>
                         <Text style={[s.pill, m.passed ? s.pillPass : s.pillFail]}>{m.passed ? 'PASS' : 'FAIL'}</Text>
@@ -872,7 +874,7 @@ export default function StudentProfileV2Screen() {
                   <View style={s.gdprBanner} testID="v2-gdpr-pending-banner">
                     <Text style={s.gdprBannerText}>
                       {student.name.split(' ')[0]} submitted a formal data deletion request on{' '}
-                      {new Date(pendingGdprRequest.requested_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}.
+                      {formatDate(pendingGdprRequest.requested_at)}.
                       {pendingGdprRequest.reason ? ` Reason given: "${pendingGdprRequest.reason}"` : ''}
                     </Text>
                   </View>
@@ -1049,8 +1051,8 @@ export default function StudentProfileV2Screen() {
         <TextInput style={s.fieldInput} value={aPostcode} onChangeText={setAPostcode} autoCapitalize="characters" placeholderTextColor={C.faint} testID="v2-amend-postcode" />
         <Text style={s.fieldLabel}>Hourly rate (£)</Text>
         <TextInput style={s.fieldInput} value={aHourlyRate} onChangeText={setAHourlyRate} keyboardType="number-pad" placeholderTextColor={C.faint} testID="v2-amend-rate" />
-        <Text style={s.fieldLabel}>Test date (YYYY-MM-DD)</Text>
-        <TextInput style={s.fieldInput} value={aTestDate} onChangeText={setATestDate} placeholder="Not booked" placeholderTextColor={C.faint} testID="v2-amend-testdate" />
+        <Text style={s.fieldLabel}>Test date</Text>
+        <DateField value={aTestDate} onChange={setATestDate} placeholder="Not booked" testID="v2-amend-testdate" />
         <Text style={s.fieldLabel}>Provisional licence number *</Text>
         <TextInput style={s.fieldInput} value={aLicence} onChangeText={(v) => setALicence(v.toUpperCase())} autoCapitalize="characters" maxLength={20} placeholderTextColor={C.faint} testID="v2-amend-licence" />
         <Text style={[s.fieldLabel, { marginTop: 16, fontWeight: '800' }]}>Parent / guardian (optional, for under 18s)</Text>

@@ -98,9 +98,9 @@ describe('voucherStatus', () => {
 });
 
 describe('formatVoucherDate', () => {
-  it('writes a date in full, UK style', () => {
-    expect(formatVoucherDate('2026-09-30')).toBe('30 September 2026');
-    expect(formatVoucherDate('2027-02-01')).toBe('1 February 2027');
+  it('writes a date as DD-MM-YYYY', () => {
+    expect(formatVoucherDate('2026-09-30')).toBe('30-09-2026');
+    expect(formatVoucherDate('2027-02-01')).toBe('01-02-2027');
   });
   it('leaves a non-date untouched', () => {
     expect(formatVoucherDate('soon')).toBe('soon');
@@ -128,7 +128,7 @@ describe('buildVoucherHtml', () => {
     const html = buildVoucherHtml({ ...base, businessName: 'Morgan Driving', contactPhone: '07700 900123', contactEmail: 'alex@example.com' });
     expect(html).toContain('5 hours');
     expect(html).toContain('ABCD-EFGH-JKMN');
-    expect(html).toContain('30 September 2027');
+    expect(html).toContain('30-09-2027');
     expect(html).toContain('Morgan Driving');
     expect(html).toContain('07700 900123');
     expect(html).toContain('Alex Morgan');

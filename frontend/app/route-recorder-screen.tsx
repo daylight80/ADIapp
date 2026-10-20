@@ -24,6 +24,7 @@ import { openRouteInMaps, shareRouteGpx } from '../src/routeShare';
 import { useKeyboardHeight } from '../src/useKeyboardHeight';
 import { useAuth } from '../src/AuthContext';
 import { isPaidTier } from '../src/tiers';
+import { formatDate, formatDateTime } from '../src/dateFormat';
 
 /**
  * Route Recorder — GPS breadcrumb tracking saved on device.
@@ -457,7 +458,7 @@ export default function RouteRecorderScreen() {
                   {fmtDistance(r.distanceMeters)} · {fmtDuration(r.durationSec)} · {r.points.length} pts
                 </Text>
                 <Text style={styles.routeDate}>
-                  {new Date(r.startedAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                  {formatDate(r.startedAt)}
                   {' · '}
                   {new Date(r.startedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                 </Text>
@@ -543,7 +544,7 @@ function RouteDetail({
       </View>
 
       <Text style={styles.helperText}>
-        Recorded on {new Date(route.startedAt).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+        Recorded on {formatDateTime(route.startedAt)}
       </Text>
 
       <View style={{ height: 1, backgroundColor: theme.colors.border, marginVertical: 4 }} />

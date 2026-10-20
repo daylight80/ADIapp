@@ -9,6 +9,7 @@ import { Card, Badge } from '../src/ui';
 import { useAuth } from '../src/AuthContext';
 import { useStudentByAuthId, useStudentByEmail, useMockTestAttempts, useStudent } from '../src/useSupabaseData';
 import { MockDebriefCard } from '../src/MockDebriefCard';
+import { formatDate } from '../src/dateFormat';
 
 export default function Dl25ReportScreen() {
   const router = useRouter();
@@ -144,7 +145,7 @@ export default function Dl25ReportScreen() {
                 <View key={a.id} style={styles.historyRow} testID={`history-${a.id}`}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.historyDate}>
-                      {new Date(a.taken_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      {formatDate(a.taken_at)}
                     </Text>
                     <Text style={styles.historyFaults}>
                       {a.driving_faults} driving · {a.serious_faults} serious · {a.dangerous_faults} dangerous

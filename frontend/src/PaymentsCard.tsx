@@ -10,13 +10,13 @@ import { BottomSheet } from './BottomSheet';
 import { DateField } from './DateTimeFields';
 import { useAuth } from './AuthContext';
 import { usePaymentLedger, bump } from './useSupabaseData';
-import { recordPayment, voidPayment, getMySchoolProfile } from './supabaseDb';
+import { recordPayment, voidPayment, updatePaymentDate, getMySchoolProfile } from './supabaseDb';
 import { generateAndSharePdf } from './invoice';
 import { newAttemptId } from './walletTopUp';
 import { todayKey } from './voucher';
 import {
   PAYMENT_METHOD_CHOICES, parseAmount, formatGbp, describeBalance, paymentSubline, paymentErrorMessage,
-  buildReceiptHtml, type PaymentMethod, type PaymentRow,
+  buildReceiptHtml, paymentDateKey, paidAtForDay, isFutureDay, paymentDate, type PaymentMethod, type PaymentRow,
 } from './payments';
 
 const TONE = {
@@ -50,6 +50,11 @@ export function PaymentsCard({ student }: { student: { id: string; name: string 
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const attemptId = useRef<string>(newAttemptId());
+
+  // Changing the date a payment was received (e.g. entered late, or on the wrong day).
+  const [dateEditId, setDateEditId] = useState<string | null>(null);
+  const [dateEditValue, setDateEditValue] = useState('');
+  const [dateEditError, setDateEditError] = useState<string | null>(null);
 
   const [voidingId, setVoidingId] = useState<string | null>(null);
   const [rowBusy, setRowBusy] = useState<string | null>(null);
@@ -129,6 +134,31 @@ export function PaymentsCard({ student }: { student: { id: string; name: string 
       bump();
     } catch (e) {
       setRowMessage(paymentErrorMessage(e));
+    } finally {
+      setRowBusy(null);
+    }
+  };
+
+  const startDateEdit = (p: PaymentRow) => {
+    setVoidingId(null);
+    setRowMessage(null);
+    setDateEditError(null);
+    setDateEditValue(paymentDateKey(p.paid_at));
+    setDateEditId(p.id);
+  };
+
+  const saveDateEdit = async (p: PaymentRow) => {
+    const paidAt = paidAtForDay(dateEditValue);
+    if (!paidAt) { setDateEditError('Pick the date the payment was received.'); return; }
+    if (isFutureDay(dateEditValue, todayKey())) { setDateEditError('A payment can’t be dated in the future.'); return; }
+    setRowBusy(p.id);
+    setDateEditError(null);
+    try {
+      await updatePaymentDate(p.id, paidAt);
+      setDateEditId(null);
+      bump();
+    } catch (e) {
+      setDateEditError(paymentErrorMessage(e));
     } finally {
       setRowBusy(null);
     }
@@ -228,12 +258,34 @@ export function PaymentsCard({ student }: { student: { id: string; name: string 
                     {paymentSubline(p)}{derived ? ' · from the lesson' : ''}{voided ? ' · voided' : ''}
                   </Text>
                   {!!p.note && !derived && <Text style={styles.sub} numberOfLines={2}>{p.note}</Text>}
+                  {!!p.date_changed_at && !!p.original_paid_at && (
+                    <Text style={styles.sub} testID={`payment-date-changed-${p.id}`}>Date changed (first recorded {paymentDate(p.original_paid_at)})</Text>
+                  )}
+                  {dateEditId === p.id && (
+                    <View style={{ gap: 6, marginTop: 6 }} testID={`date-edit-${p.id}`}>
+                      <DateField value={dateEditValue} onChange={(v) => { setDateEditValue(v); setDateEditError(null); }} testID={`input-date-edit-${p.id}`} />
+                      {!!dateEditError && <Text style={styles.error} testID={`date-edit-error-${p.id}`}>{dateEditError}</Text>}
+                      <View style={styles.confirmRow}>
+                        <TouchableOpacity onPress={() => saveDateEdit(p)} disabled={rowBusy === p.id} testID={`btn-date-save-${p.id}`}>
+                          <Text style={styles.actionText}>{rowBusy === p.id ? 'Saving…' : 'Save date'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setDateEditId(null)} testID={`btn-date-cancel-${p.id}`}>
+                          <Text style={[styles.actionText, { color: theme.colors.textMuted }]}>Cancel</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
                 </View>
                 {!voided && (
                   <View style={styles.actions}>
                     <TouchableOpacity onPress={() => receipt(p)} disabled={rowBusy === p.id} testID={`btn-receipt-${p.id}`} style={styles.actionBtn}>
                       {rowBusy === p.id ? <ActivityIndicator size="small" color={theme.colors.primary} /> : (<><FileText size={14} color={theme.colors.primary} /><Text style={styles.actionText}>Receipt</Text></>)}
                     </TouchableOpacity>
+                    {dateEditId !== p.id && (
+                      <TouchableOpacity onPress={() => startDateEdit(p)} testID={`btn-change-date-${p.id}`}>
+                        <Text style={styles.actionText}>Change date</Text>
+                      </TouchableOpacity>
+                    )}
                     {!derived && (voidingId === p.id ? (
                       <View style={styles.confirmRow}>
                         <TouchableOpacity onPress={() => doVoid(p)} disabled={rowBusy === p.id} testID={`btn-void-yes-${p.id}`}>

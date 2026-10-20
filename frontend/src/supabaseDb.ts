@@ -1768,13 +1768,15 @@ const paymentFromRow = (r: any): PaymentRow => ({
   source: r.source,
   voided_at: r.voided_at ?? null,
   void_reason: r.void_reason ?? null,
+  date_changed_at: r.date_changed_at ?? null,
+  original_paid_at: r.original_paid_at ?? null,
 });
 
 /** Newest first, including voided ones (they show struck through). Row security limits this to your own pupils. */
 export async function listPayments(studentId: string): Promise<PaymentRow[]> {
   const { data, error } = await supabase
     .from('payments')
-    .select('id, amount, method, paid_at, reference, note, source, voided_at, void_reason')
+    .select('id, amount, method, paid_at, reference, note, source, voided_at, void_reason, date_changed_at, original_paid_at')
     .eq('student_id', studentId)
     .order('paid_at', { ascending: false });
   if (error) throw error;
@@ -1822,6 +1824,13 @@ export async function recordPayment(input: {
 
 export async function voidPayment(id: string, reason?: string | null): Promise<PaymentRow> {
   const { data, error } = await supabase.rpc('void_payment', { p_id: id, p_reason: reason ?? null });
+  if (error) throw error;
+  return paymentFromRow(data);
+}
+
+/** Changes the date a payment was received (migration 080). The amount and method stay as recorded. */
+export async function updatePaymentDate(id: string, paidAt: string): Promise<PaymentRow> {
+  const { data, error } = await supabase.rpc('update_payment_date', { p_id: id, p_paid_at: paidAt });
   if (error) throw error;
   return paymentFromRow(data);
 }

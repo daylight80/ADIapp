@@ -9,23 +9,23 @@ import { openRouteInMaps, shareRouteGpx } from './routeShare';
 import { formatDate } from './dateFormat';
 
 /**
- * Routes recorded for this pupil's lessons. They are stored encrypted on the phone that recorded them,
- * not on the server, so this only lists routes recorded on this device.
+ * The routes recorded for a pupil. They are stored encrypted on the phone that recorded them, not on the
+ * server, so this only finds routes recorded on this device (the instructor's phone).
  */
-export function StudentRoutesCard({ studentId }: { studentId: string }) {
-  const [routes, setRoutes] = useState<SavedRoute[] | null>(null);
-
+export function useStudentRoutes(studentId: string): SavedRoute[] {
+  const [routes, setRoutes] = useState<SavedRoute[]>([]);
   useFocusEffect(useCallback(() => {
     let alive = true;
     listRoutesForStudent(studentId).then((r) => { if (alive) setRoutes(r); }).catch(() => { if (alive) setRoutes([]); });
     return () => { alive = false; };
   }, [studentId]));
+  return routes;
+}
 
-  if (!routes || routes.length === 0) return null;
-
+/** The route rows: name, date, distance, time, the instructor's private notes, and Maps and GPX buttons. */
+export function RouteRows({ routes }: { routes: SavedRoute[] }) {
   return (
-    <Card style={{ gap: 10 }}>
-      <Text style={styles.title}>Recorded routes</Text>
+    <>
       {routes.map((r) => (
         <View key={r.id} style={styles.row} testID={`student-route-${r.id}`}>
           <View style={styles.icon}><RouteIcon size={18} color={theme.colors.primary} /></View>
@@ -45,6 +45,20 @@ export function StudentRoutesCard({ studentId }: { studentId: string }) {
           </TouchableOpacity>
         </View>
       ))}
+    </>
+  );
+}
+
+/**
+ * Routes that couldn't be matched to one of the pupil's lessons (see lessonRoutes.ts). Routes that did match
+ * are shown on their lesson instead. Instructor side only: the pupil's own screens never use this.
+ */
+export function StudentRoutesCard({ routes }: { routes: SavedRoute[] }) {
+  if (routes.length === 0) return null;
+  return (
+    <Card style={{ gap: 10 }} testID="unmatched-routes-card">
+      <Text style={styles.title}>Recorded routes</Text>
+      <RouteRows routes={routes} />
       <Text style={styles.note}>Kept on this phone only.</Text>
     </Card>
   );

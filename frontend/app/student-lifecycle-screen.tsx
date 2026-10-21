@@ -1,4 +1,5 @@
-import { StudentRoutesCard } from '../src/StudentRoutesCard';
+import { StudentRoutesCard, RouteRows, useStudentRoutes } from '../src/StudentRoutesCard';
+import { matchRoutesToLessons } from '../src/lessonRoutes';
 import { PickupPlacesCard } from '../src/PickupPlacesCard';
 import { GuardianCard } from '../src/GuardianCard';
 import { validateGuardian } from '../src/guardianDetails';
@@ -164,6 +165,9 @@ export default function StudentProfileV2Screen() {
 
   const { lessons: sbLessons } = useLessonsForStudent(student?.id);
   const lessons = useMemo(() => sbLessons || [], [sbLessons]);
+  // Routes recorded on this phone, each shown on its lesson (those that match no lesson stay on the profile).
+  const studentRoutes = useStudentRoutes(student?.id || '');
+  const routeMatch = useMemo(() => matchRoutesToLessons(lessons, studentRoutes), [lessons, studentRoutes]);
 
   // Prepaid balance for the wallet tile: hours paid for, minus hours used,
   // across all of this student's block bookings.
@@ -705,7 +709,7 @@ export default function StudentProfileV2Screen() {
 
               <PickupPlacesCard studentId={student.id} />
 
-              <StudentRoutesCard studentId={student.id} />
+              <StudentRoutesCard routes={routeMatch.unmatched} />
 
               <View style={s.card}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -936,6 +940,12 @@ export default function StudentProfileV2Screen() {
                       <Text style={s.lessonMeta}>{l.duration_hours}h</Text>
                     </View>
                     {!!l.notes && <Text style={s.lessonNote}>{l.notes}</Text>}
+                    {(routeMatch.byLesson[l.id] || []).length > 0 && (
+                      <View style={{ marginTop: 10, gap: 8 }} testID={`lesson-routes-${l.id}`}>
+                        <Text style={s.lessonMeta}>Recorded route</Text>
+                        <RouteRows routes={routeMatch.byLesson[l.id]} />
+                      </View>
+                    )}
                   </View>
                 ))}
               </View>

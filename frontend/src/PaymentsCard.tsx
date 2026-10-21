@@ -10,7 +10,8 @@ import { BottomSheet } from './BottomSheet';
 import { DateField } from './DateTimeFields';
 import { useAuth } from './AuthContext';
 import { usePaymentLedger, bump, purchaseBlock } from './useSupabaseData';
-import { recordPayment, voidPayment, updatePaymentDate, getMySchoolProfile } from './supabaseDb';
+import { recordPayment, voidPayment, updatePaymentDate, getMySchoolProfile, listLessonPackages, type LessonPackage } from './supabaseDb';
+import { usablePackages, packageTopUp, describePackageTopUp } from './pricing';
 import { generateAndSharePdf } from './invoice';
 import { newAttemptId } from './walletTopUp';
 import { todayKey } from './voucher';
@@ -54,6 +55,25 @@ export function PaymentsCard({ student }: { student: { id: string; name: string;
   const [addHours, setAddHours] = useState(false);
   const [hoursText, setHoursText] = useState<string | null>(null);
   const blockAttemptId = useRef<string>(newAttemptId());
+  // Packages from Pricing & packages: choosing the one that was paid for gives the hours (and the price as the amount).
+  const [packages, setPackages] = useState<LessonPackage[]>([]);
+  const [packageId, setPackageId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open || !addHours) return;
+    let alive = true;
+    listLessonPackages({ activeOnly: true })
+      .then((list) => { if (alive) setPackages(usablePackages(list)); })
+      .catch(() => { if (alive) setPackages([]); });
+    return () => { alive = false; };
+  }, [open, addHours]);
+  const chosenPackage = packages.find((p) => p.id === packageId) || null;
+  const packageDeal = chosenPackage ? packageTopUp(chosenPackage) : null;
+  const choosePackage = (id: string | null) => {
+    setFormError(null);
+    setPackageId(id);
+    const pkg = packages.find((p) => p.id === id);
+    if (pkg) setAmount(String(packageTopUp(pkg).amount));
+  };
 
   // Changing the date a payment was received (e.g. entered late, or on the wrong day).
   const [dateEditId, setDateEditId] = useState<string | null>(null);
@@ -94,7 +114,7 @@ export function PaymentsCard({ student }: { student: { id: string; name: string;
   const tone = TONE[bal.kind];
   const parsed = parseAmount(amount);
   const hoursShown = hoursText ?? suggestWalletHours(parsed, student.hourly_rate);
-  const hoursParsed = addHours ? parseWalletHours(hoursShown) : null;
+  const hoursParsed = !addHours ? null : packageDeal ? packageDeal.hours : parseWalletHours(hoursShown);
   const canSave = parsed !== null && method !== null && !saving && (!addHours || hoursParsed !== null);
 
   const openForm = () => {
@@ -108,6 +128,7 @@ export function PaymentsCard({ student }: { student: { id: string; name: string;
     blockAttemptId.current = newAttemptId();
     setAddHours(false);
     setHoursText(null);
+    setPackageId(null);
     setOpen(true);
   };
 
@@ -133,7 +154,7 @@ export function PaymentsCard({ student }: { student: { id: string; name: string;
             hours_paid: hoursParsed,
             amount: 0,
             payment_method: method === 'bank_transfer' || method === 'card' || method === 'cash' ? method : null,
-            notes: 'Added with a payment',
+            notes: packageDeal ? packageDeal.notes : 'Added with a payment',
           });
         } catch (e: any) {
           // A retry of the same attempt is refused as a duplicate: the hours did land.
@@ -394,20 +415,50 @@ export function PaymentsCard({ student }: { student: { id: string; name: string;
         </TouchableOpacity>
         {addHours && (
           <>
-            <Text style={styles.label}>Hours to add</Text>
-            <TextInput
-              style={styles.input}
-              value={hoursShown}
-              onChangeText={(t) => { setHoursText(t); setFormError(null); }}
-              keyboardType="decimal-pad"
-              placeholder="e.g. 4"
-              placeholderTextColor={theme.colors.textMuted}
-              testID="input-wallet-hours"
-            />
-            <Text style={styles.hint}>
-              {student.hourly_rate ? `Worked out at £${student.hourly_rate}/hr; change it if they paid for a different amount. ` : ''}
-              The hours go into their wallet and use up as lessons are completed. The money is counted once, in this payment.
-            </Text>
+            {packages.length > 0 && (
+              <>
+                <Text style={styles.label}>Which package was paid for?</Text>
+                <View style={styles.chips}>
+                  <TouchableOpacity
+                    style={[styles.chip, !packageId && styles.chipActive]}
+                    onPress={() => choosePackage(null)}
+                    testID="pay-pkg-custom"
+                  >
+                    <Text style={[styles.chipText, !packageId && styles.chipTextActive]}>Custom hours</Text>
+                  </TouchableOpacity>
+                  {packages.map((p) => (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={[styles.chip, packageId === p.id && styles.chipActive]}
+                      onPress={() => choosePackage(p.id)}
+                      testID={`pay-pkg-${p.id}`}
+                    >
+                      <Text style={[styles.chipText, packageId === p.id && styles.chipTextActive]}>{p.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
+            {chosenPackage ? (
+              <Text style={styles.hint} testID="pay-package-summary">{describePackageTopUp(chosenPackage)}. The amount above is set to the package price; change it if they paid something different.</Text>
+            ) : (
+              <>
+                <Text style={styles.label}>Hours to add</Text>
+                <TextInput
+                  style={styles.input}
+                  value={hoursShown}
+                  onChangeText={(t) => { setHoursText(t); setFormError(null); }}
+                  keyboardType="decimal-pad"
+                  placeholder="e.g. 4"
+                  placeholderTextColor={theme.colors.textMuted}
+                  testID="input-wallet-hours"
+                />
+                <Text style={styles.hint}>
+                  {student.hourly_rate ? `Worked out at £${student.hourly_rate}/hr; change it if they paid for a different amount. ` : ''}
+                  The hours go into their wallet and use up as lessons are completed. The money is counted once, in this payment.
+                </Text>
+              </>
+            )}
           </>
         )}
         {!!formError && <Text style={styles.error} testID="payment-form-error">{formError}</Text>}

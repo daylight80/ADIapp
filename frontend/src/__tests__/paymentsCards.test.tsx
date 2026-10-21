@@ -23,6 +23,11 @@ jest.mock('../supabaseDb', () => ({
   voidPayment: (...a: unknown[]) => mockVoid(...a),
   updatePaymentDate: (...a: unknown[]) => mockUpdateDate(...a),
   getMySchoolProfile: async () => ({ business_name: "Grant's Driving School" }),
+  listLessonPackages: async () => [
+    { id: 'p10', name: '10-hour block', hours: 10, price: 350, active: true },
+    { id: 'off', name: 'Switched off', hours: 5, price: 100, active: false },
+    { id: 'noprice', name: 'No price', hours: 5, price: null, active: true },
+  ],
   getMyPaymentSummary: (...a: unknown[]) => mockSummary(...a),
 }));
 const mockStatus = jest.fn();
@@ -137,6 +142,24 @@ describe('instructor payments card', () => {
       await waitFor(() => expect(mockPurchase).toHaveBeenCalledTimes(1));
       expect(mockRecord.mock.calls[0][0]).toMatchObject({ amount: 144 });
       expect(mockPurchase.mock.calls[0][0]).toMatchObject({ student_id: 's1', hours_paid: 4, amount: 0, payment_method: 'bank_transfer' });
+    });
+
+    it('lets the instructor pick the package that was paid for: its hours are added and its price becomes the amount', async () => {
+      await render(<PaymentsCard student={rated} />);
+      await fireEvent.press(screen.getByTestId('btn-record-payment'));
+      await fireEvent.press(screen.getByTestId('payment-method-cash'));
+      await fireEvent.press(screen.getByTestId('toggle-add-hours'));
+      await waitFor(() => expect(screen.getByTestId('pay-pkg-p10')).toBeTruthy());
+      expect(screen.queryByTestId('pay-pkg-off')).toBeNull();
+      expect(screen.queryByTestId('pay-pkg-noprice')).toBeNull();
+      await fireEvent.press(screen.getByTestId('pay-pkg-p10'));
+      expect(screen.getByTestId('input-payment-amount').props.value).toBe('350');
+      expect(screen.getByTestId('pay-package-summary')).toHaveTextContent(/10-hour block: 10 hours for £350\.00/);
+      expect(screen.queryByTestId('input-wallet-hours')).toBeNull();
+      await fireEvent.press(screen.getByTestId('btn-save-payment'));
+      await waitFor(() => expect(mockPurchase).toHaveBeenCalledTimes(1));
+      expect(mockRecord.mock.calls[0][0]).toMatchObject({ amount: 350, method: 'cash' });
+      expect(mockPurchase.mock.calls[0][0]).toMatchObject({ hours_paid: 10, amount: 0, notes: 'Package: 10-hour block' });
     });
 
     it('uses the hours typed instead of the suggestion, and will not save without usable hours', async () => {

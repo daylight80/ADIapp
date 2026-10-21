@@ -6,6 +6,7 @@ import 'react-native-url-polyfill/auto';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import { withFetchTimeout, withMemoryCache } from './resilientClient';
 
 // Fallback values (3 Sept 2026) — the primary source is still
 // process.env.EXPO_PUBLIC_SUPABASE_URL/ANON_KEY above, correctly set on
@@ -90,7 +91,9 @@ const SecureStoreAdapter = {
 };
 
 // Web: localStorage is auto-used when no storage is supplied (handled by SDK).
-const storage = Platform.OS === 'web' ? undefined : (SecureStoreAdapter as any);
+// On the phone the session is also kept in memory after the first read, so one slow secure-storage read can't
+// stall every request (see resilientClient.ts).
+const storage = Platform.OS === 'web' ? undefined : (withMemoryCache(SecureStoreAdapter) as any);
 
 if (process.env.EXPO_PUBLIC_SUPABASE_URL !== rawUrl || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY !== rawAnonKey) {
   // eslint-disable-next-line no-console
@@ -116,6 +119,9 @@ export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON
     detectSessionInUrl: Platform.OS === 'web',
     lockAcquireTimeout: AUTH_LOCK_ACQUIRE_TIMEOUT_MS,
   },
+  // Sign-in and data requests give up after a time limit instead of hanging on a dead connection after the
+  // phone has been in the background (see resilientClient.ts).
+  global: { fetch: withFetchTimeout((input: any, init?: any) => fetch(input, init)) as any },
   // Realtime isn't used in Wave-2 yet — keep events minimal so the SDK doesn't
   // try to open extra websockets during SSR.
   realtime: { params: { eventsPerSecond: 1 } },

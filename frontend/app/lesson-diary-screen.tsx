@@ -8,7 +8,7 @@ import { BottomNav } from '../src/BottomNav';
 import { LessonToolsSheet } from '../src/LessonToolsSheet';
 import { Lesson, AvailabilityBlock, getInstructorHourlyRate } from '../src/supabaseDb';
 import { startOfWeek, addDays, localDateKey, startOfMonthGrid, endOfMonthGrid, addMonths, isSameMonth, assignOverlapColumns, findClashingLessons, snapMinutes, minutesToTime } from '../src/diary/dateUtils';
-import { colorForLessonType, LESSON_TYPES } from '../src/diary/lessonTypes';
+import { LESSON_TYPES } from '../src/diary/lessonTypes';
 import { AddLessonSheet } from '../src/diary/AddLessonSheet';
 import { DraggableLessonBlock } from '../src/diary/DraggableLessonBlock';
 import { lessonBuffer, findTightTurnarounds, describeTightTurnaround } from '../src/diary/buffer';
@@ -17,6 +17,7 @@ import { useAuth } from '../src/AuthContext';
 import { isPaidTier } from '../src/tiers';
 import { useBankHolidays } from '../src/useBankHolidays';
 import { holidayBanner, holidayOn, shortLabel } from '../src/bankHolidays';
+import { lessonBlockColor, isCompletedLesson, COMPLETED_NOTE } from '../src/diary/lessonLook';
 
 /**
  * Lesson Diary — redesigned visual direction from the Claude Design
@@ -489,7 +490,7 @@ export default function LessonDiaryV2Screen() {
                         )}
                         <View style={{ marginTop: 3, gap: 2 }}>
                           {visibleLessons.map((l) => (
-                            <View key={l.id} style={[s.monthLessonChip, { backgroundColor: colorForLessonType(l.lesson_type) + '33' }]}>
+                            <View key={l.id} style={[s.monthLessonChip, { backgroundColor: lessonBlockColor(l.status, l.lesson_type) + '33' }]}>
                               <Text style={s.monthLessonChipText} numberOfLines={1}>{l.start_time} {l.topic || l.lesson_type}</Text>
                             </View>
                           ))}
@@ -530,7 +531,7 @@ export default function LessonDiaryV2Screen() {
                           return (
                             <View
                               key={l.id}
-                              style={{ position: 'absolute', left: 1, right: 1, top, height, backgroundColor: colorForLessonType(l.lesson_type), borderRadius: 4 }}
+                              style={{ position: 'absolute', left: 1, right: 1, top, height, backgroundColor: lessonBlockColor(l.status, l.lesson_type), borderRadius: 4 }}
                             />
                           );
                         })}
@@ -700,7 +701,7 @@ export default function LessonDiaryV2Screen() {
                                 width: colInfo.totalColumns > 1 ? `${colWidthPct}%` : '100%',
                                 marginHorizontal: colInfo.totalColumns > 1 ? 2 : 0,
                                 right: undefined,
-                                backgroundColor: colorForLessonType(l.lesson_type),
+                                backgroundColor: lessonBlockColor(l.status, l.lesson_type),
                               },
                             ]}
                             onPress={() => setDetailLesson(l)}
@@ -709,6 +710,9 @@ export default function LessonDiaryV2Screen() {
                             <View style={{ flex: 1, minWidth: 0 }}>
                               <Text style={s.lessonBlockName} numberOfLines={1}>{studentName(l.student_id)}</Text>
                               <Text style={s.lessonBlockMeta} numberOfLines={1}>{hhmm(sMin)}–{hhmm(eMin)} · {l.topic || l.lesson_type}</Text>
+                              {isCompletedLesson(l.status) && (
+                                <Text style={s.lessonBlockDone} numberOfLines={1} testID={`v2-completed-${l.id}`}>{COMPLETED_NOTE}</Text>
+                              )}
                             </View>
                             {colInfo.totalColumns === 1 && <Text style={s.lessonBlockTag}>{durLabel(eMin - sMin)}</Text>}
                           </TouchableOpacity>
@@ -899,6 +903,7 @@ const s = StyleSheet.create({
   bufferText: { fontFamily: 'Barlow_600SemiBold', fontSize: 10.5, color: '#6B6356' },
   lessonBlockName: { fontFamily: 'Barlow_700Bold', fontSize: 14.5, color: '#fff' },
   lessonBlockMeta: { fontFamily: 'Barlow_500Medium', fontSize: 12, color: 'rgba(255,255,255,0.78)' },
+  lessonBlockDone: { fontFamily: 'Barlow_700Bold', fontSize: 12, color: '#fff', marginTop: 2 },
   lessonBlockTag: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1, color: 'rgba(255,255,255,0.85)' },
   fab: { position: 'absolute', right: 20, bottom: 96, height: 52, paddingHorizontal: 20, borderRadius: 999, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center', shadowColor: C.accent, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.4, shadowRadius: 20, elevation: 8 },
   fabText: { fontFamily: 'Barlow_700Bold', fontSize: 15, color: '#fff' },

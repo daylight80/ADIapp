@@ -127,6 +127,11 @@ describe('instructor payments card', () => {
       await fireEvent.press(screen.getByTestId('payment-method-bank_transfer'));
     };
 
+    it('warns not to also use Add hours in the wallet, which would count the money twice', async () => {
+      await fill('144');
+      expect(screen.getByTestId('payment-wallet-note')).toHaveTextContent(/counted twice/);
+    });
+
     it('adds no hours unless the box is ticked', async () => {
       await fill('144');
       await fireEvent.press(screen.getByTestId('btn-save-payment'));

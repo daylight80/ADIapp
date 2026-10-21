@@ -403,6 +403,9 @@ export function PaymentsCard({ student }: { student: { id: string; name: string;
           placeholderTextColor={theme.colors.textMuted}
           testID="input-payment-note"
         />
+        <Text style={styles.hint} testID="payment-wallet-note">
+          Paid for a package or hours? Tick the box below to add them to the wallet. Don&apos;t also use Add hours in the wallet, or the money is counted twice.
+        </Text>
         <TouchableOpacity
           style={styles.toggleRow}
           onPress={() => { setAddHours((v) => !v); setFormError(null); }}

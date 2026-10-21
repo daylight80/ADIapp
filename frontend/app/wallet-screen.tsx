@@ -268,6 +268,11 @@ export default function WalletScreen() {
       </ScrollView>
 
       <BottomSheet visible={buyOpen} onClose={closeSheet} title={`Add time for ${student.name}`} testID="sheet-add-hours">
+        <View style={styles.doubleNote} testID="add-hours-payment-note">
+          <Text style={styles.doubleNoteText}>
+            This also records the payment, so don&apos;t record it again under Record a payment, or the money will be counted twice.
+          </Text>
+        </View>
         {packages.length > 0 && (
           <>
             <Text style={styles.pmLabel}>Package</Text>
@@ -396,5 +401,7 @@ const styles = StyleSheet.create({
   pmChip: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface },
   pmChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   pmChipText: { fontSize: 13, color: theme.colors.text },
+  doubleNote: { backgroundColor: '#FFF7ED', borderRadius: 10, padding: 10, marginBottom: 6 },
+  doubleNoteText: { fontSize: 12.5, lineHeight: 17, color: '#9A3412' },
   pmHelp: { fontSize: 12, color: theme.colors.textMuted, textAlign: 'center', marginTop: 6 },
 });

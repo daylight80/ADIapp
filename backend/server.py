@@ -16,6 +16,7 @@ from referral_rules import referral_eligible, referral_eligible_from, referral_i
 import payment_reminders
 import ai_debriefs
 import address_search
+import billing_helpers
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -741,7 +742,7 @@ async def stripe_webhook(request: FastAPIRequest):
                         "subscription_status": "active",
                         "stripe_subscription_id": sub_id,
                         "seat_count": _seat_qty_from_subscription(sub),
-                        "current_period_end": datetime.fromtimestamp(sub["current_period_end"], tz=timezone.utc).isoformat() if sub.get("current_period_end") else None,
+                        "current_period_end": billing_helpers.period_end_iso(sub),
                         "stripe_customer_id": data.get("customer"),
                     }
                     if school and not school.get("subscribed_since"):
@@ -763,7 +764,7 @@ async def stripe_webhook(request: FastAPIRequest):
                         "subscription_status": data.get("status") or "active",
                         "stripe_subscription_id": data.get("id"),
                         "seat_count": _seat_qty_from_subscription(data),
-                        "current_period_end": datetime.fromtimestamp(data["current_period_end"], tz=timezone.utc).isoformat() if data.get("current_period_end") else None,
+                        "current_period_end": billing_helpers.period_end_iso(data),
                     }
                     if patch["subscription_status"] == "active" and not school.get("subscribed_since"):
                         patch["subscribed_since"] = datetime.now(timezone.utc).isoformat()

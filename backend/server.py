@@ -17,6 +17,7 @@ import payment_reminders
 import ai_debriefs
 import address_search
 import billing_helpers
+import student_status
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -1859,16 +1860,28 @@ async def v2_update_student_status(
         )
     await _ensure_owns_student(sb_user, student_id)
 
+    hdrs = {**_sb_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}
     async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.patch(
-            f"{_sb_rest_base}/students",
-            params={"id": f"eq.{student_id}"},
-            headers={**_sb_headers(), "Content-Type": "application/json", "Prefer": "return=representation"},
-            json={"status": new_status},
-        )
-    if r.status_code >= 400:
-        raise HTTPException(status_code=500, detail=f"Update failed: {r.text[:200]}")
-    rows = r.json() or []
+        # Moving a pupil off Passed also clears the pass date and progress that marking them Passed set (and
+        # marking one Passed by hand sets them), so a mis-hit Passed can be undone cleanly. Each is a single
+        # conditional update; if the pupil was not in the state it expects, nothing matches and we fall through.
+        rows: list = []
+        leaving = student_status.passed_row_patch(new_status)
+        if leaving is not None:
+            r = await client.patch(f"{_sb_rest_base}/students", params={"id": f"eq.{student_id}", "status": "eq.Passed"}, headers=hdrs, json=leaving)
+            if r.status_code >= 400:
+                raise HTTPException(status_code=500, detail=f"Update failed: {r.text[:200]}")
+            rows = r.json() or []
+        else:
+            r = await client.patch(f"{_sb_rest_base}/students", params={"id": f"eq.{student_id}", "status": "neq.Passed"}, headers=hdrs, json=student_status.becoming_passed_patch())
+            if r.status_code >= 400:
+                raise HTTPException(status_code=500, detail=f"Update failed: {r.text[:200]}")
+            rows = r.json() or []
+        if not rows:
+            r = await client.patch(f"{_sb_rest_base}/students", params={"id": f"eq.{student_id}"}, headers=hdrs, json={"status": new_status})
+            if r.status_code >= 400:
+                raise HTTPException(status_code=500, detail=f"Update failed: {r.text[:200]}")
+            rows = r.json() or []
     return StudentMutationResponse(
         ok=True,
         student_id=student_id,

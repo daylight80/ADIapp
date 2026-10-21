@@ -27,7 +27,7 @@ import {
 import { isPaidTier, isProTier, tierById } from '../src/tiers';
 import { formatHours, isLowCredit } from '../src/walletDisplay';
 import { instructorAgreementLine, agreementStatus, mediaConsentLine } from '../src/pupilAgreement';
-import { manualStatusMoves, statusChangeMessage, type LifecycleStatus } from '../src/studentLifecycle';
+import { manualStatusMoves, manualStatusChoices, manualStatusConfirm, statusChangeMessage, type LifecycleStatus } from '../src/studentLifecycle';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { openSmsComposer } from '../src/tools';
 import { colorForLessonType } from '../src/diary/lessonTypes';
@@ -371,6 +371,18 @@ export default function StudentProfileV2Screen() {
     } catch (e: any) {
       Alert.alert('Update failed', e?.message || 'Could not update status');
     }
+  };
+
+  // Set by hand from the "Set status manually" row. Leaving or entering Passed asks first, as it changes the
+  // pass date and progress too.
+  const askSetStatus = (to: LifecycleStatus) => {
+    if (!student) return;
+    const ask = manualStatusConfirm(student.name, student.status, to);
+    if (!ask) { runStatusChange(to, student.status); return; }
+    Alert.alert(ask.title, ask.message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: `Set to ${to}`, onPress: () => runStatusChange(to, student.status) },
+    ]);
   };
 
   const handleUndo = () => {
@@ -875,6 +887,23 @@ export default function StudentProfileV2Screen() {
                       <Text style={[s.lifecycleBtnText, { color: '#047857' }]}>Reactivate</Text>
                     </TouchableOpacity>
                   )}
+                </View>
+
+                <Text style={[s.sectionLabel, { marginTop: 16 }]}>Set status manually</Text>
+                <Text style={s.lifecycleHint}>
+                  For when a status is wrong, for example Passed was tapped by mistake. Moving a pupil off Passed clears their pass date and sets progress back to 0%.
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 8 }}>
+                  {manualStatusChoices(student.status).map((to) => (
+                    <TouchableOpacity
+                      key={to}
+                      style={s.lifecycleBtn}
+                      onPress={() => askSetStatus(to)}
+                      testID={`v2-set-${to.replace(/\s+/g, '-').toLowerCase()}`}
+                    >
+                      <Text style={s.lifecycleBtnText}>{to}</Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
               </View>
 

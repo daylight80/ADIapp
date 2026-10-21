@@ -20,7 +20,7 @@ email-validator~=2.3
 python-dotenv~=1.2
 
 httpx~=0.28
-stripe~=13.0
+stripe~=16.0
 APScheduler~=3.11
 
 # IANA time zone data for zoneinfo — lesson_reminders.py converts UTC lesson

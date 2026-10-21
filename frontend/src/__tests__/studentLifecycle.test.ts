@@ -44,3 +44,30 @@ describe('statusChangeMessage', () => {
     expect(statusChangeMessage('Sam', 'Active', 'Passed')).toBe('Sam is now Passed.');
   });
 });
+
+import { manualStatusChoices, manualStatusConfirm } from '../studentLifecycle';
+
+describe('setting a status by hand', () => {
+  it('offers every status except the current one', () => {
+    expect(manualStatusChoices('Passed')).toEqual(['New', 'Active', 'Test Ready', 'Inactive', 'Waitlist']);
+    expect(manualStatusChoices('Active')).not.toContain('Active');
+    expect(manualStatusChoices('Active')).toContain('Passed');
+  });
+
+  it('asks first when leaving Passed, and says what it clears', () => {
+    const q = manualStatusConfirm('Maisie', 'Passed', 'Active');
+    expect(q?.title).toMatch(/Move Maisie off Passed/);
+    expect(q?.message).toMatch(/pass date is cleared/);
+    expect(q?.message).toMatch(/0%/);
+  });
+
+  it('asks first when marking someone Passed by hand', () => {
+    expect(manualStatusConfirm('Maisie', 'Active', 'Passed')?.message).toMatch(/100%/);
+  });
+
+  it('does not ask for any other change', () => {
+    expect(manualStatusConfirm('Maisie', 'Active', 'Test Ready')).toBeNull();
+    expect(manualStatusConfirm('Maisie', 'Inactive', 'Active')).toBeNull();
+    expect(manualStatusConfirm('Maisie', 'Passed', 'Passed')).toBeNull();
+  });
+});

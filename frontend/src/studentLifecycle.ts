@@ -51,6 +51,28 @@ export function manualStatusMoves(from: string | null | undefined): StatusMove[]
   }
 }
 
+/** Every status a pupil can be set to by hand: all of them except the one they have now. */
+export function manualStatusChoices(from: string | null | undefined): LifecycleStatus[] {
+  return LIFECYCLE_STATUSES.filter((s) => s !== from);
+}
+
+/** A question to ask before setting a status by hand, or null when it needs no confirmation. Passed is the one with side effects. */
+export function manualStatusConfirm(name: string, from: string | null | undefined, to: LifecycleStatus): { title: string; message: string } | null {
+  if (from === 'Passed' && to !== 'Passed') {
+    return {
+      title: `Move ${name} off Passed?`,
+      message: `${name} will be set to ${to}. Their pass date is cleared and their progress goes back to 0%. Use this if Passed was marked by mistake.`,
+    };
+  }
+  if (to === 'Passed' && from !== 'Passed') {
+    return {
+      title: `Mark ${name} as Passed?`,
+      message: `This sets ${name} to Passed with progress 100% and today as the pass date.`,
+    };
+  }
+  return null;
+}
+
 /** The confirmation line shown after a status change. */
 export function statusChangeMessage(name: string, from: string, to: LifecycleStatus): string {
   if (to === 'Inactive') return `${name} marked as inactive.`;

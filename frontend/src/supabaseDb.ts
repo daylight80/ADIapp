@@ -1266,6 +1266,8 @@ export type Competency = {
   progress: number;      // 0-100
   notes?: string;
   assessed_at?: string;
+  /** False for a topic still at its seeded starting values (never assessed); the row is only changed when the instructor assesses it. */
+  touched?: boolean;
   // ---- Back-compat aliases (legacy mockDb shape used across screens) -------
   key: string;           // alias of category_key
   name: string;          // alias of category_name
@@ -1323,6 +1325,14 @@ function deriveSkills(name: string, level: number, progress: number) {
   ];
 }
 
+/** A row counts as assessed once it has been changed after it was created (the seed writes both stamps together). */
+export function wasEdited(createdAt?: string | null, updatedAt?: string | null): boolean {
+  const c = Date.parse(createdAt || '');
+  const u = Date.parse(updatedAt || '');
+  if (Number.isNaN(c) || Number.isNaN(u)) return true; // can't tell: don't hide real data
+  return u - c > 5000;
+}
+
 const competencyFromRow = (r: any): Competency => {
   const category_key  = r.category_key || r.manoeuvre || 'controls';
   const category_name = r.category_name || r.manoeuvre || category_key;
@@ -1338,6 +1348,7 @@ const competencyFromRow = (r: any): Competency => {
     progress,
     notes: r.notes ?? undefined,
     assessed_at: r.assessed_at ?? undefined,
+    touched: wasEdited(r.created_at, r.updated_at),
     // Back-compat aliases
     key:  category_key,
     name: category_name,

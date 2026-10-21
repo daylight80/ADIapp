@@ -6,6 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../src/AuthContext';
+import { passwordProblem, PASSWORD_HINT } from '../src/passwordRules';
 
 /**
  * Sign In — redesigned visual direction from the Claude Design handoff
@@ -16,7 +17,7 @@ import { useAuth } from '../src/AuthContext';
  * exactly during the trial and carried over here: the invite-token
  * base64 decode + locked name/email fields, the Sign In / Register
  * segmented tabs, password reveal, the same validation ORDER
- * (name -> password >= 6 -> ADI >= 4), the students-cannot-self-register
+ * (name -> password rules -> ADI >= 4), the students-cannot-self-register
  * note, forgotten-password link, and the tablet max-width layout.
  *
  * Deliberately NOT carried over: the `demoLogin` helper from the source
@@ -170,7 +171,8 @@ export default function SignInV2Screen() {
   const handleSignUp = async () => {
     setError(null);
     if (!name.trim()) { setError('Please enter your full name'); return; }
-    if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
+    const pwProblem = passwordProblem(password);
+    if (pwProblem) { setError(pwProblem); return; }
     setBusy(true);
     let r;
     if (invitePreview) {
@@ -259,7 +261,7 @@ export default function SignInV2Screen() {
                 <Field label="Email address" value={email} locked testID="v2-input-email" />
                 <Field
                   label="Choose a password" value={password} onChangeText={setPassword}
-                  placeholder="At least 6 characters" secure toggle testID="v2-input-password"
+                  placeholder={PASSWORD_HINT} secure toggle testID="v2-input-password"
                   showPassword={showPassword} onToggleShowPassword={() => setShowPassword((v) => !v)}
                 />
               </>
@@ -286,7 +288,7 @@ export default function SignInV2Screen() {
                 />
                 <Field
                   label="Password" value={password} onChangeText={setPassword}
-                  placeholder="At least 6 characters" secure toggle testID="v2-input-password"
+                  placeholder={PASSWORD_HINT} secure toggle testID="v2-input-password"
                   showPassword={showPassword} onToggleShowPassword={() => setShowPassword((v) => !v)}
                 />
                 <Field

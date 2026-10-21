@@ -16,6 +16,7 @@ import { useRouter } from 'expo-router';
 import { Lock, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react-native';
 import { useAuth } from '../src/AuthContext';
 import { supabase } from '../src/supabaseClient';
+import { passwordProblem } from '../src/passwordRules';
 
 /**
  * Restyled (28 Sept 2026) to match the sign-in and forgot-password screens,
@@ -95,14 +96,14 @@ export default function ResetPasswordScreen() {
     };
   }, []);
 
-  const strongEnough = pw1.length >= 8;
+  const strongEnough = passwordProblem(pw1) === null;
   const matches = pw1.length > 0 && pw1 === pw2;
   const canSubmit = strongEnough && matches && !busy;
 
   const handleSave = async () => {
     setError(null);
     if (!strongEnough) {
-      setError('Use at least 8 characters.');
+      setError(passwordProblem(pw1) || 'Choose a stronger password.');
       return;
     }
     if (!matches) {
@@ -147,7 +148,7 @@ export default function ResetPasswordScreen() {
               </View>
               <Text style={s.heading}>Choose a new password</Text>
               <Text style={s.body}>
-                Pick something memorable but hard to guess. Minimum 8 characters.
+                Pick something memorable but hard to guess. Use at least 8 characters, with letters and numbers.
               </Text>
 
               <View style={{ gap: 6, marginTop: 26 }}>
@@ -186,7 +187,7 @@ export default function ResetPasswordScreen() {
 
               <View style={s.hintRow}>
                 <Text style={[s.hint, strongEnough ? s.hintOk : null]}>
-                  {strongEnough ? '✓' : '○'} At least 8 characters
+                  {strongEnough ? '✓' : '○'} At least 8 characters, with letters and numbers
                 </Text>
                 <Text style={[s.hint, pw2.length > 0 && matches ? s.hintOk : null]}>
                   {pw2.length > 0 && matches ? '✓' : '○'} Passwords match

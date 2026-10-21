@@ -1010,7 +1010,7 @@ export default function StudentProfileV2Screen() {
                   <Text style={s.heroSub}>{totalHours.toFixed(1)}h · £{student.hourly_rate || 0}/hr</Text>
                 </View>
               </View>
-              <PaymentsCard student={{ id: student.id, name: student.name }} />
+              <PaymentsCard student={{ id: student.id, name: student.name, hourly_rate: student.hourly_rate }} />
 
               <TouchableOpacity
                 style={[s.invoiceBtn, !pro && { opacity: 0.55 }]}

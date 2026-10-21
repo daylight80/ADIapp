@@ -146,3 +146,20 @@ describe('payment date helpers', () => {
     expect(isFutureDay('2026-10-01', '2026-10-15')).toBe(false);
   });
 });
+
+import { suggestWalletHours, parseWalletHours } from '../payments';
+describe('wallet hours from a payment', () => {
+  it('suggests hours to the nearest quarter, or nothing without a usable rate or amount', () => {
+    expect(suggestWalletHours(144, 36)).toBe('4');
+    expect(suggestWalletHours(50, 36)).toBe('1.5');
+    expect(suggestWalletHours(144, null)).toBe('');
+    expect(suggestWalletHours(144, 0)).toBe('');
+    expect(suggestWalletHours(null, 36)).toBe('');
+    expect(suggestWalletHours(1, 36)).toBe('');
+  });
+  it('accepts hours up to two decimals, above 0 and at most 100', () => {
+    expect(parseWalletHours('4')).toBe(4);
+    expect(parseWalletHours(' 2.25 ')).toBe(2.25);
+    for (const bad of ['', '0', '-1', '1.234', 'abc', '101']) expect(parseWalletHours(bad)).toBeNull();
+  });
+});

@@ -9,14 +9,15 @@ import { Card } from './ui';
 import { BottomSheet } from './BottomSheet';
 import { DateField } from './DateTimeFields';
 import { useAuth } from './AuthContext';
-import { usePaymentLedger, bump } from './useSupabaseData';
-import { recordPayment, voidPayment, updatePaymentDate, getMySchoolProfile } from './supabaseDb';
+import { usePaymentLedger, bump, purchaseBlock } from './useSupabaseData';
+import { recordPayment, voidPayment, updatePaymentDate, getMySchoolProfile, listLessonPackages, type LessonPackage } from './supabaseDb';
+import { usablePackages, packageTopUp, describePackageTopUp } from './pricing';
 import { generateAndSharePdf } from './invoice';
 import { newAttemptId } from './walletTopUp';
 import { todayKey } from './voucher';
 import {
   PAYMENT_METHOD_CHOICES, parseAmount, formatGbp, describeBalance, paymentSubline, paymentErrorMessage,
-  buildReceiptHtml, paymentDateKey, paidAtForDay, isFutureDay, paymentDate, type PaymentMethod, type PaymentRow,
+  buildReceiptHtml, paymentDateKey, paidAtForDay, isFutureDay, paymentDate, suggestWalletHours, parseWalletHours, type PaymentMethod, type PaymentRow,
 } from './payments';
 
 const TONE = {
@@ -37,7 +38,7 @@ export function paidAtFor(dateKey: string, today: string = todayKey()): string |
  * one. Payments are taken outside the app (cash, bank transfer, a card reader); the app only keeps the
  * record. A payment entered while completing a lesson appears here too and is edited from the lesson.
  */
-export function PaymentsCard({ student }: { student: { id: string; name: string } }) {
+export function PaymentsCard({ student }: { student: { id: string; name: string; hourly_rate?: number | null } }) {
   const { user } = useAuth();
   const { payments, balance, loading, error } = usePaymentLedger(student.id);
 
@@ -50,6 +51,29 @@ export function PaymentsCard({ student }: { student: { id: string; name: string 
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const attemptId = useRef<string>(newAttemptId());
+  // "Also add hours to their wallet": the hours default to what the amount buys at their rate, and can be changed.
+  const [addHours, setAddHours] = useState(false);
+  const [hoursText, setHoursText] = useState<string | null>(null);
+  const blockAttemptId = useRef<string>(newAttemptId());
+  // Packages from Pricing & packages: choosing the one that was paid for gives the hours (and the price as the amount).
+  const [packages, setPackages] = useState<LessonPackage[]>([]);
+  const [packageId, setPackageId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open || !addHours) return;
+    let alive = true;
+    listLessonPackages({ activeOnly: true })
+      .then((list) => { if (alive) setPackages(usablePackages(list)); })
+      .catch(() => { if (alive) setPackages([]); });
+    return () => { alive = false; };
+  }, [open, addHours]);
+  const chosenPackage = packages.find((p) => p.id === packageId) || null;
+  const packageDeal = chosenPackage ? packageTopUp(chosenPackage) : null;
+  const choosePackage = (id: string | null) => {
+    setFormError(null);
+    setPackageId(id);
+    const pkg = packages.find((p) => p.id === id);
+    if (pkg) setAmount(String(packageTopUp(pkg).amount));
+  };
 
   // Changing the date a payment was received (e.g. entered late, or on the wrong day).
   const [dateEditId, setDateEditId] = useState<string | null>(null);
@@ -89,7 +113,9 @@ export function PaymentsCard({ student }: { student: { id: string; name: string 
   const bal = describeBalance(balance?.outstanding);
   const tone = TONE[bal.kind];
   const parsed = parseAmount(amount);
-  const canSave = parsed !== null && method !== null && !saving;
+  const hoursShown = hoursText ?? suggestWalletHours(parsed, student.hourly_rate);
+  const hoursParsed = !addHours ? null : packageDeal ? packageDeal.hours : parseWalletHours(hoursShown);
+  const canSave = parsed !== null && method !== null && !saving && (!addHours || hoursParsed !== null);
 
   const openForm = () => {
     setAmount('');
@@ -99,6 +125,10 @@ export function PaymentsCard({ student }: { student: { id: string; name: string 
     setNote('');
     setFormError(null);
     attemptId.current = newAttemptId();
+    blockAttemptId.current = newAttemptId();
+    setAddHours(false);
+    setHoursText(null);
+    setPackageId(null);
     setOpen(true);
   };
 
@@ -116,6 +146,25 @@ export function PaymentsCard({ student }: { student: { id: string; name: string 
         reference: reference.trim() || null,
         note: note.trim() || null,
       });
+      if (addHours && hoursParsed !== null) {
+        try {
+          await purchaseBlock({
+            id: blockAttemptId.current,
+            student_id: student.id,
+            hours_paid: hoursParsed,
+            amount: 0,
+            payment_method: method === 'bank_transfer' || method === 'card' || method === 'cash' ? method : null,
+            notes: packageDeal ? packageDeal.notes : 'Added with a payment',
+          });
+        } catch (e: any) {
+          // A retry of the same attempt is refused as a duplicate: the hours did land.
+          if (!(e?.code === '23505' || /duplicate key/i.test(e?.message || ''))) {
+            bump();
+            setFormError(`The payment is recorded, but the hours weren't added: ${paymentErrorMessage(e)} Tap the button again to add them (the payment won't be recorded twice).`);
+            return;
+          }
+        }
+      }
       setOpen(false);
       bump();
     } catch (e) {
@@ -354,6 +403,64 @@ export function PaymentsCard({ student }: { student: { id: string; name: string 
           placeholderTextColor={theme.colors.textMuted}
           testID="input-payment-note"
         />
+        <TouchableOpacity
+          style={styles.toggleRow}
+          onPress={() => { setAddHours((v) => !v); setFormError(null); }}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: addHours }}
+          testID="toggle-add-hours"
+        >
+          <View style={[styles.box, addHours && styles.boxOn]}>{addHours && <Text style={styles.tick}>✓</Text>}</View>
+          <Text style={styles.toggleText}>Also add hours to {student.name.split(' ')[0]}&apos;s wallet</Text>
+        </TouchableOpacity>
+        {addHours && (
+          <>
+            {packages.length > 0 && (
+              <>
+                <Text style={styles.label}>Which package was paid for?</Text>
+                <View style={styles.chips}>
+                  <TouchableOpacity
+                    style={[styles.chip, !packageId && styles.chipActive]}
+                    onPress={() => choosePackage(null)}
+                    testID="pay-pkg-custom"
+                  >
+                    <Text style={[styles.chipText, !packageId && styles.chipTextActive]}>Custom hours</Text>
+                  </TouchableOpacity>
+                  {packages.map((p) => (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={[styles.chip, packageId === p.id && styles.chipActive]}
+                      onPress={() => choosePackage(p.id)}
+                      testID={`pay-pkg-${p.id}`}
+                    >
+                      <Text style={[styles.chipText, packageId === p.id && styles.chipTextActive]}>{p.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
+            {chosenPackage ? (
+              <Text style={styles.hint} testID="pay-package-summary">{describePackageTopUp(chosenPackage)}. The amount above is set to the package price; change it if they paid something different.</Text>
+            ) : (
+              <>
+                <Text style={styles.label}>Hours to add</Text>
+                <TextInput
+                  style={styles.input}
+                  value={hoursShown}
+                  onChangeText={(t) => { setHoursText(t); setFormError(null); }}
+                  keyboardType="decimal-pad"
+                  placeholder="e.g. 4"
+                  placeholderTextColor={theme.colors.textMuted}
+                  testID="input-wallet-hours"
+                />
+                <Text style={styles.hint}>
+                  {student.hourly_rate ? `Worked out at £${student.hourly_rate}/hr; change it if they paid for a different amount. ` : ''}
+                  The hours go into their wallet and use up as lessons are completed. The money is counted once, in this payment.
+                </Text>
+              </>
+            )}
+          </>
+        )}
         {!!formError && <Text style={styles.error} testID="payment-form-error">{formError}</Text>}
         <TouchableOpacity style={[styles.saveBtn, !canSave && { opacity: 0.45 }]} onPress={save} disabled={!canSave} testID="btn-save-payment">
           {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>{parsed !== null ? `Record ${formatGbp(parsed)}` : 'Record payment'}</Text>}
@@ -390,6 +497,11 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   chipText: { fontSize: 13.5, fontWeight: '600', color: theme.colors.text },
   chipTextActive: { color: '#fff' },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14, minHeight: 40 },
+  box: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center' },
+  boxOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  tick: { color: '#fff', fontWeight: '800', fontSize: 14, lineHeight: 16 },
+  toggleText: { flex: 1, fontSize: 14, fontWeight: '600', color: theme.colors.text },
   saveBtn: { marginTop: 16, height: 50, borderRadius: 12, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center' },
   saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
 });

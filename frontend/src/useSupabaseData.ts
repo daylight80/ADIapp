@@ -72,9 +72,11 @@ export function useStudents() {
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
+    const startedAt = Date.now();
     try {
       setStudents(await raceTimeout(db.listStudents(), FETCH_TIMEOUT_MS));
     } catch (e: any) {
+      reportLoadFailure('students', e, Date.now() - startedAt);
       setError(loadErrorMessage(e, 'Failed to load students'));
     } finally {
       setLoading(false);
@@ -156,6 +158,7 @@ export async function removeStudent(id: string) {
 // ---------------------------------------------------------------------------
 
 import { updateStudentStatus, deleteStudentHard, type LifecycleStatus } from './studentLifecycle';
+import { reportLoadFailure } from './stallReport';
 
 export async function setStudentStatusAsync(id: string, status: LifecycleStatus): Promise<LifecycleStatus> {
   const confirmed = await updateStudentStatus(id, status);
@@ -258,10 +261,12 @@ function useLessonWindow(fetchLessons: () => Promise<db.Lesson[]>, key: string) 
     let cancelled = false;
     setLoading(true);
     setError(null);
+    const startedAt = Date.now();
     raceTimeout(fetchLessons(), FETCH_TIMEOUT_MS)
       .then((rows) => { if (!cancelled) setLessons(rows); })
       .catch((e) => {
         if (cancelled) return;
+        reportLoadFailure('diary', e, Date.now() - startedAt);
         setLessons([]);
         setError(loadErrorMessage(e, 'Could not load your lessons.'));
       })

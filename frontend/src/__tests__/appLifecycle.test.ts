@@ -67,3 +67,48 @@ describe('auth lifecycle', () => {
     }
   });
 });
+
+describe('auth lifecycle reporting hooks', () => {
+  it('tells the reporter how long the app was away, only after a real absence', async () => {
+    let t = 1_000_000;
+    const onReturn = jest.fn();
+    const auth = { startAutoRefresh: jest.fn(async () => {}), stopAutoRefresh: jest.fn(async () => {}), getSession: jest.fn(async () => ({})) };
+    const lc = createAuthLifecycle({ auth, onReturn, now: () => t });
+    await lc.onChange('background');
+    t += 5000;
+    await lc.onChange('active');
+    expect(onReturn).not.toHaveBeenCalled();
+    await lc.onChange('background');
+    t += RESUME_REFRESH_AFTER_MS + 2000;
+    await lc.onChange('active');
+    expect(onReturn).toHaveBeenCalledWith(RESUME_REFRESH_AFTER_MS + 2000);
+  });
+
+  it('reports why the login could not be renewed, and still reloads', async () => {
+    let t = 1_000_000;
+    const onProblem = jest.fn();
+    const onResume = jest.fn();
+    const failure = new Error('network');
+    const auth = { startAutoRefresh: jest.fn(async () => {}), stopAutoRefresh: jest.fn(async () => {}), getSession: jest.fn(async () => { throw failure; }) };
+    const lc = createAuthLifecycle({ auth, onProblem, onResume, now: () => t });
+    await lc.onChange('background');
+    t += RESUME_REFRESH_AFTER_MS + 1;
+    await lc.onChange('active');
+    expect(onProblem).toHaveBeenCalledWith(failure);
+    expect(onResume).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failing reporter never holds up the app', async () => {
+    let t = 1_000_000;
+    const onResume = jest.fn();
+    const auth = { startAutoRefresh: jest.fn(async () => {}), stopAutoRefresh: jest.fn(async () => {}), getSession: jest.fn(async () => { throw new Error('x'); }) };
+    const lc = createAuthLifecycle({
+      auth, onResume, now: () => t,
+      onReturn: () => { throw new Error('reporter broke'); }, onProblem: () => { throw new Error('reporter broke'); },
+    });
+    await lc.onChange('background');
+    t += RESUME_REFRESH_AFTER_MS + 1;
+    await expect(lc.onChange('active')).resolves.toBeUndefined();
+    expect(onResume).toHaveBeenCalledTimes(1);
+  });
+});

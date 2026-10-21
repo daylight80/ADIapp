@@ -19,6 +19,11 @@ updates:
       - dependency-name: react-dom
       - dependency-name: react-native
       - dependency-name: "react-native-*"
+      # Native modules that Expo also pins to the SDK, but whose names are scoped so the patterns above miss them
+      # (Skia 2.14 needs react-native-worklets 0.7; the SDK 54 set ships 0.5). Upgrade with the SDK.
+      - dependency-name: "@shopify/react-native-skia"
+      - dependency-name: "@react-native-community/*"
+      - dependency-name: "@react-native-async-storage/*"
 
   - package-ecosystem: pip
     directory: /backend

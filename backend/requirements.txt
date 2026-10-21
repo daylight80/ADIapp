@@ -29,7 +29,7 @@ tzdata
 
 # Receipt OCR (25 Aug 2026) — replaces the old emergentintegrations/Gemini
 # call, which stopped working once Grant moved off the emergent.sh platform.
-anthropic>=1.13.0,<2
+anthropic>=1.15.0,<2
 
 # Testing (used by backend/tests/ — harmless in production, but only
 # actually needed for `pytest` to run; kept for parity with local dev)

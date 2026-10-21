@@ -12,6 +12,7 @@ import {
   patchAvailabilityBlock,
   removeAvailabilityBlock,
 } from './useSupabaseData';
+import { useSheetKeyboard } from './useKeyboardHeight';
 
 export type UnavailabilityModalProps = {
   visible: boolean;
@@ -164,13 +165,15 @@ export function UnavailabilityModal({ visible, block, initialDate, onClose, onSa
     }
   };
 
+  const kb = useSheetKeyboard(560);
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={() => !busy && onClose()}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.backdrop}
       >
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, kb.lift]}>
           <View style={styles.headerRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Ban size={18} color={theme.colors.danger} />
@@ -183,7 +186,7 @@ export function UnavailabilityModal({ visible, block, initialDate, onClose, onSa
             </TouchableOpacity>
           </View>
 
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 8, gap: 14 }}>
+          <ScrollView style={{ maxHeight: kb.bodyMax }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 8, gap: 14 }}>
             {/* Category chips */}
             <View>
               <Text style={styles.label}>Reason category</Text>

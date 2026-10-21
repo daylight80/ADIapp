@@ -9,6 +9,7 @@ import { DateField } from './DateTimeFields';
 import { TEST_RETEST_REASONS, type TestType, type TestResult } from './supabaseDb';
 import { createTestOutcome } from './useSupabaseData';
 import { THEORY_LOOKUP_URL, MAX_CERTIFICATE_CHARS, cleanCertificateInput, certificateToSave, certificateApplies } from './theoryCertificate';
+import { useSheetKeyboard } from './useKeyboardHeight';
 
 export type TestOutcomeModalProps = {
   visible: boolean;
@@ -94,10 +95,12 @@ export function TestOutcomeModal({ visible, studentId, onClose, onSaved }: TestO
     }
   };
 
+  const kb = useSheetKeyboard(560);
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={() => !busy && onClose()}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.backdrop}>
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, kb.lift]}>
           <View style={styles.headerRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Trophy size={18} color={theme.colors.primary} />
@@ -108,7 +111,7 @@ export function TestOutcomeModal({ visible, studentId, onClose, onSaved }: TestO
             </TouchableOpacity>
           </View>
 
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 8, gap: 14 }}>
+          <ScrollView style={{ maxHeight: kb.bodyMax }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 8, gap: 14 }}>
             {/* Test type segmented control */}
             <View>
               <Text style={styles.label}>Test type</Text>

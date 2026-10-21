@@ -40,6 +40,7 @@ import { testSummary, testTimesProblem, testStartIso } from './diary/testBooking
 import { TimeField } from './DateTimeFields';
 import { AddressSearch } from './AddressSearch';
 import { combineAddress } from './addressLookup';
+import { useSheetKeyboard } from './useKeyboardHeight';
 
 // Moved to module scope (25 Aug 2026) — same defensive fix as the Field
 // component bug found elsewhere in this session, applied here too even
@@ -79,6 +80,7 @@ type Props = {
 };
 
 export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props) {
+  const toolsKb = useSheetKeyboard(560);
   const router = useRouter();
   const isOnline = useIsOnline();
   const { user } = useAuth();
@@ -474,7 +476,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, toolsKb.lift]}>
           <View style={styles.handle} />
           <View style={styles.headerRow}>
             <View style={{ flex: 1 }}>
@@ -516,7 +518,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={{ maxHeight: 560 }}>
+          <ScrollView style={{ maxHeight: toolsKb.bodyMax }} keyboardShouldPersistTaps="handled">
             <View style={styles.badgeRow}>
               <Badge label={lesson.status} />
               <Badge label={`${lesson.duration_hours}h`} />
@@ -1252,12 +1254,13 @@ type CompleteProps = {
 };
 
 function CompleteLessonModal(p: CompleteProps) {
+  const kb = useSheetKeyboard(480);
 
   return (
     <Modal visible={p.visible} transparent animationType="slide" onRequestClose={p.onClose}>
       <View style={styles.backdrop}>
         <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={p.onClose} />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, kb.lift]}>
           <View style={styles.handle} />
           <View style={styles.headerRow}>
             <View style={{ flex: 1 }}>
@@ -1269,7 +1272,7 @@ function CompleteLessonModal(p: CompleteProps) {
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={{ maxHeight: 480 }} contentContainerStyle={{ paddingBottom: 8 }}>
+          <ScrollView style={{ maxHeight: kb.bodyMax }} contentContainerStyle={{ paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
             <Text style={styles.section}>Faults recorded</Text>
             <Stepper label="Driving faults"     value={p.drivingFaults}   setter={p.setDrivingFaults}   colour={theme.colors.warning ?? theme.colors.warning} testID="step-driving" />
             <Stepper label="Serious faults"     value={p.seriousFaults}   setter={p.setSeriousFaults}   colour="#EA580C"                          testID="step-serious" />

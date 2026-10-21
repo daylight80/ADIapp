@@ -447,6 +447,7 @@ export function useCompetencyPatterns(studentIds: string[]) {
       .then((rows) => {
         const byCategory = new Map<string, { name: string; struggling: Set<string>; assessed: Set<string> }>();
         for (const r of rows) {
+          if (r.touched === false) continue; // never assessed: still the seeded default, not a real result
           const entry = byCategory.get(r.category_key) || { name: r.category_name, struggling: new Set(), assessed: new Set() };
           entry.assessed.add(r.student_id);
           if (r.level <= STRUGGLING_LEVEL_MAX) entry.struggling.add(r.student_id);

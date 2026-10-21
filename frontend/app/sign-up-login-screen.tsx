@@ -7,6 +7,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../src/AuthContext';
 import { passwordProblem, PASSWORD_HINT } from '../src/passwordRules';
+import { RESEND_WAIT_SECONDS, resendLabel, resendResultMessage } from '../src/resetResend';
+import { CONFIRM_EMAIL_NOTE } from '../src/signupEmail';
 
 /**
  * Sign In — redesigned visual direction from the Claude Design handoff
@@ -48,6 +50,7 @@ const C = {
   errorBg: '#FEE2E2',
   errorBorder: '#FECACA',
   errorText: '#B91C1C',
+  successText: '#047857',
 };
 
 type Tab = 'signin' | 'signup';
@@ -139,7 +142,13 @@ export default function SignInV2Screen() {
   const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
 
-  const { signIn, signUp, acceptInvite } = useAuth();
+  // Set once registering worked but the email still needs confirming: the screen then explains and offers a resend.
+  const [confirmEmail, setConfirmEmail] = useState<string | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [resending, setResending] = useState(false);
+  const [resendNote, setResendNote] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const { signIn, signUp, acceptInvite, resendConfirmation } = useAuth();
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
 
@@ -186,12 +195,78 @@ export default function SignInV2Screen() {
       r = await signUp(email.trim(), password, name.trim(), adi.trim(), referralCode.trim() || undefined);
     }
     setBusy(false);
-    if (!r.ok) setError(r.error || 'Registration failed');
+    if (!r.ok) { setError(r.error || 'Registration failed'); return; }
+    if (r.needs_confirmation) {
+      setConfirmEmail(email.trim());
+      setSecondsLeft(RESEND_WAIT_SECONDS);
+      setResendNote(null);
+    }
+  };
+
+  // Count down the wait before "Send it again" can be used.
+  useEffect(() => {
+    if (!confirmEmail || secondsLeft <= 0) return;
+    const t = setTimeout(() => setSecondsLeft((n) => n - 1), 1000);
+    return () => clearTimeout(t);
+  }, [confirmEmail, secondsLeft]);
+
+  const handleResend = async () => {
+    if (!confirmEmail || secondsLeft > 0 || resending) return;
+    setResending(true);
+    setResendNote(null);
+    const r = await resendConfirmation(confirmEmail);
+    setResending(false);
+    setResendNote(resendResultMessage(r.ok, r.error));
+    if (r.ok) setSecondsLeft(RESEND_WAIT_SECONDS);
   };
 
   const isInvite = !!invitePreview;
   const isSignIn = !isInvite && tab === 'signin';
   const isRegister = !isInvite && tab === 'signup';
+
+  if (confirmEmail) {
+    return (
+      <SafeAreaView style={s.safe} edges={['top']}>
+        <ScrollView
+          contentContainerStyle={[s.scroll, isTablet && { maxWidth: 520, alignSelf: 'center', width: '100%' }]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={s.brand}>
+            <Text style={s.brandTitle}>Check your email</Text>
+          </View>
+          <Text style={s.confirmBody} testID="v2-confirm-message">
+            Your account is created. We&apos;ve sent a confirmation link to{' '}
+            <Text style={{ fontFamily: 'Barlow_700Bold', color: C.text }}>{confirmEmail}</Text>. Open it, then come back and sign in.
+          </Text>
+          <Text style={[s.confirmBody, { marginTop: 12 }]} testID="v2-confirm-spam-note">{CONFIRM_EMAIL_NOTE}</Text>
+
+          <TouchableOpacity
+            style={[s.resendBtn, (secondsLeft > 0 || resending) && { opacity: 0.5 }]}
+            onPress={handleResend}
+            disabled={secondsLeft > 0 || resending}
+            testID="v2-btn-send-again"
+          >
+            {resending
+              ? <ActivityIndicator color={C.primary} />
+              : <Text style={s.resendText}>{resendLabel(secondsLeft)}</Text>}
+          </TouchableOpacity>
+          {!!resendNote && (
+            <Text style={[s.confirmBody, { marginTop: 8, color: resendNote.ok ? C.successText : C.errorText }]} testID="v2-resend-note">
+              {resendNote.text}
+            </Text>
+          )}
+
+          <TouchableOpacity
+            style={s.cta}
+            onPress={() => { setConfirmEmail(null); setTab('signin'); setPassword(''); setError(null); }}
+            testID="v2-btn-go-signin"
+          >
+            <Text style={s.ctaText}>Go to sign in</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
@@ -386,6 +461,13 @@ const s = StyleSheet.create({
   inviteCard: { backgroundColor: C.inviteBg, borderWidth: 1, borderColor: C.inviteBorder, borderRadius: 16, padding: 14, marginBottom: 16 },
   inviteLabel: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1.5, textTransform: 'uppercase', color: C.inviteText },
   inviteLine: { fontFamily: 'Barlow_400Regular', fontSize: 13.5, lineHeight: 19.5, color: C.text, marginTop: 8 },
+
+  confirmBody: { fontFamily: 'Barlow_400Regular', fontSize: 15, lineHeight: 22, color: C.textMuted },
+  resendBtn: {
+    minHeight: 50, marginTop: 22, borderRadius: 14, borderWidth: 1.5, borderColor: C.primary,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff',
+  },
+  resendText: { fontFamily: 'Barlow_700Bold', fontSize: 15.5, color: C.primary },
 
   tabTrack: { flexDirection: 'row', padding: 4, backgroundColor: C.tabTrack, borderRadius: 13, marginBottom: 20 },
   tab: { flex: 1, minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 10 },

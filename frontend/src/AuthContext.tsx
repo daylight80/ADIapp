@@ -6,6 +6,7 @@ import { signOutThisDevice } from './signOutLocal';
 import { registerExpoPushToken, unregisterExpoPushToken, setUpReminderReadListener } from './notifications';
 import { stampStudentActivity } from './supabaseDb';
 import { instructorBootstrapArgsFromAuthUser } from './authBootstrap';
+import { friendlyEmailError } from './signupEmail';
 
 export type Role = 'instructor' | 'student';
 
@@ -35,6 +36,7 @@ type AuthContextType = {
   signOut: () => Promise<void>;
   acceptInvite: (invite_token: string, password: string, name?: string) => Promise<SignUpResult>;
   forgotPassword: (email: string) => Promise<SignUpResult>;
+  resendConfirmation: (email: string) => Promise<SignUpResult>;
   updatePassword: (newPassword: string) => Promise<SignUpResult>;
   refreshUser: () => Promise<void>;
   // Biometric-setup prompt (10 Sept 2026), per Grant directly — true only
@@ -389,7 +391,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
       },
     });
-    if (error) return { ok: false, error: error.message };
+    if (error) return { ok: false, error: friendlyEmailError(error.message) };
 
     // If email confirmation is enabled, signUp returns user but no session.
     // Onboarding (school + instructor rows) then happens on first sign-in.
@@ -482,6 +484,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Sends the sign-up confirmation email again (the first one can be slow or land in Spam).
+  const resendConfirmation: AuthContextType['resendConfirmation'] = useCallback(async (email) => {
+    try {
+      const { error } = await supabase.auth.resend({ type: 'signup', email: email.trim() });
+      if (error) return { ok: false, error: friendlyEmailError(error.message) };
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: e?.message || 'Could not send the email' };
+    }
+  }, []);
+
   // Updates the signed-in user's password. Must be called from a session
   // established by the recovery link (Supabase auto-creates this session when
   // the user arrives on the reset page with the access_token in the URL hash).
@@ -503,7 +516,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut, refreshUser, acceptInvite, forgotPassword, updatePassword, justRegistered, clearJustRegistered: () => setJustRegistered(false), justSignedIn, clearJustSignedIn: () => setJustSignedIn(false) }}>
+    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut, refreshUser, acceptInvite, forgotPassword, resendConfirmation, updatePassword, justRegistered, clearJustRegistered: () => setJustRegistered(false), justSignedIn, clearJustSignedIn: () => setJustSignedIn(false) }}>
       {children}
     </AuthContext.Provider>
   );

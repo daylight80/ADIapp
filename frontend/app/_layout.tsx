@@ -15,6 +15,7 @@ import { Barlow_400Regular, Barlow_500Medium, Barlow_600SemiBold, Barlow_700Bold
 import { createAuthLifecycle } from '../src/appLifecycle';
 import { supabase } from '../src/supabaseClient';
 import { bump } from '../src/useSupabaseData';
+import { noteReturnFromBackground, reportResumeProblem } from '../src/stallReport';
 
 // Crash and error reporting (phone apps only; the web version does nothing).
 initErrorReporting();
@@ -126,7 +127,9 @@ function AuthGate() {
   // could leave it holding an expired login, so Diary and Students stayed blank or spinning. See appLifecycle.ts.
   useEffect(() => {
     if (Platform.OS === 'web') return undefined;
-    const lifecycle = createAuthLifecycle({ auth: supabase.auth, onResume: bump });
+    const lifecycle = createAuthLifecycle({
+      auth: supabase.auth, onResume: bump, onReturn: (ms) => noteReturnFromBackground(ms), onProblem: (e) => reportResumeProblem(e),
+    });
     const sub = AppState.addEventListener('change', (state) => { void lifecycle.onChange(state); });
     return () => sub.remove();
   }, []);

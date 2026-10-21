@@ -20,6 +20,10 @@ export function createAuthLifecycle(opts: {
   auth: AuthLike;
   /** Called after returning from a real absence, once the login has been renewed (or given up on). */
   onResume?: () => void;
+  /** Called on every return from a real absence with how long the app was away (ms), before anything else. */
+  onReturn?: (awayMs: number) => void;
+  /** Called when renewing the login on return failed or timed out, with the reason. */
+  onProblem?: (error: unknown) => void;
   now?: () => number;
 }) {
   const now = opts.now ?? Date.now;
@@ -38,10 +42,14 @@ export function createAuthLifecycle(opts: {
       leftAt = null;
       try { await opts.auth.startAutoRefresh(); } catch { /* it will start on the next change */ }
       if (away < RESUME_REFRESH_AFTER_MS) return;
+      try { opts.onReturn?.(away); } catch { /* never let reporting hold up the app */ }
       try {
         // getSession renews an expired login; bounded so a stuck lock can't hold the app up.
         await raceTimeout(Promise.resolve(opts.auth.getSession()), RESUME_REFRESH_TIMEOUT_MS);
-      } catch { /* carry on: lists show their own error with Try again */ }
+      } catch (e) {
+        // Carry on: lists show their own error with Try again. But leave a trace of why.
+        try { opts.onProblem?.(e); } catch { /* ignore */ }
+      }
       opts.onResume?.();
     },
   };

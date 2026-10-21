@@ -190,3 +190,26 @@ export function buildReceiptHtml(r: ReceiptInput): string {
 <div class="foot">Received by ${e(r.instructorName)}${r.instructorEmail ? ` (${e(r.instructorEmail)})` : ''}. Thank you.</div>
 </body></html>`;
 }
+
+// ---------------------------------------------------------------------------
+// Adding wallet hours from the payment form. A payment on its own only reduces what the pupil owes; ticking
+// "Also add hours" adds a wallet top-up for the same payment. The top-up carries no amount of its own (the
+// payment is the money), so the pupil's balance counts it once.
+// ---------------------------------------------------------------------------
+export const MAX_WALLET_HOURS = 100;
+
+/** Hours the payment would buy at the pupil's rate, to the nearest quarter hour; '' when there is no usable rate or amount. */
+export function suggestWalletHours(amount: number | null, ratePerHour: number | null | undefined): string {
+  const rate = Number(ratePerHour);
+  if (amount === null || !Number.isFinite(rate) || rate <= 0) return '';
+  const h = Math.round((amount / rate) * 4) / 4;
+  return h > 0 && h <= MAX_WALLET_HOURS ? String(h) : '';
+}
+
+/** A number of hours typed by the instructor (up to two decimals, above 0, at most 100), or null. */
+export function parseWalletHours(input: string | null | undefined): number | null {
+  const t = (input || '').trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
+  const n = Number(t);
+  return n > 0 && n <= MAX_WALLET_HOURS ? n : null;
+}

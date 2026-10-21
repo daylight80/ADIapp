@@ -5,6 +5,7 @@ jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }))
 
 const mockLedger = { payments: [] as any[], balance: { charged: 100, paid: 54, outstanding: 46 } as any, loading: false, error: null as string | null };
 const mockBump = jest.fn();
+const mockPurchase = jest.fn();
 const mockRecord = jest.fn();
 const mockVoid = jest.fn();
 const mockUpdateDate = jest.fn();
@@ -14,6 +15,7 @@ const mockPdf = jest.fn();
 jest.mock('../useSupabaseData', () => ({
   usePaymentLedger: () => mockLedger,
   bump: (...a: unknown[]) => mockBump(...a),
+  purchaseBlock: (...a: unknown[]) => mockPurchase(...a),
   useVersion: () => 0,
 }));
 jest.mock('../supabaseDb', () => ({
@@ -50,6 +52,7 @@ beforeEach(() => {
   mockVoid.mockReset().mockResolvedValue({});
   mockUpdateDate.mockReset().mockResolvedValue({});
   mockBump.mockReset();
+  mockPurchase.mockReset().mockResolvedValue({});
   mockPdf.mockReset().mockResolvedValue({ ok: true });
   mockSummary.mockReset();
   mockStatus.mockReset().mockResolvedValue({ owes: 46, can_send: true, reachable: true, last_sent_at: null, next_allowed_at: null });
@@ -108,6 +111,57 @@ describe('instructor payments card', () => {
     await fireEvent.press(screen.getByTestId('btn-save-payment'));
     await waitFor(() => expect(mockRecord).toHaveBeenCalledTimes(2));
     expect(mockRecord.mock.calls[1][0].id).toBe(mockRecord.mock.calls[0][0].id);
+  });
+
+  describe('also adding hours to the wallet', () => {
+    const rated = { id: 's1', name: 'Test Pupil', hourly_rate: 36 };
+    const fill = async (amount: string) => {
+      await render(<PaymentsCard student={rated} />);
+      await fireEvent.press(screen.getByTestId('btn-record-payment'));
+      await fireEvent.changeText(screen.getByTestId('input-payment-amount'), amount);
+      await fireEvent.press(screen.getByTestId('payment-method-bank_transfer'));
+    };
+
+    it('adds no hours unless the box is ticked', async () => {
+      await fill('144');
+      await fireEvent.press(screen.getByTestId('btn-save-payment'));
+      await waitFor(() => expect(mockRecord).toHaveBeenCalledTimes(1));
+      expect(mockPurchase).not.toHaveBeenCalled();
+    });
+
+    it('suggests hours from the amount and rate, then records the payment and a top-up that carries no money of its own', async () => {
+      await fill('144');
+      await fireEvent.press(screen.getByTestId('toggle-add-hours'));
+      expect(screen.getByTestId('input-wallet-hours').props.value).toBe('4');
+      await fireEvent.press(screen.getByTestId('btn-save-payment'));
+      await waitFor(() => expect(mockPurchase).toHaveBeenCalledTimes(1));
+      expect(mockRecord.mock.calls[0][0]).toMatchObject({ amount: 144 });
+      expect(mockPurchase.mock.calls[0][0]).toMatchObject({ student_id: 's1', hours_paid: 4, amount: 0, payment_method: 'bank_transfer' });
+    });
+
+    it('uses the hours typed instead of the suggestion, and will not save without usable hours', async () => {
+      await fill('144');
+      await fireEvent.press(screen.getByTestId('toggle-add-hours'));
+      await fireEvent.changeText(screen.getByTestId('input-wallet-hours'), '');
+      await fireEvent.press(screen.getByTestId('btn-save-payment'));
+      expect(mockRecord).not.toHaveBeenCalled();
+      await fireEvent.changeText(screen.getByTestId('input-wallet-hours'), '5.5');
+      await fireEvent.press(screen.getByTestId('btn-save-payment'));
+      await waitFor(() => expect(mockPurchase).toHaveBeenCalled());
+      expect(mockPurchase.mock.calls[0][0].hours_paid).toBe(5.5);
+    });
+
+    it('if the hours fail after the payment saved, says so, and a retry reuses both ids', async () => {
+      mockPurchase.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({});
+      await fill('36');
+      await fireEvent.press(screen.getByTestId('toggle-add-hours'));
+      await fireEvent.press(screen.getByTestId('btn-save-payment'));
+      await waitFor(() => expect(screen.getByTestId('payment-form-error')).toHaveTextContent(/payment is recorded, but the hours/));
+      await fireEvent.press(screen.getByTestId('btn-save-payment'));
+      await waitFor(() => expect(mockPurchase).toHaveBeenCalledTimes(2));
+      expect(mockRecord.mock.calls[1][0].id).toBe(mockRecord.mock.calls[0][0].id);
+      expect(mockPurchase.mock.calls[1][0].id).toBe(mockPurchase.mock.calls[0][0].id);
+    });
   });
 
   it('shows the database’s own message when it refuses', async () => {

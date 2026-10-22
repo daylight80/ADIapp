@@ -12,7 +12,8 @@ jest.mock('../BottomSheet', () => {
   const { View } = require('react-native');
   return { BottomSheet: ({ visible, children }: any) => (visible ? <View>{children}</View> : null) };
 });
-jest.mock('../AuthContext', () => ({ useAuth: () => ({ user: { tier: 'pro' } }) }));
+let mockTier = 'pro';
+jest.mock('../AuthContext', () => ({ useAuth: () => ({ user: { tier: mockTier } }) }));
 jest.mock('../useSupabaseData', () => ({ useStudents: () => ({ students: [] }) }));
 
 const mockState = { enquiries: [] as any[], loading: false, error: null as string | null };
@@ -47,6 +48,22 @@ beforeEach(() => {
   mockState.enquiries = [enq('e1'), enq('e2', { stage: 'Contacted' })];
   mockState.loading = false;
   mockState.error = null;
+  mockTier = 'pro';
+});
+
+describe('plan gating (Enquiries is an ADI Pro feature)', () => {
+  it('Starter sees a locked screen with no enquiries', async () => {
+    mockTier = 'starter';
+    await render(<EnquiriesScreen />);
+    expect(screen.getByTestId('enquiries-locked')).toBeTruthy();
+    expect(screen.queryByTestId('enquiry-add')).toBeNull();
+  });
+
+  it('Franchise gets the board', async () => {
+    mockTier = 'franchise';
+    await render(<EnquiriesScreen />);
+    expect(screen.getByTestId('enquiry-add')).toBeTruthy();
+  });
 });
 
 describe('Enquiries screen', () => {

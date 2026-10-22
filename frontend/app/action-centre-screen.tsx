@@ -4,7 +4,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, ChevronRight, CheckCircle2 } from 'lucide-react-native';
 import { theme } from '../src/theme';
-import { Card } from '../src/ui';
+import { Card, LockedFeature } from '../src/ui';
+import { useAuth } from '../src/AuthContext';
+import { isPaidTier } from '../src/tiers';
 import { useActionCentre } from '../src/useActionCentre';
 import { groupActionItems, actionSummary } from '../src/actionCentre';
 import { routeForTarget } from '../src/actionCentreNav';
@@ -16,6 +18,23 @@ import { routeForTarget } from '../src/actionCentreNav';
  * (see actionCentre.ts for the rules), so it costs nothing to run and is open to every plan.
  */
 export default function ActionCentreScreen() {
+  const { user } = useAuth();
+  if (!isPaidTier(user?.tier)) {
+    return (
+      <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+        <LockedFeature
+          variant="fullscreen"
+          title="The Action Centre is an ADI Pro feature"
+          subtitle="See everything that needs you today in one list. Upgrade to ADI Pro to unlock it."
+          testID="action-centre-locked"
+        />
+      </SafeAreaView>
+    );
+  }
+  return <ActionCentreContent />;
+}
+
+function ActionCentreContent() {
   const router = useRouter();
   const { items, loading } = useActionCentre();
   const groups = groupActionItems(items);

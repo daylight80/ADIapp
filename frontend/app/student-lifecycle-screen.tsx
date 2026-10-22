@@ -900,7 +900,7 @@ export default function StudentProfileV2Screen() {
                   )}
                 </View>
 
-                {student.status === 'Waitlist' && (
+                {student.status === 'Waitlist' && isPaidTier(user?.tier) && (
                   <View style={{ marginTop: 14 }} testID="v2-waitlist-stage-block">
                     <Text style={s.sectionLabel}>Waiting-list stage</Text>
                     <Text style={s.lifecycleHint} testID="v2-waitlist-stage-summary">

@@ -58,6 +58,7 @@ export const TIERS: TierSpec[] = [
       'Lesson diary, day & week views',
       'DVSA competency tracker',
       'KPI dashboard & PDF invoices',
+      'Action Centre, enquiries board and waiting-list pipeline',
       'Lesson reminders, push notifications',
       'Traffic-aware travel time auto-suggest',
       'Receipts & expense logging with photo OCR',

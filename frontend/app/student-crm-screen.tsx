@@ -287,9 +287,11 @@ export default function StudentsV2Screen() {
         <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
           <Text style={s.title}>Students</Text>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 12 }}>
-            <TouchableOpacity onPress={() => router.push('/enquiries-screen' as any)} testID="v2-open-enquiries">
-              <Text style={s.enquiriesLink}>Enquiries</Text>
-            </TouchableOpacity>
+            {isPaidTier(user?.tier) && (
+              <TouchableOpacity onPress={() => router.push('/enquiries-screen' as any)} testID="v2-open-enquiries">
+                <Text style={s.enquiriesLink}>Enquiries</Text>
+              </TouchableOpacity>
+            )}
             <Text style={s.countLine}>
               {filtered.length} of {students.length}
             </Text>
@@ -390,7 +392,7 @@ export default function StudentsV2Screen() {
         </ScrollView>
       </View>
 
-      {filter === 'Waitlist' && (
+      {filter === 'Waitlist' && isPaidTier(user?.tier) && (
         <View style={{ flexDirection: 'row', gap: 7, paddingHorizontal: 20, paddingBottom: 10 }} testID="v2-waitlist-stages">
           {WAITLIST_STAGES.map((st) => {
             const on = stageFilter === st;
@@ -469,7 +471,7 @@ export default function StudentsV2Screen() {
                         const warning = studentAppUsageWarning(st);
                         return warning && <Text style={s.noAccountBadge} numberOfLines={1}>⚠️ {warning}</Text>;
                       })()}
-                      {st.status === 'Waitlist' && (
+                      {st.status === 'Waitlist' && isPaidTier(user?.tier) && (
                         <Text style={s.meta} numberOfLines={1} testID={`v2-student-stage-${st.id}`}>{stageSummary(st, new Date())}</Text>
                       )}
                       <Text style={s.meta} numberOfLines={1}>

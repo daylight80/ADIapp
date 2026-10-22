@@ -9,6 +9,7 @@ import { cleanVehicleColour, type InstructorCardData } from './instructorCard';
 import type { PaymentRow, PaymentMethod } from './payments';
 import type { SlotAlertStatus } from './slotAlertStatus';
 import type { DeadlineItem, EditableDeadlineKind } from './deadlines';
+import { pickFocus } from './lessonFocus';
 
 // ---------------------------------------------------------------------------
 // Types — kept compatible with mockDb so we can swap screens incrementally
@@ -3197,6 +3198,42 @@ export async function getLessonNotes(lessonId: string): Promise<InstructorLesson
     throw error;
   }
   return (data as InstructorLessonNote) || null;
+}
+
+/**
+ * What the instructor wrote about the pupil's most recent earlier lessons: the answers to the "needs more practice" and
+ * "goal" questions, from the latest lesson (before `beforeISO`, up to the last six) that has either. Null if none.
+ */
+export async function getLastLessonFocus(
+  studentId: string, beforeISO: string, questions: LessonNoteQuestion[],
+): Promise<{ lessonDate: string; practice: string | null; goal: string | null } | null> {
+  const { data: lessons, error } = await supabase
+    .from('lessons')
+    .select('id,start_time')
+    .eq('student_id', studentId)
+    .lt('start_time', beforeISO)
+    .neq('status', 'Cancelled')
+    .order('start_time', { ascending: false })
+    .limit(6);
+  if (error) throw error;
+  const rows = lessons || [];
+  if (rows.length === 0) return null;
+  const { data: notes, error: nErr } = await supabase
+    .from('instructor_lesson_notes')
+    .select('lesson_id,answers')
+    .in('lesson_id', rows.map((l: any) => l.id));
+  if (nErr) {
+    if (isMissingLessonNotesTable(nErr.message || '')) return null;
+    throw nErr;
+  }
+  const byLesson = new Map((notes || []).map((n: any) => [n.lesson_id, n.answers || {}]));
+  for (const l of rows as any[]) {
+    const answers = byLesson.get(l.id);
+    if (!answers) continue;
+    const f = pickFocus(questions, answers);
+    if (f.practice || f.goal) return { lessonDate: l.start_time, ...f };
+  }
+  return null;
 }
 
 export async function listLessonNotesForStudent(studentId: string): Promise<InstructorLessonNote[]> {

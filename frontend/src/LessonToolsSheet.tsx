@@ -30,6 +30,7 @@ import { isPaidTier, tierById } from './tiers';
 import { PaywallModal } from './PaywallModal';
 import { LessonSummarySheet } from './LessonSummarySheet';
 import { googleCalendarUrl, lessonCalendarEvent } from './googleCalendarLink';
+import { LastLessonFocusCard, useLastLessonFocus } from './LastLessonFocusCard';
 import { SlotAlertLine } from './SlotAlertLine';
 import { queueLessonWrite, useIsOnline } from './offlineSync';
 import { openNavigation, openSmsComposer } from './tools';
@@ -89,6 +90,11 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   // Starter on Android) — was fully active on every tier with no gating.
   const paid = isPaidTier(user?.tier);
   const [routePaywallOpen, setRoutePaywallOpen] = useState(false);
+  const lastFocus = useLastLessonFocus(
+    lesson?.student_id, user?.instructor_id ?? undefined,
+    lesson?.date && lesson?.start_time ? new Date(`${lesson.date}T${lesson.start_time}:00`).toISOString() : null,
+    visible && !!lesson && lesson.status !== 'Cancelled',
+  );
   // Dictated summary for the pupil (paid plans): its sheet, and the upgrade prompt for everyone else.
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [summaryPaywallOpen, setSummaryPaywallOpen] = useState(false);
@@ -612,6 +618,9 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
                 without first re-running the whole cancel flow again. */}
             {lesson.status !== 'Cancelled' ? (
               <>
+                {/* What needed more practice and the goal, from the notes after the pupil's last lesson */}
+                <LastLessonFocusCard focus={lastFocus} />
+
                 {/* Navigation */}
                 <Text style={styles.section}>Navigate to pickup</Text>
                 <Text style={styles.address}>
@@ -727,7 +736,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
                   testID="btn-write-summary-open"
                 >
                   {paid ? <MessageSquare size={18} color={theme.colors.primary} /> : <Lock size={16} color={theme.colors.textMuted} />}
-                  <Text style={[styles.recordRouteText, !paid && styles.recordRouteTextLocked]}>Write a summary for {student.name.split(' ')[0]}</Text>
+                  <Text style={[styles.recordRouteText, !paid && styles.recordRouteTextLocked]}>Summary for {student.name.split(' ')[0]} (they&apos;ll see it)</Text>
                 </TouchableOpacity>
 
                 {/* Post-lesson notes — the instructor's own custom question set */}
@@ -743,7 +752,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
                   testID="btn-lesson-notes"
                 >
                   <FileCheck size={16} color={theme.colors.primary} />
-                  <Text style={styles.recordRouteText}>Lesson notes</Text>
+                  <Text style={styles.recordRouteText}>Private lesson notes (only you)</Text>
                 </TouchableOpacity>
 
                 {/* Pre-lesson check */}
@@ -1011,6 +1020,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
       onClose={() => setSummaryOpen(false)}
       lessonId={lesson.id}
       studentName={student.name}
+      instructorId={user?.instructor_id ?? undefined}
     />
     </>
   );

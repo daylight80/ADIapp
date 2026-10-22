@@ -5,9 +5,9 @@ import { BottomSheet } from './BottomSheet';
 import { useSpeechDictation } from './speechDictation';
 import { theme } from './theme';
 import {
-  DICTATION_HINT, WEB_DICTATION_HINT, MIN_DICTATION_CHARS, MAX_DICTATION_CHARS, MAX_SUMMARY_CHARS, MAX_PLAN_CHARS,
+  DICTATION_HINT, WEB_DICTATION_HINT, FROM_NOTES_HINT, MIN_DICTATION_CHARS, MAX_DICTATION_CHARS, MAX_SUMMARY_CHARS, MAX_PLAN_CHARS,
   dictationReady, approvalReady, sentMessage,
-  draftSummary, approveSummary, withdrawSummary, fetchSavedSummary,
+  draftSummary, approveSummary, withdrawSummary, fetchSavedSummary, fetchNotesAsDictation,
 } from './lessonSummary';
 
 type Stage = 'dictate' | 'review' | 'sent';
@@ -18,8 +18,8 @@ type Stage = 'dictate' | 'review' | 'sent';
  * edited and updated, or removed.
  */
 export function LessonSummarySheet({
-  visible, onClose, lessonId, studentName,
-}: { visible: boolean; onClose: () => void; lessonId: string; studentName: string }) {
+  visible, onClose, lessonId, studentName, instructorId,
+}: { visible: boolean; onClose: () => void; lessonId: string; studentName: string; instructorId?: string }) {
   const first = (studentName || 'the pupil').split(' ')[0];
   const [stage, setStage] = useState<Stage>('dictate');
   const [dictation, setDictation] = useState('');
@@ -29,6 +29,7 @@ export function LessonSummarySheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sentText, setSentText] = useState('');
+  const [fromNotes, setFromNotes] = useState(false);
   // On the web there is no phone keyboard microphone, so a Dictate button uses the browser's speech recognition.
   const speech = useSpeechDictation((text) => { setDictation(text.slice(0, MAX_DICTATION_CHARS)); setError(null); });
 
@@ -36,15 +37,22 @@ export function LessonSummarySheet({
   useEffect(() => {
     if (!visible) return;
     let alive = true;
-    setStage('dictate'); setDictation(''); setSummary(''); setPlan(''); setError(null); setSentText(''); setExisting(false);
+    setStage('dictate'); setDictation(''); setSummary(''); setPlan(''); setError(null); setSentText(''); setExisting(false); setFromNotes(false);
     fetchSavedSummary(lessonId)
-      .then((s) => {
-        if (!alive || !s) return;
-        setSummary(s.summary); setPlan(s.next_plan || ''); setExisting(true); setStage('review');
+      .then(async (s) => {
+        if (!alive) return;
+        if (s) {
+          setSummary(s.summary); setPlan(s.next_plan || ''); setExisting(true); setStage('review');
+          return;
+        }
+        // Nothing sent yet: start from the lesson notes, if the instructor has written any.
+        if (!instructorId) return;
+        const start = await fetchNotesAsDictation(lessonId, instructorId).catch(() => '');
+        if (alive && start) { setDictation(start); setFromNotes(true); }
       })
       .catch(() => { /* no saved summary, or it could not be read: start with a blank one */ });
     return () => { alive = false; };
-  }, [visible, lessonId]);
+  }, [visible, lessonId, instructorId]);
 
   // Stop listening when the sheet closes or moves on, so the microphone is never left on.
   useEffect(() => { if (!visible || stage !== 'dictate') speech.stop(); }, [visible, stage]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -94,6 +102,7 @@ export function LessonSummarySheet({
       {stage === 'dictate' && (
         <>
           <Text style={s.hint} testID="summary-hint">{speech.supported ? WEB_DICTATION_HINT : DICTATION_HINT}</Text>
+          {fromNotes && <Text style={s.fromNotes} testID="from-notes-hint">{FROM_NOTES_HINT}</Text>}
           {speech.supported && (
             <TouchableOpacity
               style={[s.micBtn, speech.listening && s.micBtnOn]}
@@ -172,6 +181,7 @@ export function LessonSummarySheet({
 }
 
 const s = StyleSheet.create({
+  fromNotes: { fontSize: 12.5, fontWeight: '700', color: theme.colors.primary, marginBottom: 8 },
   micBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 44, borderRadius: 12, borderWidth: 1.5, borderColor: theme.colors.primary, marginBottom: 10, backgroundColor: theme.colors.background },
   micBtnOn: { backgroundColor: theme.colors.danger, borderColor: theme.colors.danger },
   micText: { fontSize: 14.5, fontWeight: '700', color: theme.colors.primary },

@@ -8,12 +8,14 @@ const mockDraft = jest.fn();
 const mockApprove = jest.fn();
 const mockWithdraw = jest.fn();
 const mockSaved = jest.fn();
+const mockNotesStart = jest.fn();
 jest.mock('../lessonSummary', () => ({
   ...jest.requireActual('../lessonSummary'),
   draftSummary: (...a: unknown[]) => mockDraft(...a),
   approveSummary: (...a: unknown[]) => mockApprove(...a),
   withdrawSummary: (...a: unknown[]) => mockWithdraw(...a),
   fetchSavedSummary: (...a: unknown[]) => mockSaved(...a),
+  fetchNotesAsDictation: (...a: unknown[]) => mockNotesStart(...a),
 }));
 jest.mock('../supabaseClient', () => ({ supabase: {} }));
 
@@ -51,6 +53,7 @@ describe('the summary sheet', () => {
     mockApprove.mockReset().mockResolvedValue({ ok: true, notified: 'push', updated: false });
     mockWithdraw.mockReset().mockResolvedValue({ ok: true });
     mockSaved.mockReset().mockResolvedValue(null);
+    mockNotesStart.mockReset().mockResolvedValue('');
   });
   const open = async () => render(<LessonSummarySheet visible onClose={jest.fn()} lessonId="les-1" studentName="Maisie Harmer" />);
 
@@ -113,6 +116,37 @@ describe('the summary sheet', () => {
     await waitFor(() => expect(screen.getByTestId('btn-redo-dictation')).toBeTruthy());
     await fireEvent.press(screen.getByTestId('btn-redo-dictation'));
     expect(screen.getByTestId('input-dictation').props.value).toBe(SPOKEN);
+  });
+
+  it('starts the box from the lesson notes when there are some, and says so', async () => {
+    mockNotesStart.mockResolvedValue('What went well this lesson: Smooth steering' + String.fromCharCode(10) + 'Goal for next lesson: Test route');
+    await render(<LessonSummarySheet visible onClose={jest.fn()} lessonId="les-1" studentName="Maisie Harmer" instructorId="instr-1" />);
+    await waitFor(() => expect(screen.getByTestId('input-dictation').props.value).toMatch(/Smooth steering/));
+    expect(mockNotesStart).toHaveBeenCalledWith('les-1', 'instr-1');
+    expect(screen.getByTestId('from-notes-hint')).toHaveTextContent(/Started from your lesson notes/);
+    // the instructor can add to it, and the draft is made from what is in the box
+    await fireEvent.changeText(screen.getByTestId('input-dictation'), 'Smooth steering. Test route next. Also nervous at exits.');
+    await fireEvent.press(screen.getByTestId('btn-write-summary'));
+    await waitFor(() => expect(mockDraft).toHaveBeenCalledWith('les-1', 'Smooth steering. Test route next. Also nervous at exits.'));
+  });
+
+  it('starts blank when there are no notes, and does not look for notes without an instructor id', async () => {
+    await render(<LessonSummarySheet visible onClose={jest.fn()} lessonId="les-1" studentName="Maisie Harmer" instructorId="instr-1" />);
+    await waitFor(() => expect(mockNotesStart).toHaveBeenCalled());
+    expect(screen.getByTestId('input-dictation').props.value).toBe('');
+    expect(screen.queryByTestId('from-notes-hint')).toBeNull();
+    mockNotesStart.mockClear();
+    await render(<LessonSummarySheet visible onClose={jest.fn()} lessonId="les-2" studentName="Pat Jones" />);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockNotesStart).not.toHaveBeenCalled();
+  });
+
+  it('does not overwrite a summary that was already sent with the notes', async () => {
+    mockSaved.mockResolvedValue({ summary: 'Already sent text.', next_plan: null, approved_at: 'a', notified_at: 'b' });
+    mockNotesStart.mockResolvedValue('Some notes');
+    await render(<LessonSummarySheet visible onClose={jest.fn()} lessonId="les-1" studentName="Maisie Harmer" instructorId="instr-1" />);
+    await waitFor(() => expect(screen.getByTestId('input-summary').props.value).toBe('Already sent text.'));
+    expect(mockNotesStart).not.toHaveBeenCalled();
   });
 
   it('reopens a summary that was already sent, offers to update or remove it, and says so', async () => {

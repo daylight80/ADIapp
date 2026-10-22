@@ -70,6 +70,8 @@ export type PaymentRow = {
   date_changed_at?: string | null;
   /** The date as first recorded, kept the first time it is changed. */
   original_paid_at?: string | null;
+  /** True when prepaid hours fully cover this lesson, so the payment on it is not counted again (Migration 088). */
+  covered_by_prepaid?: boolean;
 };
 
 const pad = (n: number) => String(n).padStart(2, '0');

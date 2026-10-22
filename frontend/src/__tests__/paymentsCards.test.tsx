@@ -79,6 +79,19 @@ describe('instructor payments card', () => {
     expect(screen.getByTestId('payments-empty')).toBeTruthy();
   });
 
+  it('says a payment on a lesson that prepaid hours cover is not counted again', async () => {
+    mockLedger.payments = [{ ...derived, id: 'cov', covered_by_prepaid: true }, manual];
+    await render(<PaymentsCard student={student} />);
+    expect(screen.getByTestId('payment-covered-cov')).toHaveTextContent(/Paid from prepaid hours/);
+    expect(screen.queryByTestId('payment-covered-m1')).toBeNull();
+  });
+
+  it('does not add the note to a voided payment', async () => {
+    mockLedger.payments = [{ ...voided, covered_by_prepaid: true }];
+    await render(<PaymentsCard student={student} />);
+    expect(screen.queryByTestId('payment-covered-v1')).toBeNull();
+  });
+
   it('shows credit and up to date', async () => {
     mockLedger.balance = { charged: 50, paid: 74, outstanding: -24 };
     const { rerender } = await render(<PaymentsCard student={student} />);

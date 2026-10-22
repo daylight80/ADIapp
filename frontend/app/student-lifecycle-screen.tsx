@@ -16,7 +16,7 @@ import { buildInvoiceHtml, generateAndShareInvoicePdf } from '../src/invoice';
 import {
   useStudent, patchStudent, passStudent, useLessonsForStudent, useCompetencies,
   useTestOutcomesForStudent, useMockTestAttempts, setStudentStatusAsync, removeStudentViaApi, bump,
-  useBlockBookings,
+  useBlockBookings, usePaymentLedger,
 } from '../src/useSupabaseData';
 import {
   getPendingDeletionRequestForStudent, type GdprDeletionRequest, getMySchoolProfile,
@@ -497,7 +497,11 @@ export default function StudentProfileV2Screen() {
     }
   };
 
-  const totalEarnings = lessons.reduce((sum, l) => sum + (l.amount_paid || 0), 0);
+  // Total billed is what the pupil has been charged (the same figure as Charged in the balance below), not the cash
+  // typed on Complete lesson: that is money received, and it could disagree with the agreed price. Until the balance
+  // loads, the cash figure stands in.
+  const { balance: ledgerBalance } = usePaymentLedger(student?.id);
+  const totalEarnings = ledgerBalance ? ledgerBalance.charged : lessons.reduce((sum, l) => sum + (l.amount_paid || 0), 0);
   // "Hours" is always shown right next to completedCount ("Lessons" /
   // "Lessons taught") across the Overview, Lessons and Earnings tabs, so
   // it means hours actually taught, not hours of everything ever

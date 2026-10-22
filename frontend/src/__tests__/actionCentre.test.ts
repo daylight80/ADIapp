@@ -127,3 +127,24 @@ describe('grouping and wording', () => {
     expect(shortDay('2026-10-21')).toMatch(/Wed/);
   });
 });
+
+describe('road briefing lines in the Action Centre', () => {
+  it('adds today\'s road warnings as their own group, urgent ones first, each opening the diary', () => {
+    const items = build({
+      roadItems: [
+        { key: 'weather-l1', kind: 'weather', severity: 'info', title: 'Sam, 09:30: rain', detail: '9°C', lessonId: 'l1' },
+        { key: 'traffic-l2', kind: 'traffic', severity: 'warn', title: 'Pat, 11:00: you may be late', detail: 'd', lessonId: 'l2' },
+      ],
+    });
+    const road = items.filter((i) => i.group === 'road');
+    expect(road.map((i) => i.key)).toEqual(['road-traffic-l2', 'road-weather-l1']);
+    expect(road[0].urgent).toBe(true);
+    expect(road[1].urgent).toBe(false);
+    expect(road[0].target).toEqual({ screen: 'diary' });
+    expect(groupActionItems(items).map((g) => g.title)).toContain('On the road today');
+  });
+
+  it('adds nothing without a briefing', () => {
+    expect(build().filter((i) => i.group === 'road')).toEqual([]);
+  });
+});

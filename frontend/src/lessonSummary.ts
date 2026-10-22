@@ -2,8 +2,7 @@
 // text is ever sent), the backend drafts a summary and a plan for the next lesson, the instructor edits and
 // approves it, and only then does the pupil see it. The Anthropic call is made by the backend, never the app.
 import { supabase } from './supabaseClient';
-
-const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || '';
+import { callBackend } from './backendCall';
 
 // Mirrors backend/lesson_summaries.py.
 export const MIN_DICTATION_CHARS = 15;
@@ -41,19 +40,7 @@ export function sentMessage(firstName: string, r: Pick<ApproveResult, 'notified'
   return `Saved. We couldn't notify ${firstName}, but they'll see it the next time they open the app.`;
 }
 
-async function call<T>(path: string, method: 'POST' | 'DELETE', body?: unknown): Promise<T> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) throw new Error('Not signed in');
-  const resp = await fetch(`${BACKEND}/api${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const json: any = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(typeof json?.detail === 'string' ? json.detail : `Something went wrong (HTTP ${resp.status}).`);
-  return json as T;
-}
+const call = callBackend;
 
 export const draftSummary = (lessonId: string, dictation: string) =>
   call<SummaryDraft>(`/v2/lessons/${lessonId}/summary/draft`, 'POST', { dictation });

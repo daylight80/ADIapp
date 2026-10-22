@@ -3,6 +3,7 @@
 import { daysUntil, describeDays, itemDisplayName, needsAttention, type DeadlineItem } from './deadlines';
 import { isHavingLessons, hasLowCredit } from './studentGlance';
 import { formatHoursLabel } from './voucher';
+import type { BriefItem } from './roadBriefing';
 
 /** Active pupil with no lesson this long and nothing booked is flagged as inactive. */
 export const INACTIVE_AFTER_DAYS = 14;
@@ -13,12 +14,13 @@ export const CANCELLED_LOOKBACK_DAYS = 7;
 /** Deadlines overdue or due within this many days (matches the reminder emails). */
 export const DEADLINE_WITHIN_DAYS = 30;
 
-export type ActionGroup = 'overdue_lessons' | 'cancellations' | 'tests' | 'deadlines' | 'low_wallet' | 'inactive';
+export type ActionGroup = 'overdue_lessons' | 'road' | 'cancellations' | 'tests' | 'deadlines' | 'low_wallet' | 'inactive';
 
-export const GROUP_ORDER: ActionGroup[] = ['overdue_lessons', 'cancellations', 'tests', 'deadlines', 'low_wallet', 'inactive'];
+export const GROUP_ORDER: ActionGroup[] = ['overdue_lessons', 'road', 'cancellations', 'tests', 'deadlines', 'low_wallet', 'inactive'];
 
 export const GROUP_TITLES: Record<ActionGroup, string> = {
   overdue_lessons: 'Lessons to wrap up',
+  road: 'On the road today',
   cancellations: 'Cancellations',
   tests: 'Upcoming tests',
   deadlines: 'Your deadlines',
@@ -78,8 +80,10 @@ export function buildActionItems(input: {
   lessons: LessonLike[];
   hoursBalances: Record<string, number | undefined>;
   deadlines: DeadlineItem[];
+  /** Today's road briefing lines (late or tight changeovers, weather), for paid plans. */
+  roadItems?: BriefItem[];
 }): ActionItem[] {
-  const { now, students, lessons, hoursBalances, deadlines } = input;
+  const { now, students, lessons, hoursBalances, deadlines, roadItems = [] } = input;
   const items: ActionItem[] = [];
   const nameOf = new Map(students.map((s) => [s.id, s.name]));
   const who = (id: string) => nameOf.get(id) || 'A pupil';
@@ -95,6 +99,14 @@ export function buildActionItems(input: {
       title: `${who(l.student_id)}: lesson not marked complete`,
       detail: `${shortDay(l.date)}, ${l.start_time} to ${l.end_time}. Log how it went.`,
       target: { screen: 'diary', date: l.date },
+    });
+  }
+
+  // 1b. Today's road briefing: lessons you may be late for, tight changeovers, weather to watch.
+  for (const r of roadItems) {
+    items.push({
+      key: `road-${r.key}`, group: 'road', urgent: r.severity === 'warn',
+      title: r.title, detail: r.detail, target: { screen: 'diary' },
     });
   }
 

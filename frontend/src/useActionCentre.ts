@@ -6,6 +6,7 @@ import { listMyDeadlineItems, listHoursBalanceForStudents } from './supabaseDb';
 import type { DeadlineItem } from './deadlines';
 import { useStudents, useLessonsBetween } from './useSupabaseData';
 import { buildActionItems, CHECKED_WINDOW_DAYS, AHEAD_WINDOW_DAYS, type ActionItem } from './actionCentre';
+import { useRoadBriefing } from './useRoadBriefing';
 
 /**
  * Everything the Action Centre needs, loaded once and turned into the list. Used by both the Home card and the
@@ -47,9 +48,12 @@ export function useActionCentre(): { items: ActionItem[]; loading: boolean } {
     return () => { alive = false; };
   }, [paid]));
 
+  // Today's road briefing (paid plans): its warnings join the list.
+  const { briefing } = useRoadBriefing(lessons, students, paid);
+
   const items = useMemo(
-    () => buildActionItems({ now: new Date(), students, lessons, hoursBalances, deadlines }),
-    [students, lessons, hoursBalances, deadlines],
+    () => buildActionItems({ now: new Date(), students, lessons, hoursBalances, deadlines, roadItems: briefing?.items ?? [] }),
+    [students, lessons, hoursBalances, deadlines, briefing],
   );
   return { items, loading: studentsLoading || lessonsLoading };
 }

@@ -19,6 +19,7 @@ import { ContactsImportBanner } from '../src/ContactsImportBanner';
 import { ReferralBanner } from '../src/ReferralBanner';
 import { DeadlinesBanner } from '../src/DeadlinesBanner';
 import { ActionCentreCard } from '../src/ActionCentreCard';
+import { RoadBriefingCard } from '../src/RoadBriefingCard';
 import { SetupChecklistCard } from '../src/SetupChecklistCard';
 import { PaywallModal } from '../src/PaywallModal';
 import { Crown, ChevronRight, Users, CalendarDays, Receipt, Lock, Eye, EyeOff, LayoutDashboard } from 'lucide-react-native';
@@ -209,6 +210,7 @@ export default function InstructorHomeV2Screen() {
           {/* Renewal deadlines (paid plans): only appears when something is
               overdue or due within 30 days. */}
           <ActionCentreCard />
+          <RoadBriefingCard lessons={todayLessons} students={students} />
           <DeadlinesBanner enabled={paid} />
 
           {/* Upgrade banner (Starter tier only) — real urgency, not

@@ -17,8 +17,10 @@ import payment_reminders
 import ai_debriefs
 import address_search
 import billing_helpers
+import collections
 import student_status
 import lesson_summaries
+import weather_briefing
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -2279,6 +2281,150 @@ async def withdraw_lesson_summary(lesson_id: str, sb_user: dict = Depends(get_cu
     if d.status_code >= 400:
         raise HTTPException(status_code=500, detail="Could not remove the summary.")
     return SummaryApproveResponse(ok=True)
+
+
+# =============================================================================
+# Road briefing: weather for today's lessons. The app sends the area (outward postcode, such as "CR4") and each
+# lesson's start and end; we fetch Google's hourly forecast for the area (cached for 30 minutes) and say what to
+# watch for during each lesson. Pro and Franchise only. Traffic between lessons uses /maps/travel-time above.
+# Needs the Weather API switched on for the existing GOOGLE_MAPS_API_KEY in the Google Cloud console.
+# =============================================================================
+
+WEATHER_CACHE_TTL = 30 * 60
+WEATHER_CACHE_MAX = 200
+_weather_limiter = address_search.UserLimiter(150, 86400)
+_outcode_positions: "collections.OrderedDict[str, Tuple[float, float]]" = collections.OrderedDict()
+_forecast_cache: "collections.OrderedDict[str, Tuple[float, list]]" = collections.OrderedDict()
+
+
+class WeatherWindowIn(BaseModel):
+    id: Optional[str] = None
+    start: str
+    end: str
+
+
+class WeatherBriefingRequest(BaseModel):
+    outcode: str
+    windows: List[WeatherWindowIn]
+
+
+class WeatherFlag(BaseModel):
+    kind: str
+    text: str
+
+
+class WeatherWindowOut(BaseModel):
+    id: str
+    flags: List[WeatherFlag]
+    summary: Optional[str] = None
+    covered: bool = True
+
+
+class WeatherBriefingResponse(BaseModel):
+    status: Literal["ok", "unavailable"]
+    results: List[WeatherWindowOut] = []
+
+
+async def _require_paid_instructor(sb_user: dict) -> dict:
+    """The caller's instructor row, if they are on a paid plan; 403 otherwise."""
+    instructor = await sb_get_instructor_by_auth_user(sb_user["auth_user_id"])
+    if not instructor:
+        raise HTTPException(status_code=403, detail="No instructor profile found for this account.")
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        sch = await client_http.get(
+            f"{_sb_rest_base}/driving_schools", headers=_sb_headers(),
+            params={"id": f"eq.{instructor.get('school_id')}", "select": "tier", "limit": "1"},
+        )
+    if sch.status_code >= 400:
+        raise HTTPException(status_code=500, detail="Could not check your plan.")
+    if not lesson_summaries.is_paid_tier(((sch.json() or [{}])[0] or {}).get("tier")):
+        raise HTTPException(status_code=403, detail="The road briefing is part of the Pro plan.")
+    return instructor
+
+
+def _remember(cache: "collections.OrderedDict", key: str, value, limit: int) -> None:
+    cache[key] = value
+    cache.move_to_end(key)
+    while len(cache) > limit:
+        cache.popitem(last=False)
+
+
+async def _outcode_position(outcode: str) -> Optional[Tuple[float, float]]:
+    """The area's latitude and longitude from postcodes.io (free, UK). Areas don't move, so this is kept for good."""
+    if outcode in _outcode_positions:
+        return _outcode_positions[outcode]
+    try:
+        async with httpx.AsyncClient(timeout=6.0) as client_h:
+            r = await client_h.get(f"https://api.postcodes.io/outcodes/{outcode}")
+        if r.status_code != 200:
+            return None
+        res = (r.json() or {}).get("result") or {}
+        pos = (float(res["latitude"]), float(res["longitude"]))
+    except Exception as e:
+        logger.warning(f"[weather] outcode lookup failed for {outcode}: {e}")
+        return None
+    _remember(_outcode_positions, outcode, pos, 2000)
+    return pos
+
+
+async def _forecast_for(outcode: str) -> Optional[list]:
+    """Hourly forecast rows for the area, from the cache or Google. None when it can't be had."""
+    now_ts = datetime.now(timezone.utc).timestamp()
+    hit = _forecast_cache.get(outcode)
+    if hit and now_ts - hit[0] < WEATHER_CACHE_TTL:
+        _forecast_cache.move_to_end(outcode)
+        return hit[1]
+    pos = await _outcode_position(outcode)
+    if not pos:
+        return None
+    rows: list = []
+    token = None
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client_h:
+            for _ in range(4):  # up to 96 hours in pages of 24
+                params = {"key": GOOGLE_MAPS_API_KEY, "location.latitude": pos[0], "location.longitude": pos[1], "hours": 72, "pageSize": 24}
+                if token:
+                    params["pageToken"] = token
+                r = await client_h.get("https://weather.googleapis.com/v1/forecast/hours:lookup", params=params)
+                if r.status_code != 200:
+                    logger.warning(f"[weather] Google Weather HTTP {r.status_code} for {outcode}")
+                    return None
+                body = r.json() or {}
+                rows += weather_briefing.parse_forecast_hours(body)
+                token = body.get("nextPageToken")
+                if not token:
+                    break
+    except Exception as e:
+        logger.warning(f"[weather] forecast failed for {outcode}: {e}")
+        return None
+    if not rows:
+        return None
+    _remember(_forecast_cache, outcode, (now_ts, rows), WEATHER_CACHE_MAX)
+    return rows
+
+
+@api_router.post("/v2/briefing/weather", response_model=WeatherBriefingResponse)
+async def weather_for_lessons(req: WeatherBriefingRequest, sb_user: dict = Depends(get_current_supabase_user)):
+    outcode = weather_briefing.valid_outcode(req.outcode)
+    if not outcode:
+        raise HTTPException(status_code=400, detail="That doesn't look like a postcode area.")
+    try:
+        windows = weather_briefing.check_windows([w.model_dump() for w in req.windows])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await _require_paid_instructor(sb_user)
+    if not _weather_limiter.allow(sb_user["auth_user_id"]):
+        raise HTTPException(status_code=429, detail="Too many weather checks today. Please try again tomorrow.")
+    if not GOOGLE_MAPS_API_KEY:
+        return WeatherBriefingResponse(status="unavailable")
+    rows = await _forecast_for(outcode)
+    if rows is None:
+        return WeatherBriefingResponse(status="unavailable")
+    out = []
+    for w in windows:
+        r = weather_briefing.flags_for_window(rows, w["start"], w["end"])
+        out.append(WeatherWindowOut(id=w["id"], flags=[WeatherFlag(**f) for f in r["flags"]], summary=r["summary"], covered=r["covered"]))
+    return WeatherBriefingResponse(status="ok", results=out)
 
 
 # =============================================================================

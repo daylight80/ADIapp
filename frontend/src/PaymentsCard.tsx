@@ -306,6 +306,11 @@ export function PaymentsCard({ student }: { student: { id: string; name: string;
                   <Text style={styles.sub} numberOfLines={2}>
                     {paymentSubline(p)}{derived ? ' · from the lesson' : ''}{voided ? ' · voided' : ''}
                   </Text>
+                  {!!p.covered_by_prepaid && !voided && (
+                    <Text style={styles.sub} testID={`payment-covered-${p.id}`}>
+                      Paid from prepaid hours: the prepaid hours are the money, so this is not counted again.
+                    </Text>
+                  )}
                   {!!p.note && !derived && <Text style={styles.sub} numberOfLines={2}>{p.note}</Text>}
                   {!!p.date_changed_at && !!p.original_paid_at && (
                     <Text style={styles.sub} testID={`payment-date-changed-${p.id}`}>Date changed (first recorded {paymentDate(p.original_paid_at)})</Text>

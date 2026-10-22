@@ -716,7 +716,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
         </View>
       )}
 
-      <Text style={styles.label}>Lesson rate (£)</Text>
+      <Text style={styles.label}>Lesson price (£), the total for this lesson</Text>
       <TextInput
         style={styles.input}
         value={rate}
@@ -728,7 +728,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
       />
       {!!studentId && !!getStudent(studentId)?.hourly_rate && (
         <Text style={styles.hint}>
-          Suggested from {getStudent(studentId)?.name}&apos;s usual rate — feel free to change it.
+          Suggested from {getStudent(studentId)?.name}&apos;s usual hourly rate times the lesson length — feel free to change it.
         </Text>
       )}
 

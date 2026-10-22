@@ -1814,7 +1814,14 @@ export async function listPayments(studentId: string): Promise<PaymentRow[]> {
     .eq('student_id', studentId)
     .order('paid_at', { ascending: false });
   if (error) throw error;
-  return (data || []).map(paymentFromRow);
+  // Payments on lessons that prepaid hours fully cover are not counted again (Migration 088). If this lookup
+  // fails the list still loads, just without the note.
+  let covered = new Set<string>();
+  try {
+    const { data: cov } = await supabase.from('payment_prepaid_cover').select('payment_id').eq('student_id', studentId);
+    covered = new Set((cov || []).map((c: any) => String(c.payment_id)));
+  } catch { /* leave the note off */ }
+  return (data || []).map((r) => ({ ...paymentFromRow(r), covered_by_prepaid: covered.has(String(r.id)) }));
 }
 
 export type PupilBalance = { charged: number; paid: number; outstanding: number };

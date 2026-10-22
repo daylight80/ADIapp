@@ -58,6 +58,9 @@ export type Student = {
   tc_signature_name?: string | null;
   /** Whether the pupil wants a push notification when their instructor has a free slot. */
   slot_alerts?: boolean;
+  /** Waiting-list stage (Migration 086): 'Waiting' | 'Contacted' | 'Booked'; null unless status is Waitlist. */
+  waitlist_stage?: string | null;
+  waitlist_stage_at?: string | null;
   /** Parent or guardian contact, for pupils under 18 (all optional). */
   guardian_name?: string | null;
   guardian_phone?: string | null;
@@ -110,6 +113,8 @@ const fromRow = (r: any): Student => ({
   notes_updated_by_name: r.notes_updated_by_name ?? null,
   auth_user_id: r.auth_user_id ?? null,
   last_active_at: r.last_active_at ?? null,
+  waitlist_stage: r.waitlist_stage ?? null,
+  waitlist_stage_at: r.waitlist_stage_at ?? null,
   tc_signed_at: r.tc_signed_at ?? null,
   tc_signature_name: r.tc_signature_name ?? null,
   slot_alerts: r.slot_alerts !== false,
@@ -673,6 +678,7 @@ export type UpdateStudentInput = Partial<{
   guardian_name: string | null;
   guardian_phone: string | null;
   guardian_email: string | null;
+  waitlist_stage: 'Waiting' | 'Contacted' | 'Booked';
 }>;
 
 export async function updateStudent(id: string, patch: UpdateStudentInput): Promise<Student | undefined> {
@@ -689,6 +695,7 @@ export async function updateStudent(id: string, patch: UpdateStudentInput): Prom
   if (patch.next_lesson !== undefined) dbPatch.next_lesson = patch.next_lesson;
   if (patch.notes !== undefined) dbPatch.notes = patch.notes;
   if (patch.provisional_licence !== undefined) dbPatch.provisional_licence = patch.provisional_licence.toUpperCase().replace(/\s+/g, '');
+  if (patch.waitlist_stage !== undefined) dbPatch.waitlist_stage = patch.waitlist_stage;
   if (patch.guardian_name !== undefined) dbPatch.guardian_name = patch.guardian_name?.trim() || null;
   if (patch.guardian_phone !== undefined) dbPatch.guardian_phone = patch.guardian_phone?.trim() || null;
   if (patch.guardian_email !== undefined) dbPatch.guardian_email = patch.guardian_email?.trim().toLowerCase() || null;

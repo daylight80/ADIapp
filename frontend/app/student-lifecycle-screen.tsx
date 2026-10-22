@@ -27,6 +27,7 @@ import {
 import { isPaidTier, isProTier, tierById } from '../src/tiers';
 import { formatHours, isLowCredit } from '../src/walletDisplay';
 import { instructorAgreementLine, agreementStatus, mediaConsentLine } from '../src/pupilAgreement';
+import { WAITLIST_STAGES, stageOf, stageSummary, type WaitlistStage } from '../src/waitlistPipeline';
 import { manualStatusMoves, manualStatusChoices, manualStatusConfirm, statusChangeMessage, type LifecycleStatus } from '../src/studentLifecycle';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { openSmsComposer } from '../src/tools';
@@ -370,6 +371,15 @@ export default function StudentProfileV2Screen() {
       }
     } catch (e: any) {
       Alert.alert('Update failed', e?.message || 'Could not update status');
+    }
+  };
+
+  const setWaitlistStage = async (st: WaitlistStage) => {
+    if (!student) return;
+    try {
+      await patchStudent(student.id, { waitlist_stage: st });
+    } catch (e: any) {
+      Alert.alert('Update failed', e?.message || 'Could not update the stage');
     }
   };
 
@@ -884,10 +894,35 @@ export default function StudentProfileV2Screen() {
                   )}
                   {(student.status === 'Inactive' || student.status === 'Waitlist') && (
                     <TouchableOpacity style={[s.lifecycleBtn, { backgroundColor: '#D1FAE5', borderColor: '#10B981' }]} onPress={() => runStatusChange('Active', student.status)} testID="v2-reactivate">
-                      <Text style={[s.lifecycleBtnText, { color: '#047857' }]}>Reactivate</Text>
+                      <Text style={[s.lifecycleBtnText, { color: '#047857' }]}>{student.status === 'Waitlist' ? 'Started (make active)' : 'Reactivate'}</Text>
                     </TouchableOpacity>
                   )}
                 </View>
+
+                {student.status === 'Waitlist' && (
+                  <View style={{ marginTop: 14 }} testID="v2-waitlist-stage-block">
+                    <Text style={s.sectionLabel}>Waiting-list stage</Text>
+                    <Text style={s.lifecycleHint} testID="v2-waitlist-stage-summary">
+                      {stageSummary(student, new Date())}. When they have their first lesson, tap Reactivate: that is Started.
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 8 }}>
+                      {WAITLIST_STAGES.map((st) => {
+                        const on = stageOf(student) === st;
+                        return (
+                          <TouchableOpacity
+                            key={st}
+                            style={[s.lifecycleBtn, on && { backgroundColor: '#FEF3C7', borderColor: '#92400E' }]}
+                            onPress={() => setWaitlistStage(st)}
+                            disabled={on}
+                            testID={`v2-stage-${st.toLowerCase()}`}
+                          >
+                            <Text style={[s.lifecycleBtnText, on && { color: '#92400E' }]}>{st}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
 
                 <Text style={[s.sectionLabel, { marginTop: 16 }]}>Set status manually</Text>
                 <Text style={s.lifecycleHint}>

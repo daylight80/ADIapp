@@ -4,6 +4,7 @@ import { daysUntil, describeDays, itemDisplayName, needsAttention, type Deadline
 import { isHavingLessons, hasLowCredit } from './studentGlance';
 import { formatHoursLabel } from './voucher';
 import type { BriefItem } from './roadBriefing';
+import { stageOf, daysInStage, WAITING_NUDGE_DAYS } from './waitlistPipeline';
 
 /** Active pupil with no lesson this long and nothing booked is flagged as inactive. */
 export const INACTIVE_AFTER_DAYS = 14;
@@ -14,9 +15,9 @@ export const CANCELLED_LOOKBACK_DAYS = 7;
 /** Deadlines overdue or due within this many days (matches the reminder emails). */
 export const DEADLINE_WITHIN_DAYS = 30;
 
-export type ActionGroup = 'overdue_lessons' | 'road' | 'cancellations' | 'tests' | 'deadlines' | 'low_wallet' | 'inactive';
+export type ActionGroup = 'overdue_lessons' | 'road' | 'cancellations' | 'tests' | 'deadlines' | 'low_wallet' | 'inactive' | 'waiting_list';
 
-export const GROUP_ORDER: ActionGroup[] = ['overdue_lessons', 'road', 'cancellations', 'tests', 'deadlines', 'low_wallet', 'inactive'];
+export const GROUP_ORDER: ActionGroup[] = ['overdue_lessons', 'road', 'cancellations', 'tests', 'deadlines', 'low_wallet', 'inactive', 'waiting_list'];
 
 export const GROUP_TITLES: Record<ActionGroup, string> = {
   overdue_lessons: 'Lessons to wrap up',
@@ -26,6 +27,7 @@ export const GROUP_TITLES: Record<ActionGroup, string> = {
   deadlines: 'Your deadlines',
   low_wallet: 'Low prepaid hours',
   inactive: 'Pupils gone quiet',
+  waiting_list: 'Waiting list',
 };
 
 /** Where tapping an item goes. */
@@ -44,7 +46,10 @@ export type ActionItem = {
   target: ActionTarget;
 };
 
-type StudentLike = { id: string; name: string; status?: string | null; test_date?: string | null; next_lesson?: string | null };
+type StudentLike = {
+  id: string; name: string; status?: string | null; test_date?: string | null; next_lesson?: string | null;
+  waitlist_stage?: string | null; waitlist_stage_at?: string | null;
+};
 type LessonLike = {
   id: string; student_id: string; date: string; start_time: string; end_time: string; status?: string | null;
   cancellation_charge?: number | null;
@@ -182,6 +187,28 @@ export function buildActionItems(input: {
       detail: last ? `Last lesson ${gap} days ago.` : `No lesson in the last ${CHECKED_WINDOW_DAYS} days.`,
       target: { screen: 'student', studentId: s.id },
     });
+  }
+
+  // 7. Waiting list: left in Waiting for a week, or marked Booked with no lesson in the diary.
+  for (const s of students) {
+    const stage = stageOf(s);
+    if (stage === 'Waiting') {
+      const d = daysInStage(s, now);
+      if (d === null || d < WAITING_NUDGE_DAYS) continue;
+      items.push({
+        key: `waiting-${s.id}`, group: 'waiting_list', urgent: false,
+        title: `${s.name}: waiting ${d} days`,
+        detail: 'Not contacted yet. Get in touch, or move them along.',
+        target: { screen: 'student', studentId: s.id },
+      });
+    } else if (stage === 'Booked' && !booked.has(s.id)) {
+      items.push({
+        key: `waitbooked-${s.id}`, group: 'waiting_list', urgent: false,
+        title: `${s.name}: marked Booked, no lesson in the diary`,
+        detail: 'Add their first lesson, or move them back.',
+        target: { screen: 'student', studentId: s.id },
+      });
+    }
   }
 
   // Urgent first, then by group order, keeping each group's own order.

@@ -3,7 +3,8 @@ import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, RefreshCw, WifiOff, CheckCircle2, AlertTriangle } from 'lucide-react-native';
-import { usePendingQueue, useIsOnline, flushQueue } from '../src/offlineSync';
+import { usePendingQueue, useIsOnline, flushQueue, resolveConflict } from '../src/offlineSync';
+import { conflictLines } from '../src/offlineConflict';
 
 /**
  * Sync status screen — first slice of offline-first sync (25 Aug 2026),
@@ -52,7 +53,7 @@ export default function SyncStatusScreen() {
     }
   };
 
-  const failedCount = queue.filter((w) => w.lastError).length;
+  const failedCount = queue.filter((w) => w.lastError || w.conflict).length;
 
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
@@ -125,12 +126,26 @@ export default function SyncStatusScreen() {
           <View style={{ marginTop: 20, gap: 8 }}>
             <Text style={s.sectionLabel}>Pending changes</Text>
             {queue.map((w) => (
-              <View key={w.id} style={[s.pendingRow, w.lastError && s.pendingRowError]} testID={`pending-${w.id}`}>
+              <View key={w.id} style={[s.pendingRow, (w.lastError || w.conflict) && s.pendingRowError]} testID={`pending-${w.id}`}>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={s.pendingLabel} numberOfLines={1}>{w.label}</Text>
                   <Text style={s.pendingMeta}>
                     Queued {new Date(w.queuedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                   </Text>
+                  {w.conflict && (
+                    <View style={{ marginTop: 6, gap: 4 }} testID={`conflict-${w.id}`}>
+                      <Text style={s.pendingError}>Changed on another device, so nothing was overwritten.</Text>
+                      {conflictLines(w).map((line) => <Text key={line} style={s.pendingMeta}>{line}</Text>)}
+                      <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
+                        <TouchableOpacity style={s.keepBtn} onPress={() => resolveConflict(w.id, 'mine')} testID={`keep-mine-${w.id}`}>
+                          <Text style={s.keepBtnText}>Keep mine</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={s.keepBtnAlt} onPress={() => resolveConflict(w.id, 'theirs')} testID={`use-theirs-${w.id}`}>
+                          <Text style={s.keepBtnAltText}>Use theirs</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
                   {w.lastError && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 5 }}>
                       <AlertTriangle size={13} color={C.dangerText} />
@@ -181,5 +196,9 @@ const s = StyleSheet.create({
   pendingRowError: { borderColor: C.dangerBorder, backgroundColor: C.dangerBg },
   pendingLabel: { fontFamily: 'Archivo_700Bold', fontSize: 14.5, color: C.text },
   pendingMeta: { fontFamily: 'Barlow_500Medium', fontSize: 12, color: C.textMuted2, marginTop: 2 },
+  keepBtn: { flex: 1, minHeight: 40, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  keepBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: '#fff' },
+  keepBtnAlt: { flex: 1, minHeight: 40, borderRadius: 10, borderWidth: 1.5, borderColor: C.primary, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  keepBtnAltText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: C.primary },
   pendingError: { fontFamily: 'Barlow_500Medium', fontSize: 12, color: C.dangerText, flex: 1 },
 });

@@ -24,6 +24,7 @@ import { SetupChecklistCard } from '../src/SetupChecklistCard';
 import { PaywallModal } from '../src/PaywallModal';
 import { Crown, ChevronRight, Users, CalendarDays, Receipt, Lock, Eye, EyeOff, LayoutDashboard } from 'lucide-react-native';
 import { usePendingSyncCount } from '../src/offlineSync';
+import { OfflineBanner } from '../src/OfflineBanner';
 
 /**
  * Instructor Home — redesigned visual direction from the Claude Design
@@ -275,6 +276,7 @@ export default function InstructorHomeV2Screen() {
           {/* Pending sync banner — only shown when there's actually
               something queued, so it never clutters the screen for the
               common case of a normal connection. */}
+          <OfflineBanner showPending={false} />
           {pendingSyncCount > 0 && (
             <TouchableOpacity
               style={s.syncBanner}

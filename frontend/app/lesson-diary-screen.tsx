@@ -3,7 +3,9 @@ import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Modal } fr
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react-native';
-import { useLessonsForWeek, useLessonsForMonth, useStudents, patchLesson, useAvailabilityBlocks } from '../src/useSupabaseData';
+import { useLessonsForWeek, useLessonsForMonth, useStudents, useAvailabilityBlocks } from '../src/useSupabaseData';
+import { patchLessonOfflineAware } from '../src/offlineSync';
+import { OfflineBanner } from '../src/OfflineBanner';
 import { BottomNav } from '../src/BottomNav';
 import { LessonToolsSheet } from '../src/LessonToolsSheet';
 import { Lesson, AvailabilityBlock, getInstructorHourlyRate } from '../src/supabaseDb';
@@ -144,7 +146,7 @@ export default function LessonDiaryV2Screen() {
   } | null>(null);
 
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
-  const { lessons, error: weekError, refresh: refreshWeek } = useLessonsForWeek(weekStart);
+  const { lessons, error: weekError, refresh: refreshWeek, offline: weekSaved } = useLessonsForWeek(weekStart);
   // Same weekStart window as lessons — covers Day and Week views. Month
   // view doesn't render these yet (a reasonable next step, not this pass).
   const { blocks: availBlocks } = useAvailabilityBlocks(weekStart, addDays(weekStart, 7));
@@ -169,7 +171,7 @@ export default function LessonDiaryV2Screen() {
 
   const monthGridStart = useMemo(() => startOfMonthGrid(selectedDate), [selectedDate]);
   const monthGridEnd = useMemo(() => endOfMonthGrid(selectedDate), [selectedDate]);
-  const { lessons: monthLessons, error: monthError, refresh: refreshMonth } = useLessonsForMonth(monthGridStart, monthGridEnd);
+  const { lessons: monthLessons, error: monthError, refresh: refreshMonth, offline: monthSaved } = useLessonsForMonth(monthGridStart, monthGridEnd);
   // Which load matters depends on the view. A failed load must not read as an empty diary.
   const loadError = viewMode === 'month' ? monthError : weekError;
   const retryLoad = viewMode === 'month' ? refreshMonth : refreshWeek;
@@ -311,7 +313,11 @@ export default function LessonDiaryV2Screen() {
       // value via combineToISO), so omitting it here silently wrote an
       // empty patch and the drag appeared to move the lesson on screen
       // while the saved time never actually changed.
-      await patchLesson(l.id, { date: l.date, start_time: newStartTime, end_time: newEndTime });
+      await patchLessonOfflineAware(
+        l.id,
+        { date: l.date, start_time: newStartTime, end_time: newEndTime },
+        `Move lesson ${l.date} ${l.start_time} to ${newStartTime}`,
+      );
       return true;
     } catch (e: any) {
       Alert.alert('Could not reschedule', e?.message || 'Please try again.');
@@ -343,6 +349,7 @@ export default function LessonDiaryV2Screen() {
   return (
     <SafeAreaView style={s.outer} edges={['top']}>
       <View style={s.phoneSurface}>
+        <OfflineBanner savedCopy={weekSaved || monthSaved} />
         <View style={s.header}>
           <View style={{ flex: 1 }}>
             {/* Month name here must track selectedDate, not weekStart —

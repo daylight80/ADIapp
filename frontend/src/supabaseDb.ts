@@ -1008,6 +1008,13 @@ export async function listLessons(): Promise<Lesson[]> {
   return (data || []).map(lessonFromRow);
 }
 
+/** One lesson by id, or null when it no longer exists (deleted elsewhere). */
+export async function getLessonById(id: string): Promise<Lesson | null> {
+  const { data, error } = await supabase.from('lessons').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return data ? lessonFromRow(data) : null;
+}
+
 export async function listLessonsForStudent(studentId: string): Promise<Lesson[]> {
   const { data, error } = await supabase
     .from('lessons')

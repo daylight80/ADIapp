@@ -3,6 +3,14 @@ import { renderHook, act } from '@testing-library/react-native';
 // The hooks talk to Supabase through these two modules; replace both so no
 // real client is created and each test controls exactly what a load does.
 jest.mock('../supabaseClient', () => ({ supabase: {} }));
+// Online, with no saved diary copy: these tests are about the live load path.
+jest.mock('@react-native-community/netinfo', () => ({ __esModule: true, default: { fetch: jest.fn(async () => ({ isConnected: true })) } }));
+jest.mock('../diaryCache', () => ({
+  cacheWindow: jest.fn(async () => {}),
+  readWindow: jest.fn(async () => ({ lessons: [], savedAt: null })),
+  overlayPending: (l: unknown[]) => l,
+}));
+jest.mock('../offlineQueue', () => ({ getPendingQueue: jest.fn(async () => []) }));
 jest.mock('../supabaseDb', () => ({
   listStudents: jest.fn(),
   getStudent: jest.fn(),
@@ -18,7 +26,7 @@ const mocked = db as unknown as {
 };
 
 const never = () => new Promise<never>(() => {});
-const flush = () => act(async () => { await Promise.resolve(); });
+const flush = () => act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); });
 
 beforeEach(() => {
   jest.useFakeTimers();

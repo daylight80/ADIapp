@@ -4,7 +4,7 @@ import { PickupPlacesCard } from '../src/PickupPlacesCard';
 import { GuardianCard } from '../src/GuardianCard';
 import { validateGuardian } from '../src/guardianDetails';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, TextInput, Modal } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, TextInput, Modal, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Lock, FileText, Download, X, Flag } from 'lucide-react-native';
@@ -28,6 +28,7 @@ import { isPaidTier, isProTier, tierById } from '../src/tiers';
 import { formatHours, isLowCredit } from '../src/walletDisplay';
 import { instructorAgreementLine, agreementStatus, mediaConsentLine } from '../src/pupilAgreement';
 import { WAITLIST_STAGES, stageOf, stageSummary, type WaitlistStage } from '../src/waitlistPipeline';
+import { telUrl, smsUrl } from '../src/enquiries';
 import { manualStatusMoves, manualStatusChoices, manualStatusConfirm, statusChangeMessage, type LifecycleStatus } from '../src/studentLifecycle';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
 import { openSmsComposer } from '../src/tools';
@@ -920,6 +921,14 @@ export default function StudentProfileV2Screen() {
                           </TouchableOpacity>
                         );
                       })}
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 7, marginTop: 8 }}>
+                      <TouchableOpacity style={[s.lifecycleBtn, !telUrl(student.phone) && { opacity: 0.35 }]} disabled={!telUrl(student.phone)} onPress={() => Linking.openURL(telUrl(student.phone) as string).catch(() => {})} testID="v2-waitlist-call">
+                        <Text style={s.lifecycleBtnText}>Call</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[s.lifecycleBtn, !smsUrl(student.phone) && { opacity: 0.35 }]} disabled={!smsUrl(student.phone)} onPress={() => Linking.openURL(smsUrl(student.phone) as string).catch(() => {})} testID="v2-waitlist-text">
+                        <Text style={s.lifecycleBtnText}>Text</Text>
+                      </TouchableOpacity>
                     </View>
                   </View>
                 )}

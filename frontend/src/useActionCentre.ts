@@ -7,6 +7,8 @@ import type { DeadlineItem } from './deadlines';
 import { useStudents, useLessonsBetween } from './useSupabaseData';
 import { buildActionItems, CHECKED_WINDOW_DAYS, AHEAD_WINDOW_DAYS, type ActionItem } from './actionCentre';
 import { useRoadBriefing } from './useRoadBriefing';
+import { listOpenEnquiries } from './enquiriesDb';
+import type { Enquiry } from './enquiries';
 
 /**
  * Everything the Action Centre needs, loaded once and turned into the list. Used by both the Home card and the
@@ -48,12 +50,20 @@ export function useActionCentre(): { items: ActionItem[]; loading: boolean } {
     return () => { alive = false; };
   }, [paid]));
 
+  // Open enquiries, for follow-up nudges. A failed load just leaves them out.
+  const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
+  useFocusEffect(useCallback(() => {
+    let alive = true;
+    listOpenEnquiries().then((e) => { if (alive) setEnquiries(e); }).catch(() => {});
+    return () => { alive = false; };
+  }, []));
+
   // Today's road briefing (paid plans): its warnings join the list.
   const { briefing } = useRoadBriefing(lessons, students, paid);
 
   const items = useMemo(
-    () => buildActionItems({ now: new Date(), students, lessons, hoursBalances, deadlines, roadItems: briefing?.items ?? [] }),
-    [students, lessons, hoursBalances, deadlines, briefing],
+    () => buildActionItems({ now: new Date(), students, lessons, hoursBalances, deadlines, roadItems: briefing?.items ?? [], enquiries }),
+    [students, lessons, hoursBalances, deadlines, briefing, enquiries],
   );
   return { items, loading: studentsLoading || lessonsLoading };
 }

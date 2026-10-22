@@ -286,9 +286,14 @@ export default function StudentsV2Screen() {
       <View style={s.headerBlock}>
         <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
           <Text style={s.title}>Students</Text>
-          <Text style={s.countLine}>
-            {filtered.length} of {students.length}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 12 }}>
+            <TouchableOpacity onPress={() => router.push('/enquiries-screen' as any)} testID="v2-open-enquiries">
+              <Text style={s.enquiriesLink}>Enquiries</Text>
+            </TouchableOpacity>
+            <Text style={s.countLine}>
+              {filtered.length} of {students.length}
+            </Text>
+          </View>
         </View>
 
         <View style={s.searchWrap}>
@@ -726,6 +731,7 @@ const s = StyleSheet.create({
   methodTitle: { fontFamily: 'Archivo_700Bold', fontSize: 15, color: C.text },
   methodSub: { fontFamily: 'Barlow_400Regular', fontSize: 12.5, lineHeight: 17.5, color: C.textMuted },
 
+  enquiriesLink: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: C.primary, textDecorationLine: 'underline' },
   fieldLabel: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase', color: C.faint, marginTop: 12, marginBottom: 5 },
   fieldInput: { height: 46, paddingHorizontal: 13, borderWidth: 1, borderColor: C.border, borderRadius: 12, backgroundColor: '#fff', fontFamily: 'Barlow_400Regular', fontSize: 14, color: C.text },
   fieldHelper: { fontFamily: 'Barlow_400Regular', fontSize: 11.5, lineHeight: 16, color: C.textMuted, marginTop: 5 },

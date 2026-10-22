@@ -201,7 +201,7 @@ export async function getStudent(id: string): Promise<Student | undefined> {
 // Find the school + instructor IDs for the currently signed-in user.
 // Used by addStudent — students must always be inserted with the caller's
 // school_id and instructor_id so RLS lets the row through.
-async function ownContext() {
+export async function ownContext() {
   const { data: sessionData } = await supabase.auth.getSession();
   const user = sessionData.session?.user;
   const uid = user?.id;

@@ -1715,6 +1715,8 @@ export type BlockBooking = {
   hours_paid: number;
   hours_used: number;
   amount: number;
+  /** The money these hours stand for: their own amount, or the payment they were added with (Migration 089). */
+  money?: number;
   purchased_at: string;
   notes?: string;
 };
@@ -1744,11 +1746,20 @@ export async function listHoursBalanceForStudents(studentIds: string[]): Promise
 }
 
 export async function listBlockBookings(studentId: string): Promise<BlockBooking[]> {
-  const { data, error } = await supabase
-    .from('block_bookings')
+  // The view adds money_gbp (hours added with a payment carry that payment's amount, Migration 089). If it can't be
+  // read, the plain table still gives the hours.
+  let { data, error } = await supabase
+    .from('block_bookings_with_money')
     .select('*')
     .eq('student_id', studentId)
     .order('purchased_at', { ascending: false });
+  if (error) {
+    ({ data, error } = await supabase
+      .from('block_bookings')
+      .select('*')
+      .eq('student_id', studentId)
+      .order('purchased_at', { ascending: false }));
+  }
   if (error) throw error;
   return (data || []).map((r: any) => ({
     id: r.id,
@@ -1756,6 +1767,7 @@ export async function listBlockBookings(studentId: string): Promise<BlockBooking
     hours_paid: Number(r.hours_paid),
     hours_used: Number(r.hours_used),
     amount: Number(r.amount),
+    money: Number(r.money_gbp ?? r.amount),
     purchased_at: r.purchased_at,
     notes: r.notes ?? undefined,
   }));
@@ -1769,6 +1781,8 @@ export async function addBlockBooking(input: {
   amount: number;
   notes?: string;
   payment_method?: 'bank_transfer' | 'card' | 'cash' | null;
+  /** The payment these hours were added with, so the Wallet can show its amount (Migration 089). */
+  payment_id?: string | null;
 }): Promise<BlockBooking> {
   const { data, error } = await supabase
     .from('block_bookings')

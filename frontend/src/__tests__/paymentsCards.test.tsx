@@ -53,7 +53,7 @@ const derived = { id: 'd1', amount: 72, method: 'bank_transfer', paid_at: '2026-
 const voided = { id: 'v1', amount: 20, method: 'cash', paid_at: '2026-10-08T10:00:00Z', source: 'manual', reference: null, note: null, voided_at: '2026-10-09T00:00:00Z' };
 
 beforeEach(() => {
-  mockRecord.mockReset().mockResolvedValue({});
+  mockRecord.mockReset().mockResolvedValue({ id: 'pay-1' });
   mockVoid.mockReset().mockResolvedValue({});
   mockUpdateDate.mockReset().mockResolvedValue({});
   mockBump.mockReset();
@@ -160,6 +160,8 @@ describe('instructor payments card', () => {
       await waitFor(() => expect(mockPurchase).toHaveBeenCalledTimes(1));
       expect(mockRecord.mock.calls[0][0]).toMatchObject({ amount: 144 });
       expect(mockPurchase.mock.calls[0][0]).toMatchObject({ student_id: 's1', hours_paid: 4, amount: 0, payment_method: 'bank_transfer' });
+      // The hours are linked to the payment they were added with, so the Wallet can show its amount.
+      expect(mockPurchase.mock.calls[0][0].payment_id).toBe('pay-1');
     });
 
     it('lets the instructor pick the package that was paid for: its hours are added and its price becomes the amount', async () => {

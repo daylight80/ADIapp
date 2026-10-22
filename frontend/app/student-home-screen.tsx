@@ -8,6 +8,7 @@ import { SlotAlertsCard } from '../src/SlotAlertsCard';
 import { PupilMockResultCard } from '../src/PupilMockResultCard';
 import { PupilSummariesCard, usePupilSummaries } from '../src/PupilSummariesCard';
 import { usePupilGoal } from '../src/usePupilGoal';
+import { SignInFasterCard } from '../src/SignInFasterCard';
 import { isPaidTier, tierById } from '../src/tiers';
 import {
   useStudentByAuthId, useStudentByEmail, useCompetencies, useLessonsForStudent,
@@ -221,6 +222,8 @@ export default function StudentAppV2Screen() {
               <Text style={s.agreementCta}>Review and sign →</Text>
             </TouchableOpacity>
           )}
+
+          <SignInFasterCard />
 
           <View style={s.nextLessonCard} testID="v2-student-next-lesson">
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>

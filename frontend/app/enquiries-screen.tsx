@@ -7,7 +7,8 @@ import { useRouter } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
 import { BottomSheet } from '../src/BottomSheet';
 import { useAuth } from '../src/AuthContext';
-import { canAddStudent } from '../src/tiers';
+import { canAddStudent, isPaidTier } from '../src/tiers';
+import { LockedFeature } from '../src/ui';
 import { useStudents } from '../src/useSupabaseData';
 import { useEnquiries } from '../src/useEnquiries';
 import { addEnquiry, updateEnquiry, listContacts, logContact, closeEnquiry, convertEnquiry } from '../src/enquiriesDb';
@@ -39,6 +40,23 @@ function whenText(iso: string): string {
 }
 
 export default function EnquiriesScreen() {
+  const { user } = useAuth();
+  if (!isPaidTier(user?.tier)) {
+    return (
+      <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+        <LockedFeature
+          variant="fullscreen"
+          title="Enquiries are an ADI Pro feature"
+          subtitle="Keep track of everyone who asks about lessons, and ring or text them from one place. Upgrade to ADI Pro to unlock it."
+          testID="enquiries-locked"
+        />
+      </SafeAreaView>
+    );
+  }
+  return <EnquiriesContent />;
+}
+
+function EnquiriesContent() {
   const router = useRouter();
   const { user } = useAuth();
   const { students } = useStudents();

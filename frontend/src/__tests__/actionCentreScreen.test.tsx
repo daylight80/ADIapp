@@ -10,6 +10,8 @@ jest.mock('react-native-safe-area-context', () => {
   return { SafeAreaView: View };
 });
 
+let mockTier = 'pro';
+jest.mock('../AuthContext', () => ({ useAuth: () => ({ user: { tier: mockTier } }) }));
 const mockHook = { items: [] as any[], loading: false };
 jest.mock('../useActionCentre', () => ({ useActionCentre: () => mockHook }));
 
@@ -24,6 +26,7 @@ beforeEach(() => {
   mockBack.mockReset();
   mockHook.items = [];
   mockHook.loading = false;
+  mockTier = 'pro';
 });
 
 describe('routeForTarget', () => {
@@ -77,5 +80,33 @@ describe('Home card', () => {
     expect(screen.getByText('+ 2 more')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('action-top-k-b'));
     expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/student-lifecycle-screen', params: { id: 'b' } });
+  });
+});
+
+describe('plan gating (Action Centre is an ADI Pro feature)', () => {
+  it('Starter sees a locked screen, and the Action Centre is not even loaded', async () => {
+    mockTier = 'starter';
+    mockHook.items = [item('x', 'tests', 'Sam: test', { screen: 'diary' })];
+    await render(<ActionCentreScreen />);
+    expect(screen.getByTestId('action-centre-locked')).toBeTruthy();
+    expect(screen.queryByTestId('action-centre-screen-summary')).toBeNull();
+  });
+
+  it('Starter gets no Home card', async () => {
+    mockTier = 'starter';
+    await render(<ActionCentreCard />);
+    expect(screen.queryByTestId('home-action-centre')).toBeNull();
+  });
+
+  it.each(['pro', 'franchise'])('%s gets the real screen', async (tier) => {
+    mockTier = tier;
+    await render(<ActionCentreScreen />);
+    expect(screen.getByTestId('action-centre-screen-summary')).toBeTruthy();
+  });
+
+  it.each(['pro', 'franchise'])('%s gets the Home card', async (tier) => {
+    mockTier = tier;
+    await render(<ActionCentreCard />);
+    expect(screen.getByTestId('home-action-centre')).toBeTruthy();
   });
 });

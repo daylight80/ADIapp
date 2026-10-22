@@ -3,6 +3,8 @@ import { Text, TouchableOpacity, View, StyleSheet, ActivityIndicator } from 'rea
 import { useRouter } from 'expo-router';
 import { ListChecks, ChevronRight, CheckCircle2 } from 'lucide-react-native';
 import { useActionCentre } from './useActionCentre';
+import { useAuth } from './AuthContext';
+import { isPaidTier } from './tiers';
 import { actionSummary } from './actionCentre';
 import { routeForTarget } from './actionCentreNav';
 
@@ -10,7 +12,13 @@ import { routeForTarget } from './actionCentreNav';
  * Home card for the Action Centre: how many things need the instructor, the top three, and a way into the full
  * list. Always shown (with an "all caught up" line when there is nothing) so the way in never disappears.
  */
+/** Paid plans only (Action Centre is an ADI Pro feature): Starter sees nothing here and nothing is fetched. */
 export function ActionCentreCard() {
+  const { user } = useAuth();
+  return isPaidTier(user?.tier) ? <ActionCentreCardContent /> : null;
+}
+
+function ActionCentreCardContent() {
   const router = useRouter();
   const { items, loading } = useActionCentre();
   const top = items.slice(0, 3);

@@ -18,6 +18,7 @@ import ai_debriefs
 import address_search
 import billing_helpers
 import student_status
+import lesson_summaries
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -2087,6 +2088,197 @@ async def send_payment_reminder(req: PaymentReminderRequest, sb_user: dict = Dep
             json={"student_id": student["id"], "sent_by_instructor_id": instructor.get("id"), "amount_gbp": round(owes, 2), "channel": channel},
         )
     return PaymentReminderResult(sent=True, channel=channel, owes=round(owes, 2))
+
+
+# =============================================================================
+# Dictated lesson summaries (migration 084). After a lesson the instructor dictates a few sentences (speech to text
+# happens on their phone), we draft a short summary and a plan for the next lesson with Haiku, the instructor edits
+# and approves it, and only then is it saved for the pupil and the pupil told (push, or email when there is no app).
+# Pro and Franchise only, because each draft is an API call. The dictation itself is never stored.
+# =============================================================================
+
+_summary_limits = lesson_summaries.DraftLimits()
+
+
+class SummaryDraftRequest(BaseModel):
+    dictation: str
+
+
+class SummaryDraftResponse(BaseModel):
+    summary: str
+    next_plan: str
+
+
+class SummaryApproveRequest(BaseModel):
+    summary: str
+    next_plan: Optional[str] = None
+
+
+class SummaryApproveResponse(BaseModel):
+    ok: bool
+    notified: Optional[str] = None  # 'push', 'email', or None when the pupil couldn't be reached or was told before
+    updated: bool = False           # True when this replaced a summary the pupil could already see
+
+
+async def _load_lesson_for_summary(sb_user: dict, lesson_id: str) -> Tuple[dict, dict, dict]:
+    """The lesson, its pupil and its instructor, if the caller teaches this lesson on a paid plan."""
+    instructor = await sb_get_instructor_by_auth_user(sb_user["auth_user_id"])
+    if not instructor:
+        raise HTTPException(status_code=403, detail="No instructor profile found for this account.")
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        lr_ = await client_http.get(
+            f"{_sb_rest_base}/lessons", headers=_sb_headers(),
+            params={"id": f"eq.{lesson_id}", "select": "id,instructor_id,student_id,topic,start_time,status", "limit": "1"},
+        )
+        sch = await client_http.get(
+            f"{_sb_rest_base}/driving_schools", headers=_sb_headers(),
+            params={"id": f"eq.{instructor.get('school_id')}", "select": "tier", "limit": "1"},
+        )
+    if lr_.status_code >= 400 or sch.status_code >= 400:
+        raise HTTPException(status_code=500, detail="Could not read that lesson.")
+    rows = lr_.json() or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Lesson not found.")
+    lesson = rows[0]
+    if lesson.get("instructor_id") != instructor["id"]:
+        raise HTTPException(status_code=403, detail="This lesson does not belong to you.")
+    tier = ((sch.json() or [{}])[0] or {}).get("tier")
+    if not lesson_summaries.is_paid_tier(tier):
+        raise HTTPException(status_code=403, detail="Lesson summaries are part of the Pro plan.")
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        sr = await client_http.get(
+            f"{_sb_rest_base}/students", headers=_sb_headers(),
+            params={"id": f"eq.{lesson['student_id']}", "select": "id,school_id,auth_user_id,full_name,email", "limit": "1"},
+        )
+    if sr.status_code >= 400 or not (sr.json() or []):
+        raise HTTPException(status_code=500, detail="Could not read that pupil.")
+    return lesson, sr.json()[0], instructor
+
+
+@api_router.post("/v2/lessons/{lesson_id}/summary/draft", response_model=SummaryDraftResponse)
+async def draft_lesson_summary(lesson_id: str, req: SummaryDraftRequest, sb_user: dict = Depends(get_current_supabase_user)):
+    """Turns the instructor's dictated remarks into a draft summary and next-lesson plan. Saves nothing."""
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured on backend.")
+    try:
+        dictation = lesson_summaries.validate_dictation(req.dictation)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    lesson, student, instructor = await _load_lesson_for_summary(sb_user, lesson_id)
+    if not _summary_limits.allow(sb_user["auth_user_id"]):
+        raise HTTPException(status_code=429, detail="That's a lot of summaries in a short time. Please wait a little and try again.")
+
+    system_msg, user_msg = lesson_summaries.build_request(student.get("full_name"), lesson.get("topic"), dictation)
+    try:
+        import anthropic
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"anthropic package not installed: {e}")
+    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    try:
+        response = await client.messages.create(
+            model=AI_MODEL, max_tokens=AI_MAX_TOKENS, output_config=AI_OUTPUT_CONFIG,
+            system=system_msg, messages=[{"role": "user", "content": user_msg}],
+        )
+    except Exception as e:
+        logging.exception("[lessons/summary] Anthropic call failed")
+        raise HTTPException(status_code=502, detail=f"Summary drafting failed: {e}")
+    text = "".join(block.text for block in response.content if block.type == "text").strip()
+    try:
+        draft = lesson_summaries.parse_draft(text)
+    except ValueError:
+        raise HTTPException(status_code=502, detail="The draft came back unreadable. Please try again.")
+    return SummaryDraftResponse(summary=draft["summary"], next_plan=draft["next_plan"])
+
+
+async def _notify_pupil_of_summary(student: dict, instructor: dict, summary: str, next_plan: Optional[str]) -> Optional[str]:
+    """Tell the pupil by push (no text on the lock screen), or by email with the summary when there is no app."""
+    import lesson_reminders as lr_mod
+    auth_user_id = student.get("auth_user_id")
+    if auth_user_id:
+        tokens = await lr_mod._push_tokens_for_user(auth_user_id)
+        if tokens:
+            msg = lesson_summaries.push_message(instructor.get("full_name"))
+            result = await lr_mod._send_push([
+                {"to": t, "title": msg["title"], "body": msg["body"], "sound": "default", "data": {"kind": "lesson_summary"}}
+                for t in tokens
+            ])
+            if result["accepted"] > 0:
+                return "push"
+    to = (student.get("email") or "").strip()
+    if email_service.looks_like_email(to) and email_service.is_configured():
+        subject, html_body, text_body = email_service.render_lesson_summary_email(
+            student_name=student.get("full_name"), instructor_name=instructor.get("full_name"),
+            summary=summary, next_plan=next_plan,
+        )
+        payload = email_service.build_payload(
+            to=to, subject=subject, html_body=html_body, text_body=text_body,
+            from_display_name=instructor.get("full_name") or "Your instructor",
+        )
+        try:
+            async with lr_mod._client() as client:
+                await email_service.send_email(payload, client=client)
+            return "email"
+        except email_service.EmailSendError as e:
+            logging.warning("[lessons/summary] email to pupil %s failed: %s", student.get("id"), e)
+    return None
+
+
+@api_router.post("/v2/lessons/{lesson_id}/summary", response_model=SummaryApproveResponse)
+async def approve_lesson_summary(lesson_id: str, req: SummaryApproveRequest, sb_user: dict = Depends(get_current_supabase_user)):
+    """Saves what the instructor approved for the pupil to read, and tells the pupil the first time only."""
+    try:
+        summary, next_plan = lesson_summaries.validate_approved(req.summary, req.next_plan)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    lesson, student, instructor = await _load_lesson_for_summary(sb_user, lesson_id)
+
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        ex = await client_http.get(
+            f"{_sb_rest_base}/lesson_summaries", headers=_sb_headers(),
+            params={"lesson_id": f"eq.{lesson_id}", "select": "id,notified_at", "limit": "1"},
+        )
+    if ex.status_code >= 400:
+        raise HTTPException(status_code=500, detail="Could not check for an earlier summary.")
+    existing = (ex.json() or [None])[0]
+    already_told = bool(existing and existing.get("notified_at"))
+
+    row = {
+        "lesson_id": lesson_id, "student_id": student["id"], "school_id": student.get("school_id"),
+        "instructor_id": instructor["id"], "summary": summary, "next_plan": next_plan,
+        "approved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        if existing:
+            w = await client_http.patch(f"{_sb_rest_base}/lesson_summaries", headers={**_sb_headers(), "Prefer": "return=minimal"},
+                                        params={"id": f"eq.{existing['id']}"}, json={k: v for k, v in row.items() if k != "lesson_id"})
+        else:
+            w = await client_http.post(f"{_sb_rest_base}/lesson_summaries", headers={**_sb_headers(), "Prefer": "return=minimal"}, json=row)
+    if w.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Could not save the summary: {w.text[:200]}")
+
+    if already_told:
+        return SummaryApproveResponse(ok=True, notified=None, updated=True)
+    channel = await _notify_pupil_of_summary(student, instructor, summary, next_plan)
+    if channel:
+        async with httpx.AsyncClient(timeout=10.0) as client_http:
+            await client_http.patch(
+                f"{_sb_rest_base}/lesson_summaries", headers={**_sb_headers(), "Prefer": "return=minimal"},
+                params={"lesson_id": f"eq.{lesson_id}"},
+                json={"notified_at": datetime.now(timezone.utc).isoformat(), "notified_channel": channel},
+            )
+    return SummaryApproveResponse(ok=True, notified=channel, updated=bool(existing))
+
+
+@api_router.delete("/v2/lessons/{lesson_id}/summary", response_model=SummaryApproveResponse)
+async def withdraw_lesson_summary(lesson_id: str, sb_user: dict = Depends(get_current_supabase_user)):
+    """Removes a summary so the pupil no longer sees it."""
+    await _load_lesson_for_summary(sb_user, lesson_id)
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        d = await client_http.delete(f"{_sb_rest_base}/lesson_summaries", headers={**_sb_headers(), "Prefer": "return=minimal"},
+                                     params={"lesson_id": f"eq.{lesson_id}"})
+    if d.status_code >= 400:
+        raise HTTPException(status_code=500, detail="Could not remove the summary.")
+    return SummaryApproveResponse(ok=True)
 
 
 # =============================================================================

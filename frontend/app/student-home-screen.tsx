@@ -6,6 +6,7 @@ import { useAuth } from '../src/AuthContext';
 import { BottomNav } from '../src/BottomNav';
 import { SlotAlertsCard } from '../src/SlotAlertsCard';
 import { PupilMockResultCard } from '../src/PupilMockResultCard';
+import { PupilSummariesCard, usePupilSummaries } from '../src/PupilSummariesCard';
 import { isPaidTier, tierById } from '../src/tiers';
 import {
   useStudentByAuthId, useStudentByEmail, useCompetencies, useLessonsForStudent,
@@ -99,6 +100,7 @@ export default function StudentAppV2Screen() {
 
   const { badges } = useBadges(student?.id);
   const { logs: sbReflections } = useReflectiveLogs(supabaseStudent ? student?.id : undefined);
+  const instructorSummaries = usePupilSummaries(!!supabaseStudent);
   const { attempts: mockTestAttempts } = useMockTestAttempts(supabaseStudent?.id);
 
   const [reflectOpen, setReflectOpen] = useState(false);
@@ -355,6 +357,8 @@ export default function StudentAppV2Screen() {
           )}
 
           <PupilMockResultCard attempt={mockTestAttempts[0]} />
+
+          <PupilSummariesCard summaries={instructorSummaries} />
 
           <SlotAlertsCard enabled={supabaseStudent?.slot_alerts !== false} />
 

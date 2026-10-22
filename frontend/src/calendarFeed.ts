@@ -19,10 +19,10 @@ function backendBase(): string {
   return String(raw).replace(/\/+$/, '');
 }
 
-/** Absolute, share-ready URL the user can paste into Apple/Google Calendar. */
-export function absoluteFeedUrl(status: CalendarStatus): string | null {
+/** Absolute, share-ready URL the user can paste into Apple/Google Calendar. `travel` adds a "Travel to ..." entry before each lesson. */
+export function absoluteFeedUrl(status: CalendarStatus, opts: { travel?: boolean } = {}): string | null {
   if (!status.enabled || !status.feed_path) return null;
-  return `${backendBase()}${status.feed_path}`;
+  return `${backendBase()}${status.feed_path}${opts.travel ? '?travel=1' : ''}`;
 }
 
 async function authedRequest(method: 'GET' | 'POST', path: string): Promise<CalendarStatus> {

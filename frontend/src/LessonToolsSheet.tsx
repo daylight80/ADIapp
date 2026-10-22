@@ -17,8 +17,7 @@ import {
   PoundSterling,
   MapPin,
   Lock,
-  Phone,
-} from 'lucide-react-native';
+  Phone, CalendarPlus } from 'lucide-react-native';
 import { theme } from './theme';
 import { mockDb } from './mockDb';
 import { Lesson, Student, listWaitingList, type WaitingListEntry, studentAppUsageWarning } from './supabaseDb';
@@ -30,6 +29,7 @@ import { useAuth } from './AuthContext';
 import { isPaidTier, tierById } from './tiers';
 import { PaywallModal } from './PaywallModal';
 import { LessonSummarySheet } from './LessonSummarySheet';
+import { googleCalendarUrl, lessonCalendarEvent } from './googleCalendarLink';
 import { SlotAlertLine } from './SlotAlertLine';
 import { queueLessonWrite, useIsOnline } from './offlineSync';
 import { openNavigation, openSmsComposer } from './tools';
@@ -702,6 +702,21 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
                 >
                   {paid ? <MapPin size={18} color={theme.colors.primary} /> : <Lock size={16} color={theme.colors.textMuted} />}
                   <Text style={[styles.recordRouteText, !paid && styles.recordRouteTextLocked]}>Record route for this lesson</Text>
+                </TouchableOpacity>
+
+                {/* Add this lesson to Google Calendar straight away (Google's own event page, nothing to link). Open to every
+                    plan: unlike the subscribed calendar feed, which Google refreshes only every 12 to 24 hours. */}
+                <TouchableOpacity
+                  style={styles.recordRouteBtn}
+                  onPress={() => {
+                    const ev = lessonCalendarEvent(lesson as any, student.name, pickupAddress);
+                    if (!ev) { Alert.alert('Can\u2019t add this lesson', 'Its start and end times could not be read.'); return; }
+                    Linking.openURL(googleCalendarUrl(ev)).catch(() => Alert.alert('Could not open Google Calendar', 'Please try again.'));
+                  }}
+                  testID="btn-add-to-google-calendar"
+                >
+                  <CalendarPlus size={18} color={theme.colors.primary} />
+                  <Text style={styles.recordRouteText}>Add to Google Calendar</Text>
                 </TouchableOpacity>
 
                 {/* Dictated summary for the pupil: speak a few sentences, review the draft, approve and send.

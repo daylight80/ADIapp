@@ -5,6 +5,7 @@ export function routeForTarget(target: ActionTarget): { pathname: string; params
   switch (target.screen) {
     case 'student': return { pathname: '/student-lifecycle-screen', params: { id: target.studentId } };
     case 'deadlines': return { pathname: '/deadlines-screen' };
+    case 'enquiries': return { pathname: '/enquiries-screen' };
     case 'diary':
     default: return { pathname: '/lesson-diary-screen' };
   }

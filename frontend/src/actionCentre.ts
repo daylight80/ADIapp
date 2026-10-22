@@ -5,6 +5,7 @@ import { isHavingLessons, hasLowCredit } from './studentGlance';
 import { formatHoursLabel } from './voucher';
 import type { BriefItem } from './roadBriefing';
 import { stageOf, daysInStage, WAITING_NUDGE_DAYS } from './waitlistPipeline';
+import { daysSince, ENQUIRY_UNCONTACTED_DAYS, ENQUIRY_FOLLOW_UP_DAYS, isOpen as enquiryIsOpen, type Enquiry } from './enquiries';
 
 /** Active pupil with no lesson this long and nothing booked is flagged as inactive. */
 export const INACTIVE_AFTER_DAYS = 14;
@@ -34,7 +35,8 @@ export const GROUP_TITLES: Record<ActionGroup, string> = {
 export type ActionTarget =
   | { screen: 'student'; studentId: string }
   | { screen: 'diary'; date?: string }
-  | { screen: 'deadlines' };
+  | { screen: 'deadlines' }
+  | { screen: 'enquiries' };
 
 export type ActionItem = {
   key: string;
@@ -87,8 +89,10 @@ export function buildActionItems(input: {
   deadlines: DeadlineItem[];
   /** Today's road briefing lines (late or tight changeovers, weather), for paid plans. */
   roadItems?: BriefItem[];
+  /** Open enquiries (people who are not pupils yet), for follow-up nudges. */
+  enquiries?: Pick<Enquiry, 'id' | 'name' | 'stage' | 'created_at' | 'last_contacted_at' | 'converted_at' | 'closed_at'>[];
 }): ActionItem[] {
-  const { now, students, lessons, hoursBalances, deadlines, roadItems = [] } = input;
+  const { now, students, lessons, hoursBalances, deadlines, roadItems = [], enquiries = [] } = input;
   const items: ActionItem[] = [];
   const nameOf = new Map(students.map((s) => [s.id, s.name]));
   const who = (id: string) => nameOf.get(id) || 'A pupil';
@@ -207,6 +211,30 @@ export function buildActionItems(input: {
         title: `${s.name}: marked Booked, no lesson in the diary`,
         detail: 'Add their first lesson, or move them back.',
         target: { screen: 'student', studentId: s.id },
+      });
+    }
+  }
+
+  // 8. Enquiries: not contacted after two days, or contacted a week ago with no booking since.
+  for (const q of enquiries) {
+    if (!enquiryIsOpen(q) || q.stage === 'Booked') continue;
+    if (q.stage === 'Waiting') {
+      const d = daysSince(q.created_at, now);
+      if (d === null || d < ENQUIRY_UNCONTACTED_DAYS) continue;
+      items.push({
+        key: `enquiry-${q.id}`, group: 'waiting_list', urgent: false,
+        title: `${q.name}: enquiry ${d} days old`,
+        detail: 'Not contacted yet. Ring or text them.',
+        target: { screen: 'enquiries' },
+      });
+    } else {
+      const d = daysSince(q.last_contacted_at, now);
+      if (d === null || d < ENQUIRY_FOLLOW_UP_DAYS) continue;
+      items.push({
+        key: `enquiry-${q.id}`, group: 'waiting_list', urgent: false,
+        title: `${q.name}: follow up`,
+        detail: `Last contact ${d} days ago and no booking yet.`,
+        target: { screen: 'enquiries' },
       });
     }
   }

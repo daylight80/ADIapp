@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet, Alert, Platform } from 'react-native';
+import { Mic, Square } from 'lucide-react-native';
 import { BottomSheet } from './BottomSheet';
+import { useSpeechDictation } from './speechDictation';
 import { theme } from './theme';
 import {
-  DICTATION_HINT, MAX_DICTATION_CHARS, MAX_SUMMARY_CHARS, MAX_PLAN_CHARS,
+  DICTATION_HINT, WEB_DICTATION_HINT, MIN_DICTATION_CHARS, MAX_DICTATION_CHARS, MAX_SUMMARY_CHARS, MAX_PLAN_CHARS,
   dictationReady, approvalReady, sentMessage,
   draftSummary, approveSummary, withdrawSummary, fetchSavedSummary,
 } from './lessonSummary';
@@ -27,6 +29,8 @@ export function LessonSummarySheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sentText, setSentText] = useState('');
+  // On the web there is no phone keyboard microphone, so a Dictate button uses the browser's speech recognition.
+  const speech = useSpeechDictation((text) => { setDictation(text.slice(0, MAX_DICTATION_CHARS)); setError(null); });
 
   // Each time the sheet opens: start fresh, or open the summary that was already sent for this lesson.
   useEffect(() => {
@@ -42,7 +46,11 @@ export function LessonSummarySheet({
     return () => { alive = false; };
   }, [visible, lessonId]);
 
+  // Stop listening when the sheet closes or moves on, so the microphone is never left on.
+  useEffect(() => { if (!visible || stage !== 'dictate') speech.stop(); }, [visible, stage]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const makeDraft = async () => {
+    speech.stop();
     setBusy(true); setError(null);
     try {
       const d = await draftSummary(lessonId, dictation.trim());
@@ -85,7 +93,19 @@ export function LessonSummarySheet({
     <BottomSheet visible={visible} onClose={onClose} title={`Summary for ${first}`} testID="sheet-lesson-summary">
       {stage === 'dictate' && (
         <>
-          <Text style={s.hint} testID="summary-hint">{DICTATION_HINT}</Text>
+          <Text style={s.hint} testID="summary-hint">{speech.supported ? WEB_DICTATION_HINT : DICTATION_HINT}</Text>
+          {speech.supported && (
+            <TouchableOpacity
+              style={[s.micBtn, speech.listening && s.micBtnOn]}
+              onPress={() => (speech.listening ? speech.stop() : speech.start(dictation))}
+              testID="btn-dictate"
+              accessibilityLabel={speech.listening ? 'Stop dictating' : 'Dictate with your microphone'}
+            >
+              {speech.listening ? <Square size={16} color="#fff" /> : <Mic size={18} color={theme.colors.primary} />}
+              <Text style={[s.micText, speech.listening && { color: '#fff' }]}>{speech.listening ? 'Listening… click to stop' : 'Dictate'}</Text>
+            </TouchableOpacity>
+          )}
+          {!!speech.error && <Text style={s.error} testID="dictation-error">{speech.error}</Text>}
           <TextInput
             style={s.dictation}
             value={dictation}
@@ -97,11 +117,19 @@ export function LessonSummarySheet({
             testID="input-dictation"
           />
           <Text style={s.count}>{dictation.trim().length}/{MAX_DICTATION_CHARS}</Text>
+          {speech.supported && <Text style={s.privacy} testID="dictation-privacy">Dictation is handled by your browser (Chrome and Edge send the audio to Google or Microsoft to turn it into text). We only receive the text.</Text>}
           <Text style={s.privacy}>Only what you write here, {first}&apos;s first name and the lesson topic are used to write the draft. Nothing is sent to {first} until you approve it.</Text>
           {!!error && <Text style={s.error} testID="summary-error">{error}</Text>}
           <TouchableOpacity style={[s.primary, (!dictationReady(dictation) || busy) && s.disabled]} onPress={makeDraft} disabled={!dictationReady(dictation) || busy} testID="btn-write-summary">
             {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryText}>Write summary</Text>}
           </TouchableOpacity>
+          {!dictationReady(dictation) && !busy && (
+            <Text style={s.needMore} testID="need-more">
+              {dictation.trim().length === 0
+                ? `Type or dictate a couple of sentences about the lesson to continue.`
+                : `A little more please: at least ${MIN_DICTATION_CHARS} characters (${dictation.trim().length} so far).`}
+            </Text>
+          )}
         </>
       )}
 
@@ -144,6 +172,10 @@ export function LessonSummarySheet({
 }
 
 const s = StyleSheet.create({
+  micBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 44, borderRadius: 12, borderWidth: 1.5, borderColor: theme.colors.primary, marginBottom: 10, backgroundColor: theme.colors.background },
+  micBtnOn: { backgroundColor: theme.colors.danger, borderColor: theme.colors.danger },
+  micText: { fontSize: 14.5, fontWeight: '700', color: theme.colors.primary },
+  needMore: { fontSize: 12.5, color: theme.colors.textMuted, textAlign: 'center', marginTop: 8 },
   hint: { fontSize: 13.5, lineHeight: 19, color: theme.colors.textMuted, marginBottom: 10 },
   privacy: { fontSize: 12, lineHeight: 17, color: theme.colors.textMuted, marginTop: 6 },
   label: { fontSize: 12.5, fontWeight: '700', color: theme.colors.text, marginTop: 10, marginBottom: 6 },

@@ -10,6 +10,13 @@ jest.mock('@react-native-community/netinfo', () => ({
 
 jest.mock('../useSupabaseData', () => ({
   patchLesson: jest.fn(),
+  bump: jest.fn(),
+}));
+jest.mock('../supabaseDb', () => ({ getLessonById: jest.fn() }));
+// No saved diary copy in these tests: queued changes carry no base, so nothing is compared.
+jest.mock('../diaryCache', () => ({
+  getCachedLesson: jest.fn(async () => undefined),
+  lessonFieldsOf: (p: Record<string, unknown>) => p,
 }));
 
 import NetInfo from '@react-native-community/netinfo';

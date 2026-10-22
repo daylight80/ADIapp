@@ -7,6 +7,10 @@ import * as db from './supabaseDb';
 import type { PaymentRow } from './payments';
 import { supabase } from './supabaseClient';
 import { raceTimeout, loadErrorMessage } from './withTimeout';
+import NetInfo from '@react-native-community/netinfo';
+import { cacheWindow, readWindow, overlayPending } from './diaryCache';
+import { getPendingQueue } from './offlineQueue';
+import { isNetworkError } from './networkError';
 
 /**
  * UUID v4 regex used to guard Supabase queries against mockDb sentinel IDs
@@ -250,44 +254,69 @@ export function useLessonsForStudent(studentId: string | undefined) {
  *   `refresh` retries. The lesson list is still emptied on failure so a stale
  *   week is never shown under the wrong dates.
  */
-function useLessonWindow(fetchLessons: () => Promise<db.Lesson[]>, key: string) {
+function useLessonWindow(fetchLessons: () => Promise<db.Lesson[]>, key: string, from: Date, to: Date) {
   const version = useVersion();
   const [lessons, setLessons] = useState<db.Lesson[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // Set when there is no signal and the lessons come from the saved copy of the diary (see diaryCache.ts).
+  const [saved, setSaved] = useState<{ savedAt: string | null } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
     const startedAt = Date.now();
-    raceTimeout(fetchLessons(), FETCH_TIMEOUT_MS)
-      .then((rows) => { if (!cancelled) setLessons(rows); })
-      .catch((e) => {
+
+    // Returns false (and shows nothing) when `requireCopy` is set and no copy of the diary has been saved yet.
+    const fromSavedCopy = async (requireCopy: boolean): Promise<boolean> => {
+      const pending = await getPendingQueue();
+      const copy = await readWindow(from, to, pending);
+      if (cancelled) return true;
+      if (requireCopy && !copy.savedAt) return false;
+      setLessons(copy.lessons);
+      setSaved({ savedAt: copy.savedAt });
+      return true;
+    };
+
+    (async () => {
+      let online = true;
+      try { online = (await NetInfo.fetch()).isConnected !== false; } catch { /* assume online */ }
+      if (!online) { await fromSavedCopy(false); return; }
+      try {
+        const rows = await raceTimeout(fetchLessons(), FETCH_TIMEOUT_MS);
         if (cancelled) return;
+        void cacheWindow(from, to, rows).catch(() => {});
+        const pending = await getPendingQueue();
+        if (cancelled) return;
+        setLessons(pending.length ? overlayPending(rows, pending).filter((l) => rows.some((r) => r.id === l.id)) : rows);
+        setSaved(null);
+      } catch (e) {
+        if (cancelled) return;
+        // A lost or very weak connection mid-load: show the saved copy rather than an error (when there is one).
+        if (isNetworkError(e) && (await fromSavedCopy(true))) return;
         reportLoadFailure('diary', e, Date.now() - startedAt);
         setLessons([]);
         setError(loadErrorMessage(e, 'Could not load your lessons.'));
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      }
+    })().finally(() => { if (!cancelled) setLoading(false); });
+
     return () => { cancelled = true; };
     // fetchLessons is rebuilt every render; `key` already identifies the window.
   }, [key, version, attempt]);
 
   const refresh = useCallback(() => setAttempt((n) => n + 1), []);
-  return { lessons, loading, error, refresh };
+  return { lessons, loading, error, refresh, offline: saved !== null, savedAt: saved?.savedAt ?? null };
 }
 
 export function useLessonsForWeek(weekStart: Date) {
   const key = weekStart.toISOString().slice(0, 10);
-  return useLessonWindow(() => {
-    const from = new Date(weekStart);
-    from.setHours(0, 0, 0, 0);
-    const to = new Date(from);
-    to.setDate(to.getDate() + 7);
-    return db.listLessonsBetween(from.toISOString(), to.toISOString());
-  }, key);
+  const from = new Date(weekStart);
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(from);
+  to.setDate(to.getDate() + 7);
+  return useLessonWindow(() => db.listLessonsBetween(from.toISOString(), to.toISOString()), key, from, to);
 }
 
 // Same shape as useLessonsForWeek, but for a full 42-day (6-row) month
@@ -295,14 +324,14 @@ export function useLessonsForWeek(weekStart: Date) {
 // adjacent months, computed by the caller via startOfMonthGrid/endOfMonthGrid.
 export function useLessonsForMonth(gridStart: Date, gridEnd: Date) {
   const key = `${gridStart.toISOString().slice(0, 10)}_${gridEnd.toISOString().slice(0, 10)}`;
-  return useLessonWindow(() => db.listLessonsBetween(gridStart.toISOString(), gridEnd.toISOString()), key);
+  return useLessonWindow(() => db.listLessonsBetween(gridStart.toISOString(), gridEnd.toISOString()), key, gridStart, gridEnd);
 }
 
 // ---------------------------------------------------------------------------
 // Any window of lessons (used by the Action Centre, which looks a month either side of today).
 export function useLessonsBetween(from: Date, to: Date) {
   const key = `${from.toISOString().slice(0, 10)}_${to.toISOString().slice(0, 10)}`;
-  return useLessonWindow(() => db.listLessonsBetween(from.toISOString(), to.toISOString()), key);
+  return useLessonWindow(() => db.listLessonsBetween(from.toISOString(), to.toISOString()), key, from, to);
 }
 
 // ---------------------------------------------------------------------------
@@ -898,6 +927,8 @@ export function useTodayLessons() {
   return useLessonWindow(
     () => db.listLessonsBetween(start.toISOString(), end.toISOString()),
     `today_${start.toISOString().slice(0, 10)}`,
+    start,
+    end,
   );
 }
 

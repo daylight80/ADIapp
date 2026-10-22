@@ -22,6 +22,7 @@ import { theme } from './theme';
 import { mockDb } from './mockDb';
 import { Lesson, Student, listWaitingList, type WaitingListEntry, studentAppUsageWarning } from './supabaseDb';
 import { patchLesson } from './useSupabaseData';
+import { patchLessonOfflineAware } from './offlineSync';
 import { useStudent, useStudents, useVehicles, useInstructorProfile } from './useSupabaseData';
 import { navButtonLabel, resolveNavApp } from './navApp';
 import { countUpcomingInSeries, cancelSeriesFromDate } from './useSupabaseData';
@@ -313,7 +314,11 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
     setTestSaving(true);
     setTestMsg(null);
     try {
-      await patchLesson(lesson.id, { test_centre: editCentre.trim(), test_start: testStartIso(lesson.date, editTestTime) });
+      await patchLessonOfflineAware(
+        lesson.id,
+        { test_centre: editCentre.trim(), test_start: testStartIso(lesson.date, editTestTime) },
+        `Test details — ${student.name}`,
+      );
       setTestEditOpen(false);
       onChanged?.();
     } catch (e: any) {
@@ -387,6 +392,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
     }
 
     setCancelBusy(true);
+    let queuedCancel = false;
     try {
       const patch: any = {
         status: 'Cancelled',
@@ -395,13 +401,14 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
         cancellation_note: note,
       };
       try {
-        await patchLesson(lesson.id, patch);
+        const r = await patchLessonOfflineAware(lesson.id, patch, `Cancel lesson — ${student.name}`);
+        queuedCancel = r.queued;
       } catch (e: any) {
         // Fallback to mockDb (legacy demo data + offline path)
         mockDb.updateLesson(lesson.id, patch);
       }
       setCancelOpen(false);
-      setBroadcastOpen(true);
+      if (!queuedCancel) setBroadcastOpen(true); // the waiting-list alert needs a connection
       onChanged?.();
     } finally {
       setCancelBusy(false);

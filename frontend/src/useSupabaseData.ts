@@ -299,6 +299,13 @@ export function useLessonsForMonth(gridStart: Date, gridEnd: Date) {
 }
 
 // ---------------------------------------------------------------------------
+// Any window of lessons (used by the Action Centre, which looks a month either side of today).
+export function useLessonsBetween(from: Date, to: Date) {
+  const key = `${from.toISOString().slice(0, 10)}_${to.toISOString().slice(0, 10)}`;
+  return useLessonWindow(() => db.listLessonsBetween(from.toISOString(), to.toISOString()), key);
+}
+
+// ---------------------------------------------------------------------------
 // Lesson mutations
 // ---------------------------------------------------------------------------
 

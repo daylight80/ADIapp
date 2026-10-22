@@ -197,7 +197,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     }
   }, [visible]);
 
-  // A new lesson starts with the instructor's own default travel buffer (Profile > Travel buffer).
+  // A new lesson starts with the instructor's own default travel time (Profile > Travel time).
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
@@ -315,8 +315,8 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
             plan.push({ date: d, clash: { id: clashId, name: clashName, start: clashStart, end: clashEnd, agreedAmount: clashAmount } });
             continue;
           }
-          // No clash, but is it a tight turnaround? Travel buffer: a lesson may start inside the previous
-          // lesson's travel time (or run its own into the next lesson), but the instructor is told first.
+          // No clash, but is it a tight turnaround? Travel time: a lesson may start closer to the previous lesson than
+          // the travel time (or end closer to the next lesson than that lesson's travel time), but the instructor is told first.
           const minOfDay = (ms: number) => { const t = new Date(ms); return t.getHours() * 60 + t.getMinutes(); };
           const others = ((dayLessons || []) as any[])
             .filter((L) => L.status !== 'Cancelled')
@@ -732,7 +732,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
         </Text>
       )}
 
-      <Text style={styles.label}>Travel buffer (minutes to next lesson)</Text>
+      <Text style={styles.label}>Travel time from the previous lesson (minutes)</Text>
       <TextInput
         style={styles.input}
         value={travelMinutes}

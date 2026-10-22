@@ -6,8 +6,8 @@ import { BUFFER_CHOICES, DEFAULT_BUFFER_MINUTES } from './diary/buffer';
 import { getMyDefaultTravelMinutes, setMyDefaultTravelMinutes } from './supabaseDb';
 
 /**
- * Profile > Travel buffer. The minutes new lessons leave after them to get to the next one. The diary
- * shows each lesson's own buffer as a lighter strip under it, and you can still change it per lesson.
+ * Profile > Travel time. The minutes it takes to get to a lesson from the one before it. The diary shows it as a
+ * lighter strip between the two lessons, and you can still change it per lesson.
  */
 export function TravelBufferCard() {
   const [minutes, setMinutes] = useState(DEFAULT_BUFFER_MINUTES);
@@ -33,9 +33,9 @@ export function TravelBufferCard() {
 
   return (
     <Card style={{ gap: 10 }} testID="travel-buffer-card">
-      <Text style={styles.title}>Travel buffer</Text>
+      <Text style={styles.title}>Travel time between lessons</Text>
       <Text style={styles.hint}>
-        Time left after a lesson to get to the next one. The diary shows it under each lesson, and new lessons start with this.
+        Time to get to a lesson from the one before it. The diary shows it between the two lessons, and new lessons start with this.
       </Text>
       <View style={styles.row}>
         {BUFFER_CHOICES.map((n) => (

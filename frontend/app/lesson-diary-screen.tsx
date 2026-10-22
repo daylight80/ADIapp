@@ -13,7 +13,7 @@ import { startOfWeek, addDays, localDateKey, startOfMonthGrid, endOfMonthGrid, a
 import { LESSON_TYPES } from '../src/diary/lessonTypes';
 import { AddLessonSheet } from '../src/diary/AddLessonSheet';
 import { DraggableLessonBlock } from '../src/diary/DraggableLessonBlock';
-import { lessonBuffer, findTightTurnarounds, describeTightTurnaround } from '../src/diary/buffer';
+import { lessonBuffer, findTightTurnarounds, describeTightTurnaround, travelStripBefore, freeSlotBefore } from '../src/diary/buffer';
 import { UnavailabilityModal } from '../src/UnavailabilityModal';
 import { useAuth } from '../src/AuthContext';
 import { isPaidTier } from '../src/tiers';
@@ -288,8 +288,8 @@ export default function LessonDiaryV2Screen() {
     const newStartTime = minutesToTime(newStartMin);
     const newEndTime = minutesToTime(newStartMin + durationMinutes);
 
-    // Travel buffer: moving into the previous lesson's travel time (or running your own into the next
-    // lesson) is allowed, but the confirmation says so.
+    // Travel time: starting closer to the lesson before than the travel time (or ending closer to the next
+    // lesson than its travel time) is allowed, but the confirmation says so.
     const timed = (x: Lesson) => ({ id: x.id, startMin: toMinutesOfDay(x.start_time), endMin: toMinutesOfDay(x.end_time), buffer: lessonBuffer(x) });
     const tight = findTightTurnarounds(
       { id: l.id, startMin: newStartMin, endMin: newStartMin + durationMinutes, buffer: lessonBuffer(l) },
@@ -655,14 +655,14 @@ export default function LessonDiaryV2Screen() {
                       const items = [];
                       const prev = k > 0 ? dayList[k - 1] : null;
                       if (prev) {
-                        // The free slot starts after the previous lesson's travel buffer.
-                        const prevEnd = toMinutesOfDay(prev.end_time) + lessonBuffer(prev);
-                        if (sMin - prevEnd >= 60) {
-                          const top = (prevEnd - TOP_MIN) / 60 * HOUR_H;
-                          const height = (sMin - prevEnd) / 60 * HOUR_H - 4;
+                        // The free slot runs from the end of the previous lesson to where the travel to this lesson begins.
+                        const slot = freeSlotBefore(toMinutesOfDay(prev.end_time), sMin, lessonBuffer(l));
+                        if (slot) {
+                          const top = (slot.fromMin - TOP_MIN) / 60 * HOUR_H;
+                          const height = (slot.toMin - slot.fromMin) / 60 * HOUR_H - 4;
                           items.push(
                             <TouchableOpacity key={`gap-${l.id}`} style={[s.gapSlot, { top, height }]} onPress={openAddAt} testID={`v2-gap-${l.id}`}>
-                              <Text style={s.gapMeta}>Free · {durLabel(sMin - prevEnd)} · {hhmm(prevEnd)}–{hhmm(sMin)}</Text>
+                              <Text style={s.gapMeta}>Free · {durLabel(slot.toMin - slot.fromMin)} · {hhmm(slot.fromMin)}–{hhmm(slot.toMin)}</Text>
                               <Text style={s.gapCta}>+ Book</Text>
                             </TouchableOpacity>,
                           );
@@ -673,7 +673,9 @@ export default function LessonDiaryV2Screen() {
                       const colInfo = dayColumns[l.id] || { column: 0, totalColumns: 1 };
                       const colWidthPct = 100 / colInfo.totalColumns;
                       const isCancelled = l.status === 'Cancelled';
-                      const bufferMin = lessonBuffer(l);
+                      // Travel to this lesson from the one before it: a strip in the gap just above it. The first lesson
+                      // of the day has nothing before it, so no strip.
+                      const strip = travelStripBefore(prev ? toMinutesOfDay(prev.end_time) : null, sMin, lessonBuffer(l));
                       items.push(
                         // Outer wrapper matches the original single-lesson
                         // positioning exactly (left: 38 for the hour-label
@@ -723,16 +725,16 @@ export default function LessonDiaryV2Screen() {
                             </View>
                             {colInfo.totalColumns === 1 && <Text style={s.lessonBlockTag}>{durLabel(eMin - sMin)}</Text>}
                           </TouchableOpacity>
-                          {bufferMin > 0 && (
-                            // Travel buffer: a lighter dashed strip under the lesson, moving with it when dragged.
-                            // The lesson's own end time, length and price are untouched.
+                          {!!strip && (
+                            // Travel time: a lighter dashed strip just above the lesson, between it and the lesson
+                            // before, moving with it when dragged. The lesson's own times and price are untouched.
                             <View
                               pointerEvents="none"
                               style={[
                                 s.bufferStrip,
                                 {
-                                  top: height + 1,
-                                  height: Math.max(8, (bufferMin / 60) * HOUR_H - 3),
+                                  top: -(strip.minutes / 60) * HOUR_H + 3,
+                                  height: Math.max(8, (strip.minutes / 60) * HOUR_H - 3),
                                   left: `${colInfo.column * colWidthPct}%`,
                                   width: colInfo.totalColumns > 1 ? `${colWidthPct}%` : '100%',
                                   marginHorizontal: colInfo.totalColumns > 1 ? 2 : 0,
@@ -740,7 +742,7 @@ export default function LessonDiaryV2Screen() {
                               ]}
                               testID={`v2-buffer-${l.id}`}
                             >
-                              {(bufferMin / 60) * HOUR_H >= 18 && <Text style={s.bufferText} numberOfLines={1}>{bufferMin} min travel</Text>}
+                              {(strip.minutes / 60) * HOUR_H >= 18 && <Text style={s.bufferText} numberOfLines={1}>{strip.minutes} min travel</Text>}
                             </View>
                           )}
                         </DraggableLessonBlock>,

@@ -137,7 +137,7 @@ export function PaymentsCard({ student }: { student: { id: string; name: string;
     setSaving(true);
     setFormError(null);
     try {
-      await recordPayment({
+      const recorded = await recordPayment({
         id: attemptId.current,
         studentId: student.id,
         amount: parsed,
@@ -153,6 +153,7 @@ export function PaymentsCard({ student }: { student: { id: string; name: string;
             student_id: student.id,
             hours_paid: hoursParsed,
             amount: 0,
+            payment_id: recorded?.id ?? null,
             payment_method: method === 'bank_transfer' || method === 'card' || method === 'cash' ? method : null,
             notes: packageDeal ? packageDeal.notes : 'Added with a payment',
           });

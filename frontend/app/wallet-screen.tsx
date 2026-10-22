@@ -90,7 +90,7 @@ export default function WalletScreen() {
   // Wallet balance is derived client-side from the bookings array.
   const wallet = useMemo(() => {
     const hours_remaining = bookings.reduce((s, b) => s + (b.hours_paid - b.hours_used), 0);
-    const total_paid = bookings.reduce((s, b) => s + b.amount, 0);
+    const total_paid = bookings.reduce((s, b) => s + (b.money ?? b.amount), 0);
     return { hours_remaining, total_paid };
   }, [bookings]);
 
@@ -239,7 +239,7 @@ export default function WalletScreen() {
                     Added {formatDate(b.purchased_at)} · {(b.hours_paid - b.hours_used).toFixed(1)}h left
                   </Text>
                 </View>
-                <Badge label={`£${b.amount}`} bg={theme.colors.primaryLight} color={theme.colors.primary} />
+                <Badge label={`£${b.money ?? b.amount}`} bg={theme.colors.primaryLight} color={theme.colors.primary} />
               </View>
             </Card>
           ))

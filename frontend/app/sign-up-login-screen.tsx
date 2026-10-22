@@ -9,6 +9,8 @@ import { useAuth } from '../src/AuthContext';
 import { passwordProblem, PASSWORD_HINT } from '../src/passwordRules';
 import { RESEND_WAIT_SECONDS, resendLabel, resendResultMessage } from '../src/resetResend';
 import { CONFIRM_EMAIL_NOTE } from '../src/signupEmail';
+import { SocialButtons } from '../src/SocialButtons';
+import { enabledProviders } from '../src/socialAuth';
 
 /**
  * Sign In — redesigned visual direction from the Claude Design handoff
@@ -148,7 +150,7 @@ export default function SignInV2Screen() {
   const [resending, setResending] = useState(false);
   const [resendNote, setResendNote] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const { signIn, signUp, acceptInvite, resendConfirmation } = useAuth();
+  const { signIn, signUp, acceptInvite, resendConfirmation, authNotice, clearAuthNotice } = useAuth();
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
 
@@ -171,6 +173,7 @@ export default function SignInV2Screen() {
 
   const handleSignIn = async () => {
     setError(null);
+    clearAuthNotice();
     setBusy(true);
     const r = await signIn(email.trim(), password);
     setBusy(false);
@@ -382,9 +385,9 @@ export default function SignInV2Screen() {
             )}
           </View>
 
-          {!!error && (
+          {!!(error || authNotice) && (
             <View style={s.errorCard} testID="v2-auth-error">
-              <Text style={s.errorText}>{error}</Text>
+              <Text style={s.errorText}>{error || authNotice}</Text>
             </View>
           )}
 
@@ -398,6 +401,14 @@ export default function SignInV2Screen() {
               ? <ActivityIndicator color="#fff" />
               : <Text style={s.ctaText}>{isInvite ? 'Accept invite & create account' : isSignIn ? 'Sign in' : 'Register'}</Text>}
           </TouchableOpacity>
+
+          {isSignIn && enabledProviders().length > 0 && (
+            <View style={{ marginTop: 20, gap: 12 }} testID="v2-social-signin">
+              <Text style={s.orText}>or</Text>
+              <SocialButtons mode="signin" onError={setError} />
+              <Text style={s.fieldHelper}>For pupils who have linked Google or Apple from their invite. Instructors use email and password.</Text>
+            </View>
+          )}
 
           {isSignIn && (
             <TouchableOpacity
@@ -500,6 +511,7 @@ const s = StyleSheet.create({
   },
   ctaText: { fontFamily: 'Barlow_700Bold', fontSize: 16.5, color: '#fff' },
 
+  orText: { fontFamily: 'Barlow_600SemiBold', fontSize: 13, color: C.textMuted2, textAlign: 'center' },
   forgotLink: { fontFamily: 'Barlow_600SemiBold', fontSize: 14, color: C.primary },
   registerNote: { fontFamily: 'Barlow_400Regular', fontSize: 12.5, lineHeight: 18, color: C.textMuted2, textAlign: 'center', fontStyle: 'italic', marginTop: 16 },
   legal: { fontFamily: 'Barlow_400Regular', fontSize: 12.5, lineHeight: 18.75, color: C.textMuted2, textAlign: 'center', marginTop: 24 },

@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabaseClient';
 import { signOutThisDevice } from './signOutLocal';
+import { isUnlinkedSocialLogin, NOT_LINKED_MESSAGE } from './socialAuth';
 import { registerExpoPushToken, unregisterExpoPushToken, setUpReminderReadListener } from './notifications';
 import { stampStudentActivity } from './supabaseDb';
 import { instructorBootstrapArgsFromAuthUser } from './authBootstrap';
@@ -52,6 +53,9 @@ type AuthContextType = {
   // proved who they are, and the unlock is meant for reopening/resuming the app.
   justSignedIn: boolean;
   clearJustSignedIn: () => void;
+  // A message to show on the sign-in screen after a login was refused (an unlinked Google/Apple account).
+  authNotice: string | null;
+  clearAuthNotice: () => void;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -287,6 +291,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [justRegistered, setJustRegistered] = useState(false);
   const [justSignedIn, setJustSignedIn] = useState(false);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+
+  // A Google or Apple login that matches no pupil and no instructor is signed straight out with an explanation,
+  // so a stray account never lands in the app (see socialAuth.ts).
+  const rejectUnlinkedSocial = async (s: Session, profile: User): Promise<boolean> => {
+    if (!isUnlinkedSocialLogin(s as any, profile)) return false;
+    setAuthNotice(NOT_LINKED_MESSAGE);
+    setUser(null);
+    setSession(null);
+    await signOutThisDevice(supabase);
+    return true;
+  };
 
   // Restore session on mount + subscribe to auth state changes
   useEffect(() => {
@@ -299,6 +315,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(data.session);
         if (data.session) {
           const profile = await loadProfile(data.session);
+          if (await rejectUnlinkedSocial(data.session, profile)) return;
           if (active) setUser(profile);
         }
       } finally {
@@ -314,6 +331,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       try {
         const profile = await loadProfile(newSession);
+        if (await rejectUnlinkedSocial(newSession, profile)) return;
         setUser(profile);
       } catch (e) {
         // eslint-disable-next-line no-console
@@ -516,7 +534,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut, refreshUser, acceptInvite, forgotPassword, resendConfirmation, updatePassword, justRegistered, clearJustRegistered: () => setJustRegistered(false), justSignedIn, clearJustSignedIn: () => setJustSignedIn(false) }}>
+    <AuthContext.Provider value={{ authNotice, clearAuthNotice: () => setAuthNotice(null), user, session, loading, signIn, signUp, signOut, refreshUser, acceptInvite, forgotPassword, resendConfirmation, updatePassword, justRegistered, clearJustRegistered: () => setJustRegistered(false), justSignedIn, clearJustSignedIn: () => setJustSignedIn(false) }}>
       {children}
     </AuthContext.Provider>
   );

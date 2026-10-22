@@ -30,6 +30,7 @@ export { default as ChevronRight } from 'lucide-react-native/icons/chevron-right
 export { default as ChevronUp } from 'lucide-react-native/icons/chevron-up';
 export { default as CircleCheck } from 'lucide-react-native/icons/circle-check';
 export { default as CircleX } from 'lucide-react-native/icons/circle-x';
+export { default as ClipboardList } from 'lucide-react-native/icons/clipboard-list';
 export { default as Clock } from 'lucide-react-native/icons/clock';
 export { default as CloudSun } from 'lucide-react-native/icons/cloud-sun';
 export { default as CloudUpload } from 'lucide-react-native/icons/cloud-upload';

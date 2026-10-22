@@ -2,21 +2,23 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, Settings, Sparkles } from 'lucide-react-native';
+import { ArrowLeft, Settings, MessageSquare } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
 import { useAuth } from '../src/AuthContext';
-import { supabase } from '../src/supabaseClient';
+import { isPaidTier } from '../src/tiers';
+import { LessonSummarySheet } from '../src/LessonSummarySheet';
+import { answerIsSeenByPupil } from '../src/lessonFocus';
 import {
   listMyLessonNoteQuestions, getLessonNotes, saveLessonNotes,
   type LessonNoteQuestion,
 } from '../src/supabaseDb';
 
-const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || '';
 
 export default function LessonNotesScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const paid = isPaidTier(user?.tier);
   const params = useLocalSearchParams<{ lessonId?: string; studentId?: string; studentName?: string }>();
   const lessonId = typeof params.lessonId === 'string' ? params.lessonId : undefined;
   const studentId = typeof params.studentId === 'string' ? params.studentId : undefined;
@@ -25,8 +27,7 @@ export default function LessonNotesScreen() {
   const [questions, setQuestions] = useState<LessonNoteQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [notesSaved, setNotesSaved] = useState(false);
-  const [debrief, setDebrief] = useState<string | null>(null);
-  const [generatingDebrief, setGeneratingDebrief] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -45,7 +46,6 @@ export default function LessonNotesScreen() {
         setQuestions(qList);
         setAnswers(existing?.answers || {});
         setNotesSaved(!!existing);
-        setDebrief(existing?.ai_debrief || null);
       } catch (e: any) {
         Alert.alert('Could not load lesson notes', e?.message || 'Please apply Migration 029 first.');
       } finally {
@@ -68,34 +68,6 @@ export default function LessonNotesScreen() {
       Alert.alert('Could not save notes', e?.message || 'Please try again.');
     } finally {
       setSaving(false);
-    }
-  };
-
-  // AI-generated debrief (2 Sept 2026) — text version, per Grant's
-  // decision after comparing against a voice-note approach. Turns the
-  // notes just saved into a short, polished, student-facing summary via
-  // the backend (which owns the Anthropic call — the app never talks to
-  // Claude directly). Requires a fresh save first (see notesSaved), so
-  // the debrief is always generated from what's actually on screen, not
-  // stale, previously-saved answers.
-  const handleGenerateDebrief = async () => {
-    if (!lessonId) return;
-    setGeneratingDebrief(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-      if (!token) throw new Error('Not signed in');
-      const resp = await fetch(`${BACKEND}/api/v2/lessons/${lessonId}/debrief`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      });
-      const json = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(json?.detail || `Debrief generation failed (HTTP ${resp.status})`);
-      setDebrief(json.debrief);
-    } catch (e: any) {
-      Alert.alert('Could not generate debrief', e?.message || 'Please try again.');
-    } finally {
-      setGeneratingDebrief(false);
     }
   };
 
@@ -154,6 +126,9 @@ export default function LessonNotesScreen() {
                   multiline
                   testID={`input-answer-${q.id}`}
                 />
+                {answerIsSeenByPupil(q.question_text) && (
+                  <Text style={styles.goalHint} testID={`goal-hint-${q.id}`}>The pupil will see this as the goal for their next lesson.</Text>
+                )}
               </Card>
             ))
           )}
@@ -169,39 +144,36 @@ export default function LessonNotesScreen() {
             </TouchableOpacity>
           )}
 
-          {questions.length > 0 && (
+          {questions.length > 0 && paid && (
             <TouchableOpacity
-              style={[styles.debriefBtn, (!notesSaved || generatingDebrief) && { opacity: 0.5 }]}
-              onPress={handleGenerateDebrief}
-              disabled={!notesSaved || generatingDebrief}
-              testID="btn-generate-debrief"
+              style={[styles.summaryBtn, !notesSaved && { opacity: 0.5 }]}
+              onPress={() => setSummaryOpen(true)}
+              disabled={!notesSaved}
+              testID="btn-write-summary-from-notes"
             >
-              {generatingDebrief ? (
-                <ActivityIndicator color={theme.colors.primary} />
-              ) : (
-                <>
-                  <Sparkles size={16} color={theme.colors.primary} />
-                  <Text style={styles.debriefBtnText}>
-                    {debrief ? 'Regenerate AI debrief' : 'Generate AI debrief'}
-                  </Text>
-                </>
-              )}
+              <MessageSquare size={16} color={theme.colors.primary} />
+              <Text style={styles.summaryBtnText}>Write a summary for {studentName ? studentName.split(' ')[0] : 'the pupil'} from these notes</Text>
             </TouchableOpacity>
           )}
-          {questions.length > 0 && !notesSaved && (
-            <Text style={styles.debriefHint}>Save your notes first to generate a debrief.</Text>
+          {questions.length > 0 && paid && !notesSaved && (
+            <Text style={styles.summaryHint}>Save your notes first, then you can turn them into a summary for the pupil.</Text>
           )}
-
-          {debrief && (
-            <Card style={{ gap: 6 }} testID="debrief-card">
-              <Text style={styles.debriefLabel}>AI DEBRIEF {studentName ? `FOR ${studentName.toUpperCase()}` : ''}</Text>
-              <Text style={styles.debriefText}>{debrief}</Text>
-            </Card>
-          )}
+          <Text style={styles.privateNote} testID="notes-private-note">
+            These notes are private to you. The one exception: the answer to the goal question is shown to the pupil as the goal for their next lesson.
+          </Text>
 
           <View style={{ height: 24 }} />
         </ScrollView>
       </KeyboardAvoidingView>
+      {!!lessonId && (
+        <LessonSummarySheet
+          visible={summaryOpen}
+          onClose={() => setSummaryOpen(false)}
+          lessonId={lessonId}
+          studentName={studentName || 'the pupil'}
+          instructorId={user?.instructor_id ?? undefined}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -228,12 +200,12 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginTop: 4,
   },
   saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  debriefBtn: {
+  summaryBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     height: 46, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.primary, marginTop: 4,
   },
-  debriefBtnText: { color: theme.colors.primary, fontWeight: '700', fontSize: 14 },
-  debriefHint: { fontSize: 12.5, color: theme.colors.textMuted, textAlign: 'center', marginTop: 2 },
-  debriefLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 1, color: theme.colors.textMuted },
-  debriefText: { fontSize: 14.5, color: theme.colors.text, lineHeight: 21 },
+  summaryBtnText: { color: theme.colors.primary, fontWeight: '700', fontSize: 14 },
+  summaryHint: { fontSize: 12.5, color: theme.colors.textMuted, textAlign: 'center', marginTop: 2 },
+  privateNote: { fontSize: 12, lineHeight: 17, color: theme.colors.textMuted, textAlign: 'center', marginTop: 8 },
+  goalHint: { fontSize: 12, color: theme.colors.primary, fontWeight: '600' },
 });

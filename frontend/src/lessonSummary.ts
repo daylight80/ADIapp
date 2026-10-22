@@ -3,6 +3,8 @@
 // approves it, and only then does the pupil see it. The Anthropic call is made by the backend, never the app.
 import { supabase } from './supabaseClient';
 import { callBackend } from './backendCall';
+import { getLessonNotes, listMyLessonNoteQuestions } from './supabaseDb';
+import { notesToDictation } from './lessonFocus';
 
 // Mirrors backend/lesson_summaries.py.
 export const MIN_DICTATION_CHARS = 15;
@@ -16,6 +18,25 @@ export const DICTATION_HINT =
 /** The same, in the web app, where there is a Dictate button as well as the keyboard. */
 export const WEB_DICTATION_HINT =
   'Click Dictate and speak for 20 to 30 seconds: what went well, what to work on, anything to do next time. You can also type, and you can edit what appears.';
+
+/** Shown when the box was started from the instructor's saved lesson notes. */
+export const FROM_NOTES_HINT = 'Started from your lesson notes. Change it or add to it, then write the summary.';
+
+/** The instructor's saved lesson notes for this lesson as a starting point for the summary ('' if there are none). */
+export async function fetchNotesAsDictation(lessonId: string, instructorId: string): Promise<string> {
+  const [notes, questions] = await Promise.all([getLessonNotes(lessonId), listMyLessonNoteQuestions(instructorId)]);
+  if (!notes) return '';
+  return notesToDictation(questions, notes.answers || {}).slice(0, MAX_DICTATION_CHARS);
+}
+
+export type PupilGoal = { goal: string; from_lesson: string; next_lesson: string };
+
+/** The goal the instructor set for the pupil's next lesson (migration 085: the database returns only the goal). */
+export async function fetchMyNextGoal(): Promise<PupilGoal | null> {
+  const { data, error } = await supabase.rpc('my_next_lesson_goal');
+  if (error) throw error;
+  return data && typeof (data as any).goal === 'string' ? (data as PupilGoal) : null;
+}
 
 /** Shown to the pupil under every summary, so it is clear how it was written. */
 export const SUMMARY_NOTE_PUPIL = 'Written by your instructor with the help of an AI assistant, and checked by them before you saw it.';

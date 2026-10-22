@@ -7,6 +7,7 @@ import { BottomNav } from '../src/BottomNav';
 import { SlotAlertsCard } from '../src/SlotAlertsCard';
 import { PupilMockResultCard } from '../src/PupilMockResultCard';
 import { PupilSummariesCard, usePupilSummaries } from '../src/PupilSummariesCard';
+import { usePupilGoal } from '../src/usePupilGoal';
 import { isPaidTier, tierById } from '../src/tiers';
 import {
   useStudentByAuthId, useStudentByEmail, useCompetencies, useLessonsForStudent,
@@ -101,6 +102,7 @@ export default function StudentAppV2Screen() {
   const { badges } = useBadges(student?.id);
   const { logs: sbReflections } = useReflectiveLogs(supabaseStudent ? student?.id : undefined);
   const instructorSummaries = usePupilSummaries(!!supabaseStudent);
+  const nextGoal = usePupilGoal(!!supabaseStudent);
   const { attempts: mockTestAttempts } = useMockTestAttempts(supabaseStudent?.id);
 
   const [reflectOpen, setReflectOpen] = useState(false);
@@ -239,6 +241,11 @@ export default function StudentAppV2Screen() {
                     nextLesson.pickup_address ? `Pick-up: ${nextLesson.pickup_address}` : '',
                   ].filter(Boolean).join(' · ')}
                 </Text>
+                {!!nextGoal?.goal && (
+                  <Text style={s.nextLessonGoal} testID="v2-student-next-goal">
+                    <Text style={{ fontWeight: '700' }}>Goal for this lesson: </Text>{nextGoal.goal}
+                  </Text>
+                )}
               </>
             ) : (
               <Text style={s.nextLessonEmpty}>
@@ -544,6 +551,7 @@ const s = StyleSheet.create({
   nextLessonBadge: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: '#fff', backgroundColor: C.accent, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, overflow: 'hidden' },
   nextLessonWhen: { fontFamily: 'Archivo_800ExtraBold', fontSize: 22, letterSpacing: -0.4, color: C.text, marginTop: 6 },
   nextLessonSub: { fontFamily: 'Barlow_500Medium', fontSize: 13.5, color: C.textMuted2, marginTop: 4 },
+  nextLessonGoal: { fontSize: 14, lineHeight: 20, color: C.text, marginTop: 8 },
   nextLessonEmpty: { fontFamily: 'Barlow_500Medium', fontSize: 14, color: C.textMuted2, marginTop: 6 },
   chev: { fontFamily: 'Barlow_700Bold', fontSize: 20, color: '#fff' },
 

@@ -9,7 +9,7 @@ jest.mock('../supabaseClient', () => ({
   },
 }));
 
-import { draftSummary, approveSummary, withdrawSummary, fetchSavedSummary, fetchMySummaries } from '../lessonSummary';
+import { draftSummary, approveSummary, withdrawSummary, fetchSavedSummary, fetchMySummaries, fetchMyNextGoal } from '../lessonSummary';
 
 const okJson = (body: unknown, status = 200) => ({ ok: status < 400, status, json: async () => body });
 let fetchMock: jest.Mock;
@@ -77,5 +77,21 @@ describe('reading summaries', () => {
     await expect(fetchMySummaries()).resolves.toEqual([]);
     mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'boom' } });
     await expect(fetchMySummaries()).rejects.toBeTruthy();
+  });
+});
+
+describe('the pupil’s goal for their next lesson', () => {
+  it('reads it from the database function, which returns only the goal', async () => {
+    mockRpc.mockResolvedValueOnce({ data: { goal: 'Practise the test route', from_lesson: 'a', next_lesson: 'b' }, error: null });
+    await expect(fetchMyNextGoal()).resolves.toEqual({ goal: 'Practise the test route', from_lesson: 'a', next_lesson: 'b' });
+    expect(mockRpc).toHaveBeenCalledWith('my_next_lesson_goal');
+  });
+  it('is null when there is no goal, and passes on an error', async () => {
+    mockRpc.mockResolvedValueOnce({ data: null, error: null });
+    await expect(fetchMyNextGoal()).resolves.toBeNull();
+    mockRpc.mockResolvedValueOnce({ data: {}, error: null });
+    await expect(fetchMyNextGoal()).resolves.toBeNull();
+    mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'boom' } });
+    await expect(fetchMyNextGoal()).rejects.toBeTruthy();
   });
 });

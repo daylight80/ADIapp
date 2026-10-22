@@ -61,6 +61,7 @@ export { default as Mail } from 'lucide-react-native/icons/mail';
 export { default as MapPin } from 'lucide-react-native/icons/map-pin';
 export { default as Megaphone } from 'lucide-react-native/icons/megaphone';
 export { default as MessageSquare } from 'lucide-react-native/icons/message-square';
+export { default as Mic } from 'lucide-react-native/icons/mic';
 export { default as Minus } from 'lucide-react-native/icons/minus';
 export { default as Navigation } from 'lucide-react-native/icons/navigation';
 export { default as ParkingMeter } from 'lucide-react-native/icons/parking-meter';

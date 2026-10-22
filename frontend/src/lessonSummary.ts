@@ -13,6 +13,10 @@ export const MAX_PLAN_CHARS = 1000;
 export const DICTATION_HINT =
   'Tap the microphone on your keyboard and speak for 20 to 30 seconds: what went well, what to work on, anything to do next time.';
 
+/** The same, in the web app, where there is a Dictate button as well as the keyboard. */
+export const WEB_DICTATION_HINT =
+  'Click Dictate and speak for 20 to 30 seconds: what went well, what to work on, anything to do next time. You can also type, and you can edit what appears.';
+
 /** Shown to the pupil under every summary, so it is clear how it was written. */
 export const SUMMARY_NOTE_PUPIL = 'Written by your instructor with the help of an AI assistant, and checked by them before you saw it.';
 

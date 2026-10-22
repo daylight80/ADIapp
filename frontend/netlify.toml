@@ -2,6 +2,13 @@
   command = "npm install && npx expo export --platform web"
   publish = "dist"
 
+# Netlify's enhanced secrets scan fails the build on the Google API key in google-services.json. That file is the
+# Android app's Firebase client config (used for push notifications): the key is a public client identifier that
+# the Android build needs in the repo, and it isn't part of the web app. Skip just that file; every other file is
+# still scanned.
+[build.environment]
+  SECRETS_SCAN_OMIT_PATHS = "google-services.json,frontend/google-services.json"
+
 # expo-router's static export already produces a real .html file per screen
 # (confirmed during testing — 27 screens, each pre-rendered). This redirect
 # is just a safety net for any path that doesn't match one of those files.

@@ -11,6 +11,7 @@ import { useStudents, createStudent } from '../src/useSupabaseData';
 import { listStudentBalances, listHoursBalanceForStudents, type StudentStatus, studentAppUsageWarning } from '../src/supabaseDb';
 import { canAddStudent, explainLimitError, tierById, isPaidTier, isProTier, studentUsageUrgency, studentUsageMessage } from '../src/tiers';
 import { needsBooking, hasLowCredit } from '../src/studentGlance';
+import { WAITLIST_STAGES, stageCounts, stageOf, stageSummary, type WaitlistStage } from '../src/waitlistPipeline';
 import { walletDisplay } from '../src/walletDisplay';
 import { copyToClipboard, openSmsComposer } from '../src/tools';
 import { fireInstantNotification } from '../src/notifications';
@@ -75,6 +76,8 @@ export default function StudentsV2Screen() {
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterChip>('All');
+  // Within the Waitlist filter: show one stage only (null = all stages).
+  const [stageFilter, setStageFilter] = useState<WaitlistStage | null>(null);
   const [arrearsActive, setArrearsActive] = useState(false);
   // "At a glance" toggles, ported in during the final redesign promotion
   // (1 Sept 2026) — added to the live screen after this file was first
@@ -242,12 +245,13 @@ export default function StudentsV2Screen() {
       const q = search.toLowerCase();
       const matchQ = !q || s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q);
       const matchF = filter === 'All' || s.status === filter;
+      const matchStage = filter !== 'Waitlist' || !stageFilter || stageOf(s) === stageFilter;
       const matchArrears = !arrearsActive || (balances[s.id] ?? 0) > 0;
       const matchNoBooking = !noBookingActive || needsBooking(s);
       const matchLowCredit = !lowCreditActive || hasLowCredit(s, hoursBalances);
-      return matchQ && matchF && matchArrears && matchNoBooking && matchLowCredit;
+      return matchQ && matchF && matchStage && matchArrears && matchNoBooking && matchLowCredit;
     });
-  }, [students, search, filter, arrearsActive, balances, noBookingActive, lowCreditActive, hoursBalances]);
+  }, [students, search, filter, stageFilter, arrearsActive, balances, noBookingActive, lowCreditActive, hoursBalances]);
 
   // "At a glance" attention-needed counts — actual numbers for things
   // needing action, not just status filter tabs. Each tile is tappable
@@ -268,6 +272,8 @@ export default function StudentsV2Screen() {
     Inactive: students.filter((s) => s.status === 'Inactive').length,
     Waitlist: students.filter((s) => s.status === 'Waitlist').length,
   }), [students]);
+
+  const waitlistCounts = useMemo(() => stageCounts(students), [students]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -379,6 +385,25 @@ export default function StudentsV2Screen() {
         </ScrollView>
       </View>
 
+      {filter === 'Waitlist' && (
+        <View style={{ flexDirection: 'row', gap: 7, paddingHorizontal: 20, paddingBottom: 10 }} testID="v2-waitlist-stages">
+          {WAITLIST_STAGES.map((st) => {
+            const on = stageFilter === st;
+            return (
+              <TouchableOpacity
+                key={st}
+                style={[s.filterChip, on && s.filterChipActive]}
+                onPress={() => setStageFilter(on ? null : st)}
+                testID={`v2-stage-filter-${st.toLowerCase()}`}
+              >
+                <Text style={[s.filterChipText, on && s.filterChipTextActive]}>{st}</Text>
+                <Text style={[s.filterCount, on && s.filterCountActive]}>{waitlistCounts[st]}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
+
       {arrearsActive && (
         <TouchableOpacity style={s.arrearsBanner} onPress={() => setArrearsActive(false)} testID="v2-clear-arrears">
           <Text style={s.arrearsBannerText}>Showing pupils in arrears only — tap to clear</Text>
@@ -439,6 +464,9 @@ export default function StudentsV2Screen() {
                         const warning = studentAppUsageWarning(st);
                         return warning && <Text style={s.noAccountBadge} numberOfLines={1}>⚠️ {warning}</Text>;
                       })()}
+                      {st.status === 'Waitlist' && (
+                        <Text style={s.meta} numberOfLines={1} testID={`v2-student-stage-${st.id}`}>{stageSummary(st, new Date())}</Text>
+                      )}
                       <Text style={s.meta} numberOfLines={1}>
                         {st.lessons_count} lesson{st.lessons_count === 1 ? '' : 's'}
                         {st.progress != null ? ` · ${st.progress}% ready` : ''}

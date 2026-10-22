@@ -26,6 +26,8 @@ export function CalendarFeedCard() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copiedAt, setCopiedAt] = useState<number | null>(null);
+  // Optional: a "Travel to ..." entry before each lesson. It changes the link, so it is chosen before copying.
+  const [includeTravel, setIncludeTravel] = useState(false);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -73,7 +75,7 @@ export function CalendarFeedCard() {
   };
 
   const onCopy = () => {
-    const url = status ? absoluteFeedUrl(status) : null;
+    const url = status ? absoluteFeedUrl(status, { travel: includeTravel }) : null;
     if (!url) return;
     const ok = copyToClipboard(url);
     if (ok) {
@@ -102,7 +104,7 @@ export function CalendarFeedCard() {
     );
   }
 
-  const url = absoluteFeedUrl(status);
+  const url = absoluteFeedUrl(status, { travel: includeTravel });
 
   return (
     <Card style={{ gap: 10 }} testID="card-calendar-feed">
@@ -111,8 +113,8 @@ export function CalendarFeedCard() {
         <>
           <Text style={styles.hint}>
             Subscribe to your ADI Pro diary in Apple Calendar, Google Calendar or Outlook.
-            Lessons appear as “Driving lesson — Student name”. The link stays in sync — new
-            lessons show up automatically.
+            Lessons appear as “Driving lesson — Student name”, with Practical Test details and your
+            blocked time. Cancelled lessons are left out.
           </Text>
           <TouchableOpacity
             style={[styles.cta, busy && styles.btnDisabled]}
@@ -138,6 +140,23 @@ export function CalendarFeedCard() {
             subscribed calendar. Treat it like a password — anyone with the link can
             see your lesson times.
           </Text>
+          <Text style={styles.hint} testID="calendar-refresh-note">
+            Calendar apps refresh a subscribed link on their own schedule. Google does it every 12 to 24 hours,
+            so a change you make here can take until tomorrow to show there. To add one lesson to Google
+            Calendar straight away, open the lesson and use “Add to Google Calendar”.
+          </Text>
+          <TouchableOpacity
+            style={styles.travelRow}
+            onPress={() => setIncludeTravel((v) => !v)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: includeTravel }}
+            testID="toggle-feed-travel"
+          >
+            <View style={[styles.checkBox, includeTravel && styles.checkBoxOn]}>
+              {includeTravel && <Text style={styles.checkTick}>✓</Text>}
+            </View>
+            <Text style={styles.travelText}>Also show travel time before each lesson (changes the link below)</Text>
+          </TouchableOpacity>
 
           <View style={styles.urlRow}>
             <Text style={styles.urlText} numberOfLines={2} selectable testID="text-feed-url">
@@ -220,6 +239,11 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   cardTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
   hint: { color: theme.colors.textMuted, fontSize: 12, lineHeight: 18 },
+  travelRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 36 },
+  checkBox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center' },
+  checkBoxOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  checkTick: { color: '#fff', fontWeight: '800', fontSize: 12, lineHeight: 14 },
+  travelText: { flex: 1, fontSize: 12.5, color: theme.colors.text },
   cta: {
     height: 46,
     borderRadius: 10,

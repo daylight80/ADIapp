@@ -20,6 +20,7 @@ import billing_helpers
 import collections
 import student_status
 import lesson_summaries
+import calendar_feed
 import weather_briefing
 
 ROOT_DIR = Path(__file__).parent
@@ -3062,55 +3063,12 @@ async def calendar_status(sb_user: dict = Depends(get_current_supabase_user)):
     return CalendarTokenResponse(enabled=True, token=token, feed_path=f"/api/calendar/{token}.ics")
 
 
-# ---------------------------------------------------------------------------
-# iCalendar text generation helpers
-# ---------------------------------------------------------------------------
-
-def _ics_escape(text: str) -> str:
-    """Escape special characters per RFC 5545 §3.3.11 for TEXT properties."""
-    if text is None:
-        return ""
-    out = (text
-           .replace("\\", "\\\\")
-           .replace(";", "\\;")
-           .replace(",", "\\,")
-           .replace("\r\n", "\\n")
-           .replace("\n", "\\n")
-           .replace("\r", "\\n"))
-    return out
-
-
-def _ics_fold(line: str) -> str:
-    """Fold long lines (>74 octets) per RFC 5545 §3.1 — CRLF + space continuation."""
-    if len(line) <= 74:
-        return line
-    chunks = [line[:74]]
-    rest = line[74:]
-    while rest:
-        chunks.append(" " + rest[:73])
-        rest = rest[73:]
-    return "\r\n".join(chunks)
-
-
-def _ics_fmt_dt_utc(iso_ts: str) -> str:
-    """Convert a Supabase timestamptz ISO string to iCalendar UTC form."""
-    try:
-        if iso_ts.endswith("Z"):
-            iso_ts = iso_ts[:-1] + "+00:00"
-        dt = datetime.fromisoformat(iso_ts)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        else:
-            dt = dt.astimezone(timezone.utc)
-    except Exception:
-        return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return dt.strftime("%Y%m%dT%H%M%SZ")
-
-
 @api_router.get("/calendar/{token_with_ext}")
-async def calendar_feed(token_with_ext: str):
-    """Public iCalendar feed. The token is the only authentication — share the
-    URL only with services you trust (e.g. your own Google/Apple Calendar)."""
+async def calendar_feed_endpoint(token_with_ext: str, travel: int = 0):
+    """Public iCalendar feed. The token is the only authentication: share the URL only with services you trust
+    (for example your own Google or Apple calendar). `?travel=1` adds a "Travel to ..." entry before each lesson.
+    The text itself is built in calendar_feed.py. Subscribers refresh on their own schedule (Google: every 12 to
+    24 hours), so the feed is accurate but never instant."""
     if not token_with_ext.endswith(".ics"):
         raise HTTPException(status_code=404, detail="Calendar feed not found")
     token = token_with_ext[:-4]
@@ -3121,11 +3079,7 @@ async def calendar_feed(token_with_ext: str):
     async with httpx.AsyncClient(timeout=10.0) as client_http:
         r = await client_http.get(
             f"{_sb_rest_base}/instructors",
-            params={
-                "calendar_feed_token": f"eq.{token}",
-                "select": "id,full_name,school_id",
-                "limit": "1",
-            },
+            params={"calendar_feed_token": f"eq.{token}", "select": "id,full_name,school_id", "limit": "1"},
             headers=_sb_headers(),
         )
     if r.status_code >= 400:
@@ -3135,7 +3089,7 @@ async def calendar_feed(token_with_ext: str):
         raise HTTPException(status_code=404, detail="Calendar feed not found")
     instr = rows[0]
 
-    # 2) Pull lessons in a -90/+365 day window. Exclude Cancelled per user 1a.
+    # 2) Lessons (not cancelled) and blocked time in a -90/+365 day window.
     now = datetime.now(timezone.utc)
     window_start = (now - timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%S")
     window_end = (now + timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%S")
@@ -3148,72 +3102,31 @@ async def calendar_feed(token_with_ext: str):
                 "start_time": f"gte.{window_start}",
                 "and": f"(start_time.lte.{window_end})",
                 "select": (
-                    "id,start_time,end_time,topic,notes,pickup_address,"
-                    "status,duration_hours,students(full_name,address,postcode)"
+                    "id,start_time,end_time,topic,notes,pickup_address,status,duration_hours,"
+                    "lesson_type,test_centre,test_start,travel_minutes,students(full_name,address,postcode)"
                 ),
                 "order": "start_time.asc",
             },
             headers=_sb_headers(),
         )
+        br = await client_http.get(
+            f"{_sb_rest_base}/availability_blocks",
+            params={
+                "instructor_id": f"eq.{instr['id']}",
+                "ends_at": f"gte.{window_start}",
+                "and": f"(starts_at.lte.{window_end})",
+                "select": "id,starts_at,ends_at,all_day,category",
+                "order": "starts_at.asc",
+            },
+            headers=_sb_headers(),
+        )
     if lr.status_code >= 400:
         raise HTTPException(status_code=500, detail=f"Supabase read failed: {lr.text}")
-    lessons = lr.json() or []
+    blocks = br.json() if br.status_code < 400 else []  # blocked time is a bonus: the lessons still go out without it
 
-    # 3) Render iCalendar text.
-    dtstamp = now.strftime("%Y%m%dT%H%M%SZ")
-    instructor_name = instr.get("full_name") or "ADI Pro Instructor"
-    lines = [
-        "BEGIN:VCALENDAR",
-        "VERSION:2.0",
-        "PRODID:-//ADI Pro//Lesson Diary//EN",
-        "METHOD:PUBLISH",
-        "CALSCALE:GREGORIAN",
-        f"X-WR-CALNAME:{_ics_escape('ADI Pro — ' + instructor_name)}",
-        "X-WR-TIMEZONE:Europe/London",
-        f"X-WR-CALDESC:{_ics_escape('Driving lessons synced from ADI Pro')}",
-    ]
-    for L in lessons:
-        student = L.get("students") if isinstance(L.get("students"), dict) else {}
-        student = student or {}
-        student_name = (student.get("full_name") or "Student").strip()
-        topic = (L.get("topic") or "Driving lesson").strip()
-        notes = (L.get("notes") or "").strip()
-        duration_h = L.get("duration_hours")
-        try:
-            duration_h_num = float(duration_h) if duration_h is not None else None
-        except Exception:
-            duration_h_num = None
-        summary = f"Driving lesson — {student_name}"
-        desc_bits = [topic]
-        if duration_h_num:
-            dh = int(duration_h_num) if float(duration_h_num).is_integer() else duration_h_num
-            desc_bits.append(f"{dh}h")
-        if notes:
-            desc_bits.append(notes)
-        description = " · ".join(desc_bits)
-        location = (L.get("pickup_address") or "").strip()
-        if not location:
-            loc_bits = [student.get("address") or "", student.get("postcode") or ""]
-            location = ", ".join([b for b in loc_bits if b])
-        uid = f"lesson-{L.get('id')}@adipro.app"
-        dtstart = _ics_fmt_dt_utc(L.get("start_time") or "")
-        dtend = _ics_fmt_dt_utc(L.get("end_time") or L.get("start_time") or "")
-        lines.extend([
-            "BEGIN:VEVENT",
-            f"UID:{uid}",
-            f"DTSTAMP:{dtstamp}",
-            f"DTSTART:{dtstart}",
-            f"DTEND:{dtend}",
-            f"SUMMARY:{_ics_escape(summary)}",
-            f"DESCRIPTION:{_ics_escape(description)}",
-            f"LOCATION:{_ics_escape(location)}",
-            "STATUS:CONFIRMED",
-            "TRANSP:OPAQUE",
-            "END:VEVENT",
-        ])
-    lines.append("END:VCALENDAR")
-    body = "\r\n".join(_ics_fold(ln) for ln in lines) + "\r\n"
-
+    body = calendar_feed.build_ics(
+        lr.json() or [], blocks or [], instr.get("full_name"), now=now, include_travel=bool(travel),
+    )
     return _Response(
         content=body,
         media_type="text/calendar; charset=utf-8",

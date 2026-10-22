@@ -334,6 +334,66 @@ def render_payment_reminder_email(
     return subject, body, text
 
 
+def render_lesson_summary_email(
+    *,
+    student_name: Optional[str],
+    instructor_name: Optional[str],
+    summary: str,
+    next_plan: Optional[str] = None,
+) -> Tuple[str, str, str]:
+    """Return (subject, html_body, text_body) for a lesson summary the instructor wrote and approved, sent to a
+    pupil who has no app (pupils with the app get a push and read it there). A plain service message about their
+    own lesson. The text carries the summary itself, since there is no app to open. Every string is escaped."""
+    first = clean_display_name(student_name, fallback="").split(" ")[0]
+    instructor = clean_display_name(instructor_name, fallback="your instructor")
+    greeting = f"Hi {first}," if first else "Hi,"
+    lead = f"{instructor} has written you a short summary of your driving lesson:"
+    plan_label = "For your next lesson:"
+    footer = (
+        f"You're receiving this because {instructor} sent you a lesson summary using ADI Pro. "
+        f"Questions about these emails: {LESSON_REMINDER_SUPPORT_ADDRESS}."
+    )
+    subject = f"Your lesson summary from {instructor}"
+    esc = html.escape
+    summary = (summary or "").strip()
+    plan = (next_plan or "").strip()
+    text_lines = [greeting, "", lead, "", summary]
+    if plan:
+        text_lines += ["", plan_label, plan]
+    text_lines += ["", footer]
+    text = "\n".join(text_lines) + "\n"
+
+    def para(s: str) -> str:
+        return "<br>".join(esc(line) for line in s.split("\n"))
+
+    plan_html = (
+        f'<p style="font-size:13px;font-weight:bold;color:#00539f;margin:0 0 6px;">{esc(plan_label)}</p>'
+        f'<p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{para(plan)}</p>'
+        if plan else ""
+    )
+    body = f"""\
+<!doctype html>
+<html lang="en-GB">
+<body style="margin:0;padding:24px;background:#f5f2ec;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;">
+    <tr><td style="padding:28px 28px 8px;">
+      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">ADI PRO</div>
+      <h1 style="font-size:20px;line-height:1.3;margin:10px 0 14px;">Your lesson summary</h1>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(greeting)}</p>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(lead)}</p>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{para(summary)}</p>
+      {plan_html}
+    </td></tr>
+    <tr><td style="padding:16px 28px 24px;border-top:1px solid #e4ded2;">
+      <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">{esc(footer)}</p>
+    </td></tr>
+  </table>
+</body>
+</html>
+"""
+    return subject, body, text
+
+
 def looks_like_email(value: Optional[str]) -> bool:
     """Cheap sanity check on an instructor-typed address before we spend a
     send on it. Deliberately loose — Resend does the real validation."""

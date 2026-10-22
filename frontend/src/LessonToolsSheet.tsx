@@ -29,6 +29,7 @@ import { countUpcomingInSeries, cancelSeriesFromDate } from './useSupabaseData';
 import { useAuth } from './AuthContext';
 import { isPaidTier, tierById } from './tiers';
 import { PaywallModal } from './PaywallModal';
+import { LessonSummarySheet } from './LessonSummarySheet';
 import { SlotAlertLine } from './SlotAlertLine';
 import { queueLessonWrite, useIsOnline } from './offlineSync';
 import { openNavigation, openSmsComposer } from './tools';
@@ -88,6 +89,9 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   // Starter on Android) — was fully active on every tier with no gating.
   const paid = isPaidTier(user?.tier);
   const [routePaywallOpen, setRoutePaywallOpen] = useState(false);
+  // Dictated summary for the pupil (paid plans): its sheet, and the upgrade prompt for everyone else.
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summaryPaywallOpen, setSummaryPaywallOpen] = useState(false);
   // Practical Test bookings: editing the test centre and test time after booking.
   const [testEditOpen, setTestEditOpen] = useState(false);
   const [editCentre, setEditCentre] = useState('');
@@ -439,7 +443,17 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
         Alert.alert('Saved offline', `${student.name.split(' ')[0]}'s lesson saved on this device. It'll sync automatically once you're back online.`);
       } else {
         await patchLesson(lesson.id, payload as any);
-        Alert.alert('Lesson saved', `${student.name.split(' ')[0]}'s lesson recorded. Faults & grade synced.`);
+        // On a paid plan, offer to write the pupil a summary straight away (one alert, not two in a row).
+        Alert.alert(
+          'Lesson saved',
+          `${student.name.split(' ')[0]}'s lesson recorded. Faults & grade synced.`,
+          paid
+            ? [
+                { text: 'Not now', style: 'cancel' },
+                { text: `Write a summary for ${student.name.split(' ')[0]}`, onPress: () => setSummaryOpen(true) },
+              ]
+            : undefined,
+        );
       }
     } catch (e: any) {
       // The proactive check said online, but the request still failed —
@@ -688,6 +702,17 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
                 >
                   {paid ? <MapPin size={18} color={theme.colors.primary} /> : <Lock size={16} color={theme.colors.textMuted} />}
                   <Text style={[styles.recordRouteText, !paid && styles.recordRouteTextLocked]}>Record route for this lesson</Text>
+                </TouchableOpacity>
+
+                {/* Dictated summary for the pupil: speak a few sentences, review the draft, approve and send.
+                    Greyed out on non-paid plans (each draft is an API call), like Record route. */}
+                <TouchableOpacity
+                  style={[styles.recordRouteBtn, !paid && styles.recordRouteBtnLocked]}
+                  onPress={() => { if (!paid) { setSummaryPaywallOpen(true); return; } setSummaryOpen(true); }}
+                  testID="btn-write-summary-open"
+                >
+                  {paid ? <MessageSquare size={18} color={theme.colors.primary} /> : <Lock size={16} color={theme.colors.textMuted} />}
+                  <Text style={[styles.recordRouteText, !paid && styles.recordRouteTextLocked]}>Write a summary for {student.name.split(' ')[0]}</Text>
                 </TouchableOpacity>
 
                 {/* Post-lesson notes — the instructor's own custom question set */}
@@ -960,6 +985,17 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
       visible={routePaywallOpen}
       onClose={() => setRoutePaywallOpen(false)}
       reason={`Route recording is available from ${tierById('pro').name} tier.`}
+    />
+    <PaywallModal
+      visible={summaryPaywallOpen}
+      onClose={() => setSummaryPaywallOpen(false)}
+      reason={`Lesson summaries are available from ${tierById('pro').name} tier.`}
+    />
+    <LessonSummarySheet
+      visible={summaryOpen}
+      onClose={() => setSummaryOpen(false)}
+      lessonId={lesson.id}
+      studentName={student.name}
     />
     </>
   );

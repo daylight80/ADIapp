@@ -11,6 +11,7 @@ import { RESEND_WAIT_SECONDS, resendLabel, resendResultMessage } from '../src/re
 import { CONFIRM_EMAIL_NOTE } from '../src/signupEmail';
 import { SocialButtons } from '../src/SocialButtons';
 import { enabledProviders } from '../src/socialAuth';
+import { sendMagicLink, MAGIC_LINK_SENT } from '../src/magicLink';
 
 /**
  * Sign In — redesigned visual direction from the Claude Design handoff
@@ -147,6 +148,7 @@ export default function SignInV2Screen() {
   // Set once registering worked but the email still needs confirming: the screen then explains and offers a resend.
   const [confirmEmail, setConfirmEmail] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const [magicSent, setMagicSent] = useState(false);
   const [resending, setResending] = useState(false);
   const [resendNote, setResendNote] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -178,6 +180,17 @@ export default function SignInV2Screen() {
     const r = await signIn(email.trim(), password);
     setBusy(false);
     if (!r.ok) setError(r.error || 'Login failed');
+  };
+
+  // Sign in without a password: email a link to the address typed above.
+  const handleMagicLink = async () => {
+    setError(null);
+    clearAuthNotice();
+    setBusy(true);
+    const r = await sendMagicLink(email);
+    setBusy(false);
+    if (!r.ok) setError(r.error || 'Could not send the link.');
+    else setMagicSent(true);
   };
 
   const handleSignUp = async () => {
@@ -407,6 +420,17 @@ export default function SignInV2Screen() {
               <Text style={s.orText}>or</Text>
               <SocialButtons mode="signin" onError={setError} />
               <Text style={s.fieldHelper}>For pupils who have linked Google or Apple from their invite. Instructors use email and password.</Text>
+            </View>
+          )}
+
+          {isSignIn && (
+            <TouchableOpacity style={{ alignItems: 'center', paddingTop: 14 }} onPress={handleMagicLink} disabled={busy} testID="v2-link-magic">
+              <Text style={s.forgotLink}>Email me a sign-in link instead</Text>
+            </TouchableOpacity>
+          )}
+          {isSignIn && magicSent && (
+            <View style={s.errorCard} testID="v2-magic-sent">
+              <Text style={s.errorText}>{MAGIC_LINK_SENT}</Text>
             </View>
           )}
 

@@ -31,6 +31,7 @@ const PUBLIC_ROUTES = new Set<string>([
   AUTH_ROUTE,
   'forgot-password-screen',
   'reset-password-screen',
+  'auth-callback',
   'terms-of-service-screen',
   'privacy-policy-screen',
 ]);

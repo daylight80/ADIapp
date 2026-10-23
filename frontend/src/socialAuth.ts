@@ -91,15 +91,24 @@ export async function startSocial(mode: 'signin' | 'link', provider: SocialProvi
 
     const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
     if (res.type !== 'success' || !('url' in res) || !res.url) return { ok: false, cancelled: true };
-    const back = parseAuthReturn(res.url);
+    return await completeAuthReturn(res.url);
+  } catch (e: any) {
+    return { ok: false, error: friendlyError(e?.message) };
+  }
+}
+
+/** Turn the address the sign-in came back to (a social login or an emailed sign-in link) into a signed-in session. */
+export async function completeAuthReturn(url: string): Promise<SocialResult> {
+  try {
+    const back = parseAuthReturn(url);
     if (back.error) return { ok: false, error: friendlyError(back.error) };
     if (back.code) {
-      const { error: xErr } = await supabase.auth.exchangeCodeForSession(back.code);
-      return xErr ? { ok: false, error: friendlyError(xErr.message) } : { ok: true };
+      const { error } = await supabase.auth.exchangeCodeForSession(back.code);
+      return error ? { ok: false, error: friendlyError(error.message) } : { ok: true };
     }
     if (back.accessToken && back.refreshToken) {
-      const { error: sErr } = await supabase.auth.setSession({ access_token: back.accessToken, refresh_token: back.refreshToken });
-      return sErr ? { ok: false, error: friendlyError(sErr.message) } : { ok: true };
+      const { error } = await supabase.auth.setSession({ access_token: back.accessToken, refresh_token: back.refreshToken });
+      return error ? { ok: false, error: friendlyError(error.message) } : { ok: true };
     }
     return { ok: false, error: friendlyError(undefined) };
   } catch (e: any) {

@@ -23,7 +23,7 @@ import { mockDb } from './mockDb';
 import { Lesson, Student, listWaitingList, type WaitingListEntry, studentAppUsageWarning } from './supabaseDb';
 import { patchLesson } from './useSupabaseData';
 import { patchLessonOfflineAware } from './offlineSync';
-import { useStudent, useStudents, useVehicles, useInstructorProfile } from './useSupabaseData';
+import { useStudent, useStudents, useVehicles, useInstructorProfile, useCompetencies } from './useSupabaseData';
 import { navButtonLabel, resolveNavApp } from './navApp';
 import { countUpcomingInSeries, cancelSeriesFromDate } from './useSupabaseData';
 import { useAuth } from './AuthContext';
@@ -32,6 +32,8 @@ import { PaywallModal } from './PaywallModal';
 import { LessonSummarySheet } from './LessonSummarySheet';
 import { googleCalendarUrl, lessonCalendarEvent } from './googleCalendarLink';
 import { LastLessonFocusCard, useLastLessonFocus } from './LastLessonFocusCard';
+import { LessonPlanSection } from './LessonPlanSection';
+import { suggestTopics } from './lessonPlan';
 import { SlotAlertLine } from './SlotAlertLine';
 import { queueLessonWrite, useIsOnline } from './offlineSync';
 import { openNavigation, openSmsComposer } from './tools';
@@ -249,6 +251,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   // Try Supabase first when student_id looks like a UUID; otherwise mockDb.
   const sbStudentId = lesson && /^[0-9a-f-]{36}$/i.test(lesson.student_id) ? lesson.student_id : undefined;
   const { student: sbStudent } = useStudent(sbStudentId);
+  const { competencies: sbCompetencies } = useCompetencies(sbStudentId);
   // Vehicle + payment status display (10 Sept 2026), per Grant directly,
   // referencing a competitor app (MyDrive Time)'s quick-view screen.
   const { vehicles } = useVehicles();
@@ -627,6 +630,16 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
               <>
                 {/* What needed more practice and the goal, from the notes after the pupil's last lesson */}
                 <LastLessonFocusCard focus={lastFocus} />
+
+                {/* Plan the lesson from the syllabus, then tick topics off during it (paid plans) */}
+                {paid && (
+                  <LessonPlanSection
+                    lesson={lesson}
+                    suggestions={suggestTopics(sbCompetencies, lesson.plan_topics ?? [])}
+                    label={`Lesson plan: ${student.name}`}
+                    onSaved={onChanged}
+                  />
+                )}
 
                 {/* Navigation */}
                 <Text style={styles.section}>Navigate to pickup</Text>

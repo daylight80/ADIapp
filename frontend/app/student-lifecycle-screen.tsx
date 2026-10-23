@@ -27,6 +27,9 @@ import {
 import { isPaidTier, isProTier, tierById } from '../src/tiers';
 import { formatHours, isLowCredit } from '../src/walletDisplay';
 import { instructorAgreementLine, agreementStatus, mediaConsentLine } from '../src/pupilAgreement';
+import { buildDrivingProfile } from '../src/drivingProfile';
+import { DrivingProfileCard } from '../src/DrivingProfileCard';
+import { useLastLessonFocus } from '../src/LastLessonFocusCard';
 import { WAITLIST_STAGES, stageOf, stageSummary, type WaitlistStage } from '../src/waitlistPipeline';
 import { telUrl, smsUrl } from '../src/enquiries';
 import { manualStatusMoves, manualStatusChoices, manualStatusConfirm, statusChangeMessage, type LifecycleStatus } from '../src/studentLifecycle';
@@ -334,6 +337,10 @@ export default function StudentProfileV2Screen() {
     for (const c of competencies) map[c.category_key] = c.level;
     return map;
   }, [competencies]);
+
+  // Driving profile (paid plans): the latest lesson notes' goal and practice points, with the weak topics and faults.
+  const nowIso = useMemo(() => new Date().toISOString(), []);
+  const profileFocus = useLastLessonFocus(student?.id, user?.instructor_id ?? undefined, nowIso, pro);
 
   const readiness = useMemo(() => {
     const completed = lessons.filter((l) => l.status === 'Completed');
@@ -668,6 +675,17 @@ export default function StudentProfileV2Screen() {
                 </View>
               </View>
 
+              )}
+
+              {pro && student.status !== 'Passed' && (
+                <DrivingProfileCard
+                  profile={buildDrivingProfile({
+                    competencies,
+                    lessons,
+                    focus: profileFocus,
+                    unmetCriteria: readiness.criteria.filter((c) => !c.met).map((c) => c.label),
+                  })}
+                />
               )}
 
               {student.status !== 'Passed' && (

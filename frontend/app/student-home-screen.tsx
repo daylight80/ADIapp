@@ -9,6 +9,7 @@ import { PupilMockResultCard } from '../src/PupilMockResultCard';
 import { PupilSummariesCard, usePupilSummaries } from '../src/PupilSummariesCard';
 import { usePupilGoal } from '../src/usePupilGoal';
 import { SignInFasterCard } from '../src/SignInFasterCard';
+import { planSummary } from '../src/lessonPlan';
 import { isPaidTier, tierById } from '../src/tiers';
 import {
   useStudentByAuthId, useStudentByEmail, useCompetencies, useLessonsForStudent,
@@ -244,6 +245,12 @@ export default function StudentAppV2Screen() {
                     nextLesson.pickup_address ? `Pick-up: ${nextLesson.pickup_address}` : '',
                   ].filter(Boolean).join(' · ')}
                 </Text>
+                {(nextLesson.plan_topics?.length ?? 0) > 0 && (
+                  <Text style={s.nextLessonGoal} testID="v2-student-next-plan">
+                    <Text style={{ fontWeight: '700' }}>Planned: </Text>{planSummary(nextLesson.plan_topics)}
+                    {nextLesson.plan_brief ? `. ${nextLesson.plan_brief}` : ''}
+                  </Text>
+                )}
                 {!!nextGoal?.goal && (
                   <Text style={s.nextLessonGoal} testID="v2-student-next-goal">
                     <Text style={{ fontWeight: '700' }}>Goal for this lesson: </Text>{nextGoal.goal}

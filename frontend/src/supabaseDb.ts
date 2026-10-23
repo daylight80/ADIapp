@@ -951,6 +951,10 @@ export type Lesson = {
   cancellation_charge?: number;
   cancellation_note?: string;
   series_id?: string;
+  /** Pre-lesson plan (Migration 090): syllabus topic keys, the ones ticked off, and a short briefing. */
+  plan_topics?: string[];
+  plan_covered?: string[];
+  plan_brief?: string;
 };
 
 // Helpers for HH:mm <-> timestamptz
@@ -1003,6 +1007,9 @@ const lessonFromRow = (r: any): Lesson => {
     cancellation_charge: r.cancellation_charge != null ? Number(r.cancellation_charge) : undefined,
     cancellation_note: r.cancellation_note ?? undefined,
     series_id: r.series_id ?? undefined,
+    plan_topics: r.plan_topics ?? [],
+    plan_covered: r.plan_covered ?? [],
+    plan_brief: r.plan_brief ?? undefined,
   };
 };
 
@@ -1161,6 +1168,9 @@ export type UpdateLessonInput = Partial<{
   pre_check_completed_at: string;
   cancellation_charge: number | null;
   cancellation_note: string | null;
+  plan_topics: string[];
+  plan_covered: string[];
+  plan_brief: string | null;
 }>;
 
 export async function updateLesson(id: string, patch: UpdateLessonInput): Promise<Lesson | undefined> {
@@ -1182,6 +1192,9 @@ export async function updateLesson(id: string, patch: UpdateLessonInput): Promis
   if (patch.pre_check_completed_at !== undefined) dbPatch.pre_check_completed_at = patch.pre_check_completed_at;
   if (patch.cancellation_charge !== undefined) dbPatch.cancellation_charge = patch.cancellation_charge;
   if (patch.cancellation_note !== undefined) dbPatch.cancellation_note = patch.cancellation_note;
+  if (patch.plan_topics !== undefined) dbPatch.plan_topics = patch.plan_topics;
+  if (patch.plan_covered !== undefined) dbPatch.plan_covered = patch.plan_covered;
+  if (patch.plan_brief !== undefined) dbPatch.plan_brief = patch.plan_brief;
 
   if (patch.date && patch.start_time) dbPatch.start_time = combineToISO(patch.date, patch.start_time);
   if (patch.date && patch.end_time)   dbPatch.end_time   = combineToISO(patch.date, patch.end_time);

@@ -59,7 +59,7 @@ jobs:
         env:
           # conftest.py insists on this being set; these tests never call it.
           EXPO_PUBLIC_BACKEND_URL: http://localhost
-        run: python -m pytest tests/test_email_service.py tests/test_lesson_reminders.py tests/test_admin_reminders.py tests/test_slot_alerts.py tests/test_referral_rules.py tests/test_payment_reminders.py tests/test_ai_settings.py tests/test_ai_debriefs.py tests/test_reminder_balance.py tests/test_address_search.py tests/test_billing_helpers.py tests/test_student_status.py tests/test_lesson_summaries.py tests/test_lesson_summary_endpoints.py tests/test_weather_briefing.py tests/test_weather_endpoint.py tests/test_calendar_feed.py tests/test_calendar_endpoint.py -q
+        run: python -m pytest tests/test_email_service.py tests/test_lesson_reminders.py tests/test_admin_reminders.py tests/test_slot_alerts.py tests/test_referral_rules.py tests/test_payment_reminders.py tests/test_ai_settings.py tests/test_ai_debriefs.py tests/test_reminder_balance.py tests/test_address_search.py tests/test_billing_helpers.py tests/test_student_status.py tests/test_lesson_summaries.py tests/test_lesson_summary_endpoints.py tests/test_weather_briefing.py tests/test_weather_endpoint.py tests/test_calendar_feed.py tests/test_calendar_endpoint.py tests/test_access_and_webhook.py -q
 
   secrets:
     name: Secrets scan

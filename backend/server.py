@@ -2852,6 +2852,38 @@ async def v2_mark_reminder_read(lesson_id: str, req: ReminderReadRequest, sb_use
 # decision given the real data-integrity risk of merging/overwriting.
 # =============================================================================
 
+_BACKUP_PAGE = 1000  # Supabase returns at most 1000 rows a request, whatever `limit` says
+_BACKUP_IN_CHUNK = 100  # ids per `in.(...)` filter, to keep the URL short
+
+
+async def _fetch_all(client_http, table: str, params: dict) -> List[dict]:
+    """Every row matching params, read a page at a time. A failed page fails the whole backup: a backup that
+    quietly leaves out a table is worse than none. shortcut: assumes the server's row cap is 1000, lower it
+    here if Supabase's max-rows setting is ever reduced."""
+    rows: List[dict] = []
+    offset = 0
+    while True:
+        r = await client_http.get(
+            f"{_sb_rest_base}/{table}",
+            params={**params, "select": "*", "order": "id.asc", "limit": str(_BACKUP_PAGE), "offset": str(offset)},
+            headers=_sb_headers(),
+        )
+        if r.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Failed to load {table}: {r.text[:200]}")
+        page = r.json() or []
+        rows += page
+        if len(page) < _BACKUP_PAGE:
+            return rows
+        offset += _BACKUP_PAGE
+
+
+async def _fetch_all_in(client_http, table: str, column: str, ids: List[str]) -> List[dict]:
+    rows: List[dict] = []
+    for i in range(0, len(ids), _BACKUP_IN_CHUNK):
+        rows += await _fetch_all(client_http, table, {column: f"in.({','.join(ids[i:i + _BACKUP_IN_CHUNK])})"})
+    return rows
+
+
 @api_router.get("/v2/school/backup")
 async def v2_school_backup(sb_user: dict = Depends(get_current_supabase_user)):
     """Owner-only. Gathers the whole school's data — instructors, students,
@@ -2865,71 +2897,16 @@ async def v2_school_backup(sb_user: dict = Depends(get_current_supabase_user)):
     school_id = school["id"]
 
     async with httpx.AsyncClient(timeout=30.0) as client_http:
-        ir = await client_http.get(
-            f"{_sb_rest_base}/instructors",
-            params={"school_id": f"eq.{school_id}", "select": "*", "limit": "1000"},
-            headers=_sb_headers(),
-        )
-        if ir.status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Failed to load instructors: {ir.text[:200]}")
-        instructors = ir.json() or []
+        instructors = await _fetch_all(client_http, "instructors", {"school_id": f"eq.{school_id}"})
         instructor_ids = [i["id"] for i in instructors]
-
-        sr = await client_http.get(
-            f"{_sb_rest_base}/students",
-            params={"school_id": f"eq.{school_id}", "select": "*", "limit": "10000"},
-            headers=_sb_headers(),
-        )
-        if sr.status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Failed to load students: {sr.text[:200]}")
-        students = sr.json() or []
+        students = await _fetch_all(client_http, "students", {"school_id": f"eq.{school_id}"})
         student_ids = [s["id"] for s in students]
 
-        lessons: List[dict] = []
-        if instructor_ids:
-            ids_csv = ",".join(instructor_ids)
-            lr = await client_http.get(
-                f"{_sb_rest_base}/lessons",
-                params={"instructor_id": f"in.({ids_csv})", "select": "*", "limit": "10000"},
-                headers=_sb_headers(),
-            )
-            if lr.status_code >= 400:
-                raise HTTPException(status_code=502, detail=f"Failed to load lessons: {lr.text[:200]}")
-            lessons = lr.json() or []
-
-        rr = await client_http.get(
-            f"{_sb_rest_base}/expense_receipts",
-            params={"school_id": f"eq.{school_id}", "select": "*", "limit": "10000"},
-            headers=_sb_headers(),
-        )
-        receipts = rr.json() or [] if rr.status_code < 400 else []
-
-        vr = await client_http.get(
-            f"{_sb_rest_base}/vehicles",
-            params={"school_id": f"eq.{school_id}", "select": "*", "limit": "1000"},
-            headers=_sb_headers(),
-        )
-        vehicles = vr.json() or [] if vr.status_code < 400 else []
-
-        block_bookings: List[dict] = []
-        if student_ids:
-            ids_csv = ",".join(student_ids)
-            br = await client_http.get(
-                f"{_sb_rest_base}/block_bookings",
-                params={"student_id": f"in.({ids_csv})", "select": "*", "limit": "10000"},
-                headers=_sb_headers(),
-            )
-            block_bookings = br.json() or [] if br.status_code < 400 else []
-
-        lesson_notes: List[dict] = []
-        if instructor_ids:
-            ids_csv = ",".join(instructor_ids)
-            nr = await client_http.get(
-                f"{_sb_rest_base}/instructor_lesson_notes",
-                params={"instructor_id": f"in.({ids_csv})", "select": "*", "limit": "10000"},
-                headers=_sb_headers(),
-            )
-            lesson_notes = nr.json() or [] if nr.status_code < 400 else []
+        lessons = await _fetch_all_in(client_http, "lessons", "instructor_id", instructor_ids)
+        receipts = await _fetch_all(client_http, "expense_receipts", {"school_id": f"eq.{school_id}"})
+        vehicles = await _fetch_all(client_http, "vehicles", {"school_id": f"eq.{school_id}"})
+        block_bookings = await _fetch_all_in(client_http, "block_bookings", "student_id", student_ids)
+        lesson_notes = await _fetch_all_in(client_http, "instructor_lesson_notes", "instructor_id", instructor_ids)
 
     return {
         "backed_up_at": datetime.now(timezone.utc).isoformat(),

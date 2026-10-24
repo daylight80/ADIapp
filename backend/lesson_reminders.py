@@ -197,9 +197,11 @@ async def _already_sent(lesson_id: str, kind: str) -> bool:
             },
         )
     if r.status_code >= 400:
-        # Table may not yet exist (pre-migration-017). Allow sending — once
-        # the migration is applied subsequent ticks will dedupe correctly.
-        return False
+        # Fail closed: if the log cannot be read, every due lesson looks unsent and the pupil would get the same
+        # reminder again on every tick. Skipping is safe, the next tick tries again while the lesson is still due.
+        log.error("[reminders] could not read lesson_reminder_log for lesson %s, skipping this tick: %s %s",
+                  lesson_id, r.status_code, r.text[:200])
+        return True
     return bool(r.json())
 
 

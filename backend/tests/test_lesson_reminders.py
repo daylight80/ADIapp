@@ -261,3 +261,25 @@ def test_unreadable_start_time_sends_nothing(monkeypatch):
 
 def test_channel_order_matches_the_agreed_rules():
     assert lr.CHANNEL_ORDER == {"h48": ("email", "push"), "h25": ("push", "email"), "h1": ("push",)}
+
+
+def test_an_unreadable_reminder_log_skips_the_lesson_instead_of_resending(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    class Resp:
+        status_code, text = 503, "down"
+
+        def json(self):
+            return []
+
+    class Client:
+        async def get(self, *a, **k):
+            return Resp()
+
+    @asynccontextmanager
+    async def fake_client():
+        yield Client()
+
+    monkeypatch.setenv("SUPABASE_URL", "http://sb.test")
+    monkeypatch.setattr(lr, "_client", fake_client)
+    assert asyncio.run(lr._already_sent("lesson-1", "h48")) is True

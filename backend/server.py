@@ -1096,6 +1096,16 @@ class StudentInviteResponse(BaseModel):
     detail: Optional[str] = None
 
 
+# Each invite sends a real email from our domain, so one account must not be able to send them without limit.
+# 100 a day is far above real use (a school onboarding a whole waiting list in one go).
+_invite_limiter = address_search.UserLimiter(100, 86400)
+
+
+def _spend_invite(sb_user: dict) -> None:
+    if not _invite_limiter.allow(sb_user["auth_user_id"]):
+        raise HTTPException(status_code=429, detail="You've reached today's limit of 100 invites. Please try again tomorrow.")
+
+
 @api_router.post("/v2/students/invite", response_model=StudentInviteResponse)
 async def v2_invite_student(req: StudentInviteRequest, sb_user: dict = Depends(get_current_supabase_user)):
     """Send a Supabase Auth invite email to the given address. Uses the
@@ -1104,6 +1114,7 @@ async def v2_invite_student(req: StudentInviteRequest, sb_user: dict = Depends(g
     them up automatically when they accept."""
     if not sb_user.get("school"):
         raise HTTPException(status_code=400, detail="No driving school linked to this auth user")
+    _spend_invite(sb_user)
 
     school = sb_user["school"]
     instructor_id = None
@@ -1457,6 +1468,7 @@ async def v2_invite_instructor(
     AuthContext bootstrap creates the instructor row on first sign-in."""
     if not await _is_school_owner(sb_user):
         raise HTTPException(status_code=403, detail="Only the school owner can invite instructors")
+    _spend_invite(sb_user)
 
     school = sb_user["school"]
 

@@ -629,6 +629,20 @@ def _seat_qty_from_subscription(sub: dict) -> int:
 REFERRAL_MAX_REWARDS_PER_YEAR = 2  # Grant, 14 Oct 2026: max 2 rewarded referrals per rolling 12 months (was 6). The one place it's defined; the app reads it from /referrals/summary.
 
 
+async def _claim_referral_reward(school_id: str, now_iso: str) -> bool:
+    """Atomically flip the referred school's reward from pending to rewarded. False if someone else already did."""
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.patch(
+            f"{_sb_rest_base}/driving_schools",
+            params={"id": f"eq.{school_id}", "referral_reward_status": "eq.pending"},
+            headers=_sb_headers(prefer="return=representation"),
+            json={"referral_reward_status": "rewarded", "referral_resolved_at": now_iso},
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase write failed: {r.text}")
+    return bool(r.json())
+
+
 async def _apply_referral_reward_if_due(school: dict) -> None:
     """Called right after a school's Stripe subscription goes active
     (checkout.session.completed below) — the only trigger, per Grant
@@ -686,35 +700,44 @@ async def _apply_referral_reward_if_due(school: dict) -> None:
         logger.info("Referral for school %s capped — referrer %s already at %s rewarded this year", school["id"], referrer_instructor_id, rewarded_count)
         return
 
-    # Ensure the referrer has a Stripe customer to credit (same pattern as checkout-session creation above).
-    customer_id = referrer_school.get("stripe_customer_id")
-    if not customer_id:
-        customer = stripe.Customer.create(
-            name=referrer_school.get("business_name"),
-            metadata={"school_id": referrer_school["id"]},
-        )
-        customer_id = customer.id
-        await sb_update_school(referrer_school["id"], {"stripe_customer_id": customer_id})
-
-    # Credit amount = one month of the referrer's OWN current tier price,
-    # read live from Stripe rather than hardcoded, so it can never drift
-    # out of sync with whatever the actual price is at the time.
-    try:
-        referrer_tier = referrer_school.get("tier") or "pro"
-        price_id = tier_to_line_items(referrer_tier)[0]["price"]
-        price = stripe.Price.retrieve(price_id)
-        credit_amount = price["unit_amount"]  # pence, positive
-    except Exception:
-        logger.exception("Could not determine referral credit amount for school %s — skipping credit", referrer_school["id"])
+    # Claim the reward before paying it. Two webhook deliveries (or a retry after a failed write) can reach this point
+    # together with the same stale "pending" row; only the one whose conditional update matches may credit Stripe.
+    if not await _claim_referral_reward(school["id"], now_iso):
         return
+    try:
+        # Ensure the referrer has a Stripe customer to credit (same pattern as checkout-session creation above).
+        customer_id = referrer_school.get("stripe_customer_id")
+        if not customer_id:
+            customer = stripe.Customer.create(
+                name=referrer_school.get("business_name"),
+                metadata={"school_id": referrer_school["id"]},
+            )
+            customer_id = customer.id
+            await sb_update_school(referrer_school["id"], {"stripe_customer_id": customer_id})
 
-    stripe.Customer.create_balance_transaction(
-        customer_id,
-        amount=-credit_amount,  # negative = credit toward their next invoice
-        currency="gbp",
-        description="Referral reward — 1 free month",
-    )
-    await sb_update_school(school["id"], {"referral_reward_status": "rewarded", "referral_resolved_at": now_iso})
+        # Credit amount = one month of the referrer's OWN current tier price,
+        # read live from Stripe rather than hardcoded, so it can never drift
+        # out of sync with whatever the actual price is at the time.
+        try:
+            referrer_tier = referrer_school.get("tier") or "pro"
+            price_id = tier_to_line_items(referrer_tier)[0]["price"]
+            price = stripe.Price.retrieve(price_id)
+            credit_amount = price["unit_amount"]  # pence, positive
+        except Exception:
+            logger.exception("Could not determine referral credit amount for school %s", referrer_school["id"])
+            raise
+
+        stripe.Customer.create_balance_transaction(
+            customer_id,
+            amount=-credit_amount,  # negative = credit toward their next invoice
+            currency="gbp",
+            description="Referral reward — 1 free month",
+            idempotency_key=f"referral-reward-{school['id']}",  # a second attempt within 24h cannot credit twice
+        )
+    except Exception:
+        # Nothing was credited: give the claim back so the retry (or the next renewal) can try again.
+        await sb_update_school(school["id"], {"referral_reward_status": "pending", "referral_resolved_at": None})
+        raise
     logger.info("Referral reward applied: referrer school %s credited %d pence for referring school %s", referrer_school["id"], credit_amount, school["id"])
 
 

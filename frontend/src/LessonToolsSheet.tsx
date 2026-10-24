@@ -22,7 +22,7 @@ import { theme } from './theme';
 import { mockDb } from './mockDb';
 import { Lesson, Student, listWaitingList, type WaitingListEntry, studentAppUsageWarning } from './supabaseDb';
 import { patchLesson } from './useSupabaseData';
-import { patchLessonOfflineAware } from './offlineSync';
+import { patchLessonOfflineAware, isNetworkError } from './offlineSync';
 import { useStudent, useStudents, useVehicles, useInstructorProfile, useCompetencies } from './useSupabaseData';
 import { navButtonLabel, resolveNavApp } from './navApp';
 import { countUpcomingInSeries, cancelSeriesFromDate } from './useSupabaseData';
@@ -359,10 +359,10 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
       return;
     }
     try {
-      await patchLesson(lesson.id, { pre_check_completed_at: new Date().toISOString() });
+      await patchLessonOfflineAware(lesson.id, { pre_check_completed_at: new Date().toISOString() }, `Pre-lesson check: ${student.name}`);
     } catch (e: any) {
-      // Fallback to mockDb if Supabase write fails (e.g. legacy lesson id).
-      mockDb.updateLesson(lesson.id, { pre_check_completed_at: new Date().toISOString() });
+      Alert.alert('Could not save the pre-lesson check', e?.message || 'Please try again.');
+      return;
     }
     Alert.alert('Pre-lesson check complete', 'Logged with timestamp. Drive safe!');
     onChanged?.();
@@ -407,8 +407,9 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
         const r = await patchLessonOfflineAware(lesson.id, patch, `Cancel lesson — ${student.name}`);
         queuedCancel = r.queued;
       } catch (e: any) {
-        // Fallback to mockDb (legacy demo data + offline path)
-        mockDb.updateLesson(lesson.id, patch);
+        // Only a lost connection is queued (inside patchLessonOfflineAware). Anything else did not cancel the lesson.
+        Alert.alert('Could not cancel the lesson', e?.message || 'Please try again.');
+        return;
       }
       setCancelOpen(false);
       if (!queuedCancel) setBroadcastOpen(true); // the waiting-list alert needs a connection
@@ -472,27 +473,18 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
         );
       }
     } catch (e: any) {
-      // The proactive check said online, but the request still failed —
-      // patchy signal can flicker faster than NetInfo notices. Queue it
-      // rather than lose the instructor's work or fall back to a mock
-      // record that never actually reaches the real database.
+      // A refusal (expired sign-in, database error) will never succeed later, so say so. Only a dropped connection
+      // is queued: patchy signal can flicker faster than NetInfo notices.
+      if (!isNetworkError(e)) {
+        Alert.alert('Could not save the lesson', e?.message || 'Please try again.');
+        return;
+      }
       try {
         await queueLessonWrite(lesson.id, payload as any, `Mark complete — ${student.name}`);
         Alert.alert('Saved offline', `${student.name.split(' ')[0]}'s lesson saved on this device. It'll sync automatically once you're back online.`);
       } catch {
-        // AsyncStorage itself failing is a genuine edge case — fall back
-        // to the pre-existing mockDb path so the instructor's input isn't
-        // silently lost, same as the original behaviour.
-        mockDb.updateLesson(lesson.id, {
-          driving_faults: drivingFaults,
-          serious_faults: seriousFaults,
-          dangerous_faults: dangerousFaults,
-          grade: grade ?? undefined,
-          amount_paid: amount,
-          notes: notes.trim() || undefined,
-          status: 'Completed',
-        });
-        Alert.alert('Lesson saved', `${student.name.split(' ')[0]}'s lesson recorded.`);
+        Alert.alert('Could not save the lesson', "It couldn't be saved on this device either. Please try again.");
+        return;
       }
     } finally {
       setSaving(false);

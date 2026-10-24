@@ -2326,7 +2326,7 @@ class WeatherBriefingResponse(BaseModel):
     results: List[WeatherWindowOut] = []
 
 
-async def _require_paid_instructor(sb_user: dict) -> dict:
+async def _require_paid_instructor(sb_user: dict, feature: str = "The road briefing") -> dict:
     """The caller's instructor row, if they are on a paid plan; 403 otherwise."""
     instructor = await sb_get_instructor_by_auth_user(sb_user["auth_user_id"])
     if not instructor:
@@ -2339,7 +2339,7 @@ async def _require_paid_instructor(sb_user: dict) -> dict:
     if sch.status_code >= 400:
         raise HTTPException(status_code=500, detail="Could not check your plan.")
     if not lesson_summaries.is_paid_tier(((sch.json() or [{}])[0] or {}).get("tier")):
-        raise HTTPException(status_code=403, detail="The road briefing is part of the Pro plan.")
+        raise HTTPException(status_code=403, detail=f"{feature} is part of the Pro plan.")
     return instructor
 
 
@@ -2435,8 +2435,35 @@ import base64 as _b64
 import json as _json
 import re as _re
 
+# Model-backed endpoints cost real money per call. One daily allowance per user across receipt scans and the two
+# debriefs (the summary and weather endpoints have their own). 60 is far above real use (about 15 receipts a week).
+_ai_limiter = address_search.UserLimiter(60, 86400)
+# A receipt photo bigger than this is refused: the model takes images up to about 5 MB, and the server must not hold
+# an unbounded upload in memory. 7,000,000 base64 characters is about 5.2 MB.
+MAX_RECEIPT_B64_CHARS = 7_000_000
+
+
+def _spend_ai_allowance(sb_user: dict) -> None:
+    if not _ai_limiter.allow(sb_user["auth_user_id"]):
+        raise HTTPException(status_code=429, detail="You've reached today's limit for AI features. Please try again tomorrow.")
+
+
+@app.middleware("http")
+async def _cap_receipt_upload(request: FastAPIRequest, call_next):
+    """Turn away an oversized receipt upload from its Content-Length, before the body is read into memory."""
+    if request.url.path.endswith("/receipts/scan"):
+        try:
+            size = int(request.headers.get("content-length") or 0)
+        except ValueError:
+            size = 0
+        if size > MAX_RECEIPT_B64_CHARS + 4096:
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": "That photo is too large. Please take it again at a lower quality."}, status_code=413)
+    return await call_next(request)
+
+
 class ReceiptScanRequest(BaseModel):
-    image_base64: str          # raw base64 (no data: prefix), JPEG/PNG/WEBP
+    image_base64: str = Field(..., max_length=MAX_RECEIPT_B64_CHARS)  # raw base64 (no data: prefix), JPEG/PNG/WEBP
     mime_type: Optional[str] = "image/jpeg"
 
 
@@ -2473,6 +2500,8 @@ async def receipts_scan(req: ReceiptScanRequest, sb_user: dict = Depends(get_cur
         raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured on backend.")
     if not req.image_base64:
         raise HTTPException(status_code=400, detail="image_base64 is required")
+    await _require_paid_instructor(sb_user, "Receipt scanning")
+    _spend_ai_allowance(sb_user)
     # Strip any data: URI prefix if the client included one.
     img_b64 = req.image_base64
     if img_b64.startswith("data:"):
@@ -2602,6 +2631,7 @@ async def generate_lesson_debrief(lesson_id: str, sb_user: dict = Depends(get_cu
     debrief is generated FROM them, not instead of them."""
     if not ANTHROPIC_API_KEY:
         raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured on backend.")
+    _spend_ai_allowance(sb_user)
 
     instructor = await sb_get_instructor_by_auth_user(sb_user["auth_user_id"])
     if not instructor:
@@ -2750,6 +2780,7 @@ async def _load_mock_attempt_for_caller(sb_user: dict, attempt_id: str) -> Tuple
 async def generate_mock_test_debrief(attempt_id: str, sb_user: dict = Depends(get_current_supabase_user)):
     if not ANTHROPIC_API_KEY:
         raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured on backend.")
+    _spend_ai_allowance(sb_user)
     attempt, student = await _load_mock_attempt_for_caller(sb_user, attempt_id)
 
     async with httpx.AsyncClient(timeout=10.0) as client_http:

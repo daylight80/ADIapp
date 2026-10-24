@@ -741,6 +741,21 @@ async def _apply_referral_reward_if_due(school: dict) -> None:
     logger.info("Referral reward applied: referrer school %s credited %d pence for referring school %s", referrer_school["id"], credit_amount, school["id"])
 
 
+async def _cancel_school(school: dict, sub_id: Optional[str]) -> None:
+    """Put the school back on Starter, unless the cancelled subscription is an old one and they have since
+    subscribed again (a late "deleted" for the old subscription must not undo the new one)."""
+    current = school.get("stripe_subscription_id")
+    if current and sub_id and current != sub_id:
+        logger.info("Ignoring cancellation of old subscription %s for school %s (current is %s)", sub_id, school["id"], current)
+        return
+    await sb_update_school(school["id"], {
+        "tier": "starter",
+        "subscription_status": "cancelled",
+        "stripe_subscription_id": None,
+        "current_period_end": None,
+    })
+
+
 @api_router.post("/billing/webhook")
 async def stripe_webhook(request: FastAPIRequest):
     if not STRIPE_WEBHOOK_SECRET:
@@ -787,6 +802,12 @@ async def stripe_webhook(request: FastAPIRequest):
                 if school and school.get("is_comp_account"):
                     logger.info("Skipping webhook tier update for comp account school %s", school["id"])
                 elif school:
+                    # Stripe does not promise delivery order, so this event body may be older than what the school
+                    # has now. Read the subscription's current state instead of trusting the body.
+                    data = stripe.Subscription.retrieve(data["id"], expand=["items.data.price"])
+                    if data.get("status") == "canceled":
+                        await _cancel_school(school, data.get("id"))
+                        return {"received": True, "handled": True, "type": etype}
                     patch = {
                         "tier": _tier_from_subscription(data) or school.get("tier") or "pro",
                         "subscription_status": data.get("status") or "active",
@@ -809,12 +830,7 @@ async def stripe_webhook(request: FastAPIRequest):
                 if school and school.get("is_comp_account"):
                     logger.info("Skipping webhook cancellation for comp account school %s", school["id"])
                 elif school:
-                    await sb_update_school(school["id"], {
-                        "tier": "starter",
-                        "subscription_status": "cancelled",
-                        "stripe_subscription_id": None,
-                        "current_period_end": None,
-                    })
+                    await _cancel_school(school, data.get("id"))
 
     except HTTPException:
         raise

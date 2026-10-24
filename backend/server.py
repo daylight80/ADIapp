@@ -796,8 +796,10 @@ async def stripe_webhook(request: FastAPIRequest):
     except HTTPException:
         raise
     except Exception as e:
+        # Answer 5xx, not 200: Stripe retries for up to three days, while a 200 drops the event for good and leaves a
+        # paying school on the Starter plan. The handlers above are safe to run twice.
         logger.exception("Stripe webhook handler failed: %s", e)
-        return {"received": True, "handled": False, "error": str(e)}
+        raise HTTPException(status_code=500, detail="Webhook handler failed; Stripe will retry.")
 
     return {"received": True, "handled": True, "type": etype}
 
@@ -1183,10 +1185,14 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
     if not lesson_school_id:
         raise HTTPException(status_code=500, detail="Lesson is missing its instructor → school link")
 
-    # 2. Verify the caller actually owns this lesson's school.
+    # 2. The caller must be the school's owner, or the instructor who teaches this lesson (a Franchise instructor
+    #    who is not the owner has no school of their own).
     school = sb_user.get("school") or await sb_get_school_by_auth_user(sb_user["auth_user_id"])
-    if not school or school["id"] != lesson_school_id:
-        raise HTTPException(status_code=403, detail="Not your lesson")
+    owns_school = bool(school and school["id"] == lesson_school_id)
+    if not owns_school:
+        teacher = await sb_get_instructor_by_auth_user(sb_user["auth_user_id"])
+        if not teacher or teacher["id"] != lesson.get("instructor_id"):
+            raise HTTPException(status_code=403, detail="Not your lesson")
 
     # 3. Two ways to decide who gets notified: an explicit, instructor-
     #    chosen list of students.id values (Phase 3's Select Students
@@ -1811,36 +1817,9 @@ class StudentMutationResponse(BaseModel):
 
 
 async def _ensure_owns_student(sb_user: dict, student_id: str) -> dict:
-    """Tenant guard — fetch the student, verify it belongs to either:
-      * the owner's school (owners can manage every student in their school), or
-      * the calling instructor (instructors can only manage their own assigned students).
-
-    Returns the student row on success; raises 403/404 otherwise.
-    """
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.get(
-            f"{_sb_rest_base}/students",
-            headers=_sb_headers(),
-            params={"select": "id,school_id,instructor_id", "id": f"eq.{student_id}", "limit": "1"},
-        )
-    if r.status_code >= 400:
-        raise HTTPException(status_code=500, detail=f"Supabase read failed: {r.text[:120]}")
-    rows = r.json() or []
-    if not rows:
-        raise HTTPException(status_code=404, detail="Student not found")
-    row = rows[0]
-
-    # Owners pass when the student's school matches their owned school.
-    if await _is_school_owner(sb_user):
-        if row.get("school_id") == sb_user["school"]["id"]:
-            return row
-        raise HTTPException(status_code=403, detail="Student does not belong to your school")
-
-    # Otherwise check instructor identity (sub-instructor or solo-instructor).
-    inst_id = sb_user.get("instructor", {}).get("id")
-    if inst_id and row.get("instructor_id") == inst_id:
-        return row
-    raise HTTPException(status_code=403, detail="You may only manage your own assigned students")
+    """Tenant guard for status changes and deletes: the school owner for any pupil in their school, an instructor
+    (owner or not) for their own pupils. The rule itself lives in _load_manageable_student, so the two cannot drift."""
+    return await _load_manageable_student(sb_user, student_id, denied="You may only manage your own assigned students")
 
 
 @api_router.patch("/v2/students/{student_id}/status", response_model=StudentMutationResponse)
@@ -2004,7 +1983,7 @@ class PaymentReminderResult(BaseModel):
     owes: float
 
 
-async def _load_manageable_student(sb_user: dict, student_id: str) -> dict:
+async def _load_manageable_student(sb_user: dict, student_id: str, denied: str = "You can only remind your own pupils.") -> dict:
     """The pupil's full row if the caller is their instructor or the school owner; 403/404 otherwise."""
     async with httpx.AsyncClient(timeout=10.0) as client_http:
         r = await client_http.get(
@@ -2024,7 +2003,7 @@ async def _load_manageable_student(sb_user: dict, student_id: str) -> dict:
     instructor = await _get_own_instructor(sb_user)
     if instructor.get("id") and instructor["id"] == row.get("instructor_id"):
         return row
-    raise HTTPException(status_code=403, detail="You can only remind your own pupils.")
+    raise HTTPException(status_code=403, detail=denied)
 
 
 async def _reminder_context(sb_user: dict, student_id: str) -> Tuple[dict, float, Optional[str]]:

@@ -77,10 +77,11 @@ export function totalDistance(points: RoutePoint[]): number {
   return total;
 }
 
-/** Human-readable distance with the right unit. */
+/** UK road units: yards for the first tenth of a mile, then miles. The stored distance stays in metres. */
 export function fmtDistance(metres: number): string {
-  if (metres < 1000) return `${metres.toFixed(0)} m`;
-  return `${(metres / 1000).toFixed(metres > 10_000 ? 0 : 2)} km`;
+  const miles = metres / 1609.344;
+  if (miles < 0.1) return `${Math.round(metres / 0.9144)} yd`;
+  return `${miles.toFixed(miles >= 10 ? 0 : 1)} mi`;
 }
 
 /** "1h 23m 45s" style duration. */

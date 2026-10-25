@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
-import { listRoutes, saveRoute, deleteRoute, renameRoute, type SavedRoute } from '../routeRecorder';
+import { listRoutes, saveRoute, deleteRoute, renameRoute, fmtDistance, type SavedRoute } from '../routeRecorder';
 import { isEncryptedBlob, __resetCacheForTests } from '../secureBlob';
 
 const STORAGE_KEY = '@adipro_routes_v1';
@@ -161,5 +161,14 @@ describe('routeRecorder — private notes', () => {
   it('keeps the notes private: they are not in the GPX file that gets shared', () => {
     const gpx = routeToGPX({ ...makeRoute('n2', 'Private'), notes: 'secret feedback' });
     expect(gpx).not.toContain('secret feedback');
+  });
+});
+
+describe('fmtDistance', () => {
+  it('shows UK road units: yards for the first tenth of a mile, then miles', () => {
+    expect(fmtDistance(50)).toBe('55 yd');
+    expect(fmtDistance(1609.344)).toBe('1.0 mi');
+    expect(fmtDistance(8047)).toBe('5.0 mi');
+    expect(fmtDistance(32187)).toBe('20 mi');
   });
 });

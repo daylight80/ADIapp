@@ -35,6 +35,8 @@ export function RouteRows({ routes }: { routes: SavedRoute[] }) {
               {formatDate(r.startedAt)}
               {' · '}{fmtDistance(r.distanceMeters)} · {fmtDuration(r.durationSec)}
             </Text>
+            {!!r.positives && <Text style={styles.notes} numberOfLines={3} testID={`route-positives-${r.id}`}>+ {r.positives}</Text>}
+            {!!r.negatives && <Text style={styles.notes} numberOfLines={3} testID={`route-negatives-${r.id}`}>– {r.negatives}</Text>}
             {!!r.notes && <Text style={styles.notes} numberOfLines={3} testID={`route-notes-${r.id}`}>{r.notes}</Text>}
           </View>
           <TouchableOpacity onPress={() => openRouteInMaps(r)} style={styles.btn} accessibilityLabel="Open route in Google Maps" testID={`route-maps-${r.id}`}>

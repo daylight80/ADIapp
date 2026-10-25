@@ -41,8 +41,13 @@ export type SavedRoute = {
   lessonId?: string;
   /** Optional student link. */
   studentId?: string;
-  /** The instructor's own notes, typed during or after the recording. Private: never shown to the pupil. */
+  /** The instructor's own notes. Private: never shown to the pupil. Routes saved before positives and negatives
+   *  existed have just this; new ones use positives and negatives. */
   notes?: string;
+  /** What went well on the lesson. Private. */
+  positives?: string;
+  /** What needs work. Private. */
+  negatives?: string;
 };
 
 export const MAX_ROUTE_NOTES = 2000;
@@ -183,6 +188,16 @@ export function nextPoint(
   const step = haversineMeters(last, fix);
   if (step < 3) return null;
   return { point: fix, addedMeters: step };
+}
+
+export async function updateRouteFeedback(id: string, feedback: { positives?: string; negatives?: string }): Promise<void> {
+  const all = await listRoutes();
+  const idx = all.findIndex((r) => r.id === id);
+  if (idx >= 0) {
+    all[idx].positives = cleanRouteNotes(feedback.positives);
+    all[idx].negatives = cleanRouteNotes(feedback.negatives);
+    await writeAll(all);
+  }
 }
 
 export async function updateRouteNotes(id: string, notes: string): Promise<void> {

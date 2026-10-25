@@ -16,7 +16,7 @@ import { theme } from '../src/theme';
 import { Card } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import {
-  listRoutes, saveRoute, deleteRoute, renameRoute, updateRouteNotes, cleanRouteNotes, MAX_ROUTE_NOTES,
+  listRoutes, saveRoute, deleteRoute, renameRoute, updateRouteNotes, updateRouteFeedback, cleanRouteNotes, MAX_ROUTE_NOTES,
   fmtDistance, fmtDuration, msToMph, activeSeconds, nextPoint,
   type SavedRoute, type RoutePoint,
 } from '../src/routeRecorder';
@@ -84,8 +84,10 @@ export default function RouteRecorderScreen() {
   const distanceRef = useRef(0);
   const afterPauseRef = useRef(false);
   // Notes typed during the lesson. Kept in a ref as well so Stop & Save always saves the latest text.
-  const [notes, setNotes] = useState('');
-  const notesRef = useRef('');
+  const [positives, setPositives] = useState('');
+  const [negatives, setNegatives] = useState('');
+  const positivesRef = useRef('');
+  const negativesRef = useRef('');
   const keyboardHeight = useKeyboardHeight();
   const watcherRef = useRef<Location.LocationSubscription | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -193,8 +195,10 @@ export default function RouteRecorderScreen() {
       pointsRef.current = [];
       distanceRef.current = 0;
       bankedMsRef.current = 0;
-      notesRef.current = '';
-      setNotes('');
+      positivesRef.current = '';
+      negativesRef.current = '';
+      setPositives('');
+      setNegatives('');
       afterPauseRef.current = false;
       setPoints([]);
       setDistanceM(0);
@@ -249,7 +253,8 @@ export default function RouteRecorderScreen() {
         durationSec,
         distanceMeters: distanceM,
         points,
-        notes: cleanRouteNotes(notesRef.current),
+        positives: cleanRouteNotes(positivesRef.current),
+        negatives: cleanRouteNotes(negativesRef.current),
         lessonId: linkedLessonId,
         studentId: linkedStudentId,
       };
@@ -377,16 +382,27 @@ export default function RouteRecorderScreen() {
                 <Square size={20} color="#fff" />
                 <Text style={styles.stopBtnText}>Stop & Save</Text>
               </TouchableOpacity>
-              <Text style={styles.notesLabel}>Lesson notes (private)</Text>
+              <Text style={styles.notesLabel}>Positives (private)</Text>
               <TextInput
-                value={notes}
-                onChangeText={(v) => { notesRef.current = v; setNotes(v); }}
+                value={positives}
+                onChangeText={(v) => { positivesRef.current = v; setPositives(v); }}
                 style={styles.notesInput}
-                placeholder="Jot things down as you go, e.g. stalled at the roundabout, good mirror checks"
+                placeholder="What went well, e.g. good mirror checks, smooth junctions"
                 placeholderTextColor={theme.colors.textMuted}
                 multiline
                 maxLength={MAX_ROUTE_NOTES}
-                testID="input-recording-notes"
+                testID="input-recording-positives"
+              />
+              <Text style={styles.notesLabel}>Negatives (private)</Text>
+              <TextInput
+                value={negatives}
+                onChangeText={(v) => { negativesRef.current = v; setNegatives(v); }}
+                style={styles.notesInput}
+                placeholder="What needs work, e.g. stalled at the roundabout"
+                placeholderTextColor={theme.colors.textMuted}
+                multiline
+                maxLength={MAX_ROUTE_NOTES}
+                testID="input-recording-negatives"
               />
               <Text style={styles.helperText}>Saved with the route. Your pupil never sees these.</Text>
             </>
@@ -476,6 +492,7 @@ export default function RouteRecorderScreen() {
           onShareGpx={() => shareGpx(detail)}
           onDelete={() => confirmDelete(detail)}
           onRenamed={async (newName) => { await renameRoute(detail.id, newName); await reloadRoutes(); setDetail({ ...detail, name: newName }); }}
+          onFeedbackSaved={async (fb) => { await updateRouteFeedback(detail.id, fb); await reloadRoutes(); setDetail({ ...detail, positives: cleanRouteNotes(fb.positives), negatives: cleanRouteNotes(fb.negatives) }); }}
           onNotesSaved={async (text) => { await updateRouteNotes(detail.id, text); await reloadRoutes(); setDetail({ ...detail, notes: cleanRouteNotes(text) }); }}
         />}
       </BottomSheet>
@@ -498,17 +515,23 @@ function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; va
 }
 
 function RouteDetail({
-  route, onOpenMaps, onShareGpx, onDelete, onRenamed, onNotesSaved,
+  route, onOpenMaps, onShareGpx, onDelete, onRenamed, onFeedbackSaved, onNotesSaved,
 }: {
   route: SavedRoute;
   onOpenMaps: () => void;
   onShareGpx: () => void;
   onDelete: () => void;
   onRenamed: (newName: string) => void;
+  onFeedbackSaved: (feedback: { positives: string; negatives: string }) => void;
   onNotesSaved: (notes: string) => void;
 }) {
   const [name, setName] = useState(route.name);
   const [notes, setNotes] = useState(route.notes || '');
+  const [positives, setPositives] = useState(route.positives || '');
+  const [negatives, setNegatives] = useState(route.negatives || '');
+  const saveFeedback = (p: string, n: string) => {
+    if (p.trim() !== (route.positives || '') || n.trim() !== (route.negatives || '')) onFeedbackSaved({ positives: p, negatives: n });
+  };
   return (
     <View style={{ gap: 12 }}>
       <Text style={styles.detailLabel}>Name</Text>
@@ -524,18 +547,47 @@ function RouteDetail({
         />
       </View>
 
-      <Text style={styles.detailLabel}>Notes (private)</Text>
+      <Text style={styles.detailLabel}>Positives (private)</Text>
       <TextInput
-        value={notes}
-        onChangeText={setNotes}
-        onBlur={() => { if (notes.trim() !== (route.notes || '')) onNotesSaved(notes); }}
+        value={positives}
+        onChangeText={setPositives}
+        onBlur={() => saveFeedback(positives, negatives)}
         style={[styles.nameInput, styles.notesInput, { alignSelf: 'stretch' }]}
-        placeholder="Add notes about this lesson"
+        placeholder="What went well"
         placeholderTextColor={theme.colors.textMuted}
         multiline
         maxLength={MAX_ROUTE_NOTES}
-        testID="input-route-notes"
+        testID="input-route-positives"
       />
+
+      <Text style={styles.detailLabel}>Negatives (private)</Text>
+      <TextInput
+        value={negatives}
+        onChangeText={setNegatives}
+        onBlur={() => saveFeedback(positives, negatives)}
+        style={[styles.nameInput, styles.notesInput, { alignSelf: 'stretch' }]}
+        placeholder="What needs work"
+        placeholderTextColor={theme.colors.textMuted}
+        multiline
+        maxLength={MAX_ROUTE_NOTES}
+        testID="input-route-negatives"
+      />
+
+      {!!route.notes && (
+        <>
+          <Text style={styles.detailLabel}>Earlier notes (private)</Text>
+          <TextInput
+            value={notes}
+            onChangeText={setNotes}
+            onBlur={() => { if (notes.trim() !== (route.notes || '')) onNotesSaved(notes); }}
+            style={[styles.nameInput, styles.notesInput, { alignSelf: 'stretch' }]}
+            placeholderTextColor={theme.colors.textMuted}
+            multiline
+            maxLength={MAX_ROUTE_NOTES}
+            testID="input-route-notes"
+          />
+        </>
+      )}
 
       <View style={styles.detailStatsRow}>
         <Stat icon={<RouteIcon size={18} color={theme.colors.primary} />} label="Distance" value={fmtDistance(route.distanceMeters)} />

@@ -164,6 +164,27 @@ describe('routeRecorder — private notes', () => {
   });
 });
 
+describe('routeRecorder: positives and negatives', () => {
+  const { updateRouteFeedback, routeToGPX } = require('../routeRecorder');
+
+  it('saves positives and negatives with the route and lets them be edited later', async () => {
+    await AsyncStorage.clear();
+    await saveRoute({ ...makeRoute('f1', 'Feedback'), positives: 'Good mirror checks', negatives: 'Stalled at the roundabout' });
+    const saved = (await listRoutes())[0];
+    expect(saved.positives).toBe('Good mirror checks');
+    expect(saved.negatives).toBe('Stalled at the roundabout');
+    await updateRouteFeedback('f1', { positives: '  Smooth junctions  ', negatives: '   ' });
+    const edited = (await listRoutes())[0];
+    expect(edited.positives).toBe('Smooth junctions');
+    expect(edited.negatives).toBeUndefined();
+  });
+
+  it('keeps them private: they are not in the GPX file that gets shared', () => {
+    const gpx = routeToGPX({ ...makeRoute('f2', 'Private'), positives: 'secret good', negatives: 'secret bad' });
+    expect(gpx).not.toContain('secret');
+  });
+});
+
 describe('fmtDistance', () => {
   it('shows UK road units: yards for the first tenth of a mile, then miles', () => {
     expect(fmtDistance(50)).toBe('55 yd');

@@ -614,6 +614,7 @@ export default function InstructorHomeV2Screen() {
         onClose={() => setDetailLesson(null)}
         lesson={detailLesson}
         onChanged={() => setSelId(selId)}
+        onBookNext={(sid) => router.push({ pathname: '/lesson-diary-screen', params: { bookFor: sid } } as any)}
       />
 
       <PaywallModal

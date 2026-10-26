@@ -57,8 +57,8 @@ beforeEach(() => {
 });
 afterEach(() => alertSpy.mockRestore());
 
-const open = async (onChanged = jest.fn()) => {
-  await render(<LessonToolsSheet visible lesson={lesson} onClose={jest.fn()} onChanged={onChanged} />);
+const open = async (onChanged = jest.fn(), extra: Record<string, unknown> = {}) => {
+  await render(<LessonToolsSheet visible lesson={lesson} onClose={jest.fn()} onChanged={onChanged} {...extra} />);
   return onChanged;
 };
 
@@ -98,5 +98,43 @@ describe('a failed save is never reported as done', () => {
     for (const id of ['precheck-eye', 'precheck-fit', 'precheck-lic']) await fireEvent.press(screen.getByTestId(id));
     await fireEvent.press(screen.getByTestId('btn-confirm-precheck'));
     await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Pre-lesson check complete', expect.any(String)));
+  });
+});
+
+describe('after completing a lesson', () => {
+  const complete = async () => {
+    await fireEvent.press(screen.getByTestId('btn-open-complete'));
+    await fireEvent.press(await screen.findByTestId('grade-3'));
+    await fireEvent.press(screen.getByTestId('btn-save-complete'));
+  };
+
+  it('offers Book next lesson, which closes the sheet and hands over the pupil', async () => {
+    mockPatch.mockResolvedValue({});
+    const onClose = jest.fn();
+    const onBookNext = jest.fn();
+    await render(<LessonToolsSheet visible lesson={lesson} onClose={onClose} onChanged={jest.fn()} onBookNext={onBookNext} />);
+    await complete();
+    await fireEvent.press(await screen.findByTestId('btn-book-next-lesson'));
+    expect(onBookNext).toHaveBeenCalledWith('st1');
+    expect(onClose).toHaveBeenCalled();
+    expect(screen.queryByTestId('lesson-saved-dialog')).toBeNull();
+  });
+
+  it('Not now just closes the dialog and books nothing', async () => {
+    mockPatch.mockResolvedValue({});
+    const onBookNext = jest.fn();
+    await open(jest.fn(), { onBookNext });
+    await complete();
+    await fireEvent.press(await screen.findByTestId('btn-saved-not-now'));
+    expect(onBookNext).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('lesson-saved-dialog')).toBeNull();
+  });
+
+  it('a failed save shows no dialog', async () => {
+    mockPatch.mockRejectedValue(new Error('JWT expired'));
+    await open(jest.fn(), { onBookNext: jest.fn() });
+    await complete();
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Could not save the lesson', 'JWT expired'));
+    expect(screen.queryByTestId('lesson-saved-dialog')).toBeNull();
   });
 });

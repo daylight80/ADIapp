@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react-native';
 import { useLessonsForWeek, useLessonsForMonth, useStudents, useAvailabilityBlocks } from '../src/useSupabaseData';
 import { patchLessonOfflineAware } from '../src/offlineSync';
@@ -120,6 +120,13 @@ export default function LessonDiaryV2Screen() {
   });
   const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  // "Book next lesson" after completing a lesson: open Add Lesson with that pupil chosen. From Home it arrives as ?bookFor=<pupil id>.
+  const params = useLocalSearchParams();
+  const [bookStudentId, setBookStudentId] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    const sid = params.bookFor as string | undefined;
+    if (sid) { setBookStudentId(sid); setAddOpen(true); }
+  }, [params.bookFor]);
   // Unavailability integration (22 Sept 2026), per Grant directly — the
   // Unavailabilities screen/modal/data layer already existed (Holiday/
   // Personal/Family/Sick/Other, full CRUD), but lesson-diary-screen.tsx
@@ -790,16 +797,18 @@ export default function LessonDiaryV2Screen() {
         onClose={() => setDetailLesson(null)}
         lesson={detailLesson}
         onChanged={() => setSelectedDate(new Date(selectedDate))}
+        onBookNext={(sid) => { setBookStudentId(sid); setAddOpen(true); }}
       />
       <AddLessonSheet
         visible={addOpen}
-        onClose={() => setAddOpen(false)}
+        onClose={() => { setAddOpen(false); setBookStudentId(undefined); }}
         students={students}
         lessons={lessons}
         availBlocks={availBlocks}
         pro={paid}
         initialDate={localDateKey(selectedDate)}
-        onCreated={() => { setAddOpen(false); setSelectedDate(new Date(selectedDate)); }}
+        initialStudentId={bookStudentId}
+        onCreated={() => { setAddOpen(false); setBookStudentId(undefined); setSelectedDate(new Date(selectedDate)); }}
       />
 
       {/* Drag-confirmation modal (31 Aug 2026) — deliberately a custom

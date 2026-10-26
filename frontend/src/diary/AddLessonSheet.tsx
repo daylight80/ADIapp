@@ -58,6 +58,8 @@ type Props = {
    * was showing, so the picker defaulted to the device's actual today.
    */
   initialDate?: string;
+  /** Opens with this pupil already chosen (used by "Book next lesson" after completing a lesson). */
+  initialStudentId?: string;
 };
 
 /**
@@ -74,7 +76,7 @@ type Props = {
  * save, so it can scroll the diary to the new lesson's start time and jump
  * the visible date if the user picked a different day.
  */
-export function AddLessonSheet({ visible, onClose, students, lessons, availBlocks, pro, onCreated, initialDate }: Props) {
+export function AddLessonSheet({ visible, onClose, students, lessons, availBlocks, pro, onCreated, initialDate, initialStudentId }: Props) {
   const [studentId, setStudentId] = useState('');
   // Practical Test bookings: where the test is, and when it starts inside the lesson block.
   const [testCentre, setTestCentre] = useState('');
@@ -177,6 +179,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
   // never has it silently overwritten under them.
   useEffect(() => {
     if (visible && initialDate) setDate(initialDate);
+    if (visible && initialStudentId) setStudentId(initialStudentId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 

@@ -82,9 +82,11 @@ type Props = {
   onClose: () => void;
   lesson: Lesson | null;
   onChanged?: () => void;
+  /** After a lesson is completed, "Book next lesson" calls this with the pupil's id. The screen closes this sheet and opens its Add Lesson sheet. */
+  onBookNext?: (studentId: string) => void;
 };
 
-export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props) {
+export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNext }: Props) {
   const toolsKb = useSheetKeyboard(560);
   const router = useRouter();
   const isOnline = useIsOnline();
@@ -100,6 +102,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
   );
   // Dictated summary for the pupil (paid plans): its sheet, and the upgrade prompt for everyone else.
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [savedOpen, setSavedOpen] = useState(false);
   const [summaryPaywallOpen, setSummaryPaywallOpen] = useState(false);
   // Practical Test bookings: editing the test centre and test time after booking.
   const [testEditOpen, setTestEditOpen] = useState(false);
@@ -460,17 +463,8 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
         Alert.alert('Saved offline', `${student.name.split(' ')[0]}'s lesson saved on this device. It'll sync automatically once you're back online.`);
       } else {
         await patchLesson(lesson.id, payload as any);
-        // On a paid plan, offer to write the pupil a summary straight away (one alert, not two in a row).
-        Alert.alert(
-          'Lesson saved',
-          `${student.name.split(' ')[0]}'s lesson recorded. Faults & grade synced.`,
-          paid
-            ? [
-                { text: 'Not now', style: 'cancel' },
-                { text: `Write a summary for ${student.name.split(' ')[0]}`, onPress: () => setSummaryOpen(true) },
-              ]
-            : undefined,
-        );
+        // One in-app dialog (Alert buttons do nothing on the web): book the next lesson, and on a paid plan write the summary.
+        setSavedOpen(true);
       }
     } catch (e: any) {
       // A refusal (expired sign-in, database error) will never succeed later, so say so. Only a dropped connection
@@ -990,6 +984,36 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged }: Props)
                 </TouchableOpacity>
               </>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={savedOpen} transparent animationType="fade" onRequestClose={() => setSavedOpen(false)}>
+        <View style={cancelModalStyles.backdrop}>
+          <View style={cancelModalStyles.card} testID="lesson-saved-dialog">
+            <Text style={cancelModalStyles.title}>Lesson saved</Text>
+            <Text style={cancelModalStyles.body}>{student.name.split(' ')[0]}&apos;s lesson is recorded. Faults and grade are synced.</Text>
+            {!!onBookNext && (
+              <TouchableOpacity
+                style={[cancelModalStyles.btn, cancelModalStyles.btnPartial]}
+                onPress={() => { setSavedOpen(false); onClose(); if (lesson) onBookNext(lesson.student_id); }}
+                testID="btn-book-next-lesson"
+              >
+                <Text style={cancelModalStyles.btnText}>Book next lesson</Text>
+              </TouchableOpacity>
+            )}
+            {paid && (
+              <TouchableOpacity
+                style={[cancelModalStyles.btn, cancelModalStyles.btnPartial]}
+                onPress={() => { setSavedOpen(false); setSummaryOpen(true); }}
+                testID="btn-saved-write-summary"
+              >
+                <Text style={cancelModalStyles.btnText}>Write a summary for {student.name.split(' ')[0]}</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={cancelModalStyles.btnGhost} onPress={() => setSavedOpen(false)} testID="btn-saved-not-now">
+              <Text style={cancelModalStyles.btnGhostText}>Not now</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>

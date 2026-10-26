@@ -10,12 +10,14 @@ import { PupilSummariesCard, usePupilSummaries } from '../src/PupilSummariesCard
 import { usePupilGoal } from '../src/usePupilGoal';
 import { SignInFasterCard } from '../src/SignInFasterCard';
 import { planSummary } from '../src/lessonPlan';
+import { PupilConfidenceCard } from '../src/PupilConfidenceCard';
+import { lessonToRate } from '../src/pupilConfidence';
 import { isPaidTier, tierById } from '../src/tiers';
 import {
   useStudentByAuthId, useStudentByEmail, useCompetencies, useLessonsForStudent,
   useBadges, useReflectiveLogs, useMockTestAttempts, createReflectiveLog,
 } from '../src/useSupabaseData';
-import { DVSA_SYLLABUS } from '../src/supabaseDb';
+import { DVSA_SYLLABUS, rateLessonConfidence } from '../src/supabaseDb';
 import { agreementStatus } from '../src/pupilAgreement';
 import { nextUpcomingLesson, describeLessonWhen, mostRecentCompletedLesson } from '../src/nextLesson';
 import { formatDate } from '../src/dateFormat';
@@ -92,7 +94,7 @@ export default function StudentAppV2Screen() {
   const { competencies: sbCompetencies } = useCompetencies(supabaseStudent?.id);
   const competencies = sbCompetencies || [];
 
-  const { lessons: sbLessons, loading: lessonsLoading } = useLessonsForStudent(supabaseStudent?.id);
+  const { lessons: sbLessons, loading: lessonsLoading, refresh: refreshLessons } = useLessonsForStudent(supabaseStudent?.id);
   const lessons = sbLessons || [];
 
   // Next lesson (26 Sept 2026): the earliest Scheduled lesson that hasn't
@@ -117,6 +119,7 @@ export default function StudentAppV2Screen() {
   const [reflectFocus, setReflectFocus] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const confidenceLesson = lessonToRate(lessons);
   const completedLessons = lessons.filter((l) => l.status === 'Completed');
   // Was completedLessons[0] || lessons[0] — completedLessons[0] is the OLDEST
   // completed lesson (lessons arrives oldest-first from listLessonsForStudent),
@@ -263,6 +266,10 @@ export default function StudentAppV2Screen() {
               </Text>
             )}
           </View>
+
+          {!!confidenceLesson && (
+            <PupilConfidenceCard onRate={async (score) => { await rateLessonConfidence(confidenceLesson.id, score); await refreshLessons(); }} />
+          )}
 
           <View style={s.readyCard}>
             <View style={s.readyInner}>

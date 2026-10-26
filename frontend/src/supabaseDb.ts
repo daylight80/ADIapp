@@ -955,6 +955,8 @@ export type Lesson = {
   plan_topics?: string[];
   plan_covered?: string[];
   plan_brief?: string;
+  /** How confident the pupil said they felt afterwards, 1 to 5 (Migration 092). Set by the pupil only. */
+  pupil_confidence?: number;
 };
 
 // Helpers for HH:mm <-> timestamptz
@@ -1010,6 +1012,7 @@ const lessonFromRow = (r: any): Lesson => {
     plan_topics: r.plan_topics ?? [],
     plan_covered: r.plan_covered ?? [],
     plan_brief: r.plan_brief ?? undefined,
+    pupil_confidence: r.pupil_confidence ?? undefined,
   };
 };
 
@@ -1865,6 +1868,12 @@ export async function getPupilBalance(studentId: string): Promise<PupilBalance> 
     paid: Number(data?.paid_gbp ?? 0),
     outstanding: Number(data?.outstanding_gbp ?? 0),
   };
+}
+
+/** The pupil's own 1 to 5 confidence rating for a finished lesson. */
+export async function rateLessonConfidence(lessonId: string, score: number): Promise<void> {
+  const { error } = await supabase.rpc('rate_lesson_confidence', { p_lesson_id: lessonId, p_score: score });
+  if (error) throw error;
 }
 
 export async function recordPayment(input: {

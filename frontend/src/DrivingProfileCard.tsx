@@ -5,8 +5,8 @@ import type { DrivingProfile } from './drivingProfile';
 
 /** Instructor-only summary on the pupil's Overview: focus, recurring issues, last practice note, what is left to meet. */
 export function DrivingProfileCard({ profile }: { profile: DrivingProfile }) {
-  const { focus, issues, practice, toMeet } = profile;
-  if (!focus && !issues.length && !practice && !toMeet.length) return null;
+  const { focus, issues, practice, toMeet, confidence } = profile;
+  if (!focus && !issues.length && !practice && !toMeet.length && !confidence) return null;
   return (
     <View style={s.card} testID="driving-profile">
       <Text style={s.title}>Driving profile</Text>
@@ -16,6 +16,12 @@ export function DrivingProfileCard({ profile }: { profile: DrivingProfile }) {
           <Text style={s.label}>Recurring issues</Text>
           {issues.map((i) => <Text key={i} style={s.line}>{'•'} {i}</Text>)}
         </View>
+      )}
+      {!!confidence && (
+        <Text style={s.line} testID="profile-confidence">
+          <Text style={s.label}>Pupil confidence: </Text>
+          {confidence.latest} of 5 after the last rated lesson{confidence.count > 1 ? `, average ${confidence.average} over the last ${confidence.count}` : ''}
+        </Text>
       )}
       {!!practice && <Text style={s.line} testID="profile-practice"><Text style={s.label}>Last notes, needs practice: </Text>{practice}</Text>}
       {toMeet.length > 0 && <Text style={s.line} testID="profile-to-meet"><Text style={s.label}>Still to meet: </Text>{toMeet.join(', ')}</Text>}

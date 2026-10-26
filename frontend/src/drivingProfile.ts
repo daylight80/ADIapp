@@ -3,7 +3,9 @@
 // Pure logic, tested in __tests__/drivingProfile.test.ts.
 
 type Comp = { category_name: string; level: number; progress?: number; touched?: boolean };
-type LessonLike = { status?: string | null; date: string; serious_faults?: number | null; dangerous_faults?: number | null };
+import { confidenceSummary, type ConfidenceSummary } from './pupilConfidence';
+
+type LessonLike = { status?: string | null; date: string; serious_faults?: number | null; dangerous_faults?: number | null; pupil_confidence?: number | null };
 type Focus = { goal: string | null; practice: string | null } | null;
 
 /** A topic counts as weak at level 2 of 5 or lower (the same line the Home "where pupils need help" card uses). */
@@ -20,6 +22,8 @@ export type DrivingProfile = {
   practice: string | null;
   /** Readiness criteria still to meet. */
   toMeet: string[];
+  /** How confident the pupil says they feel: their latest rating and the average of the last few. */
+  confidence: ConfidenceSummary | null;
 };
 
 export function buildDrivingProfile(input: {
@@ -46,5 +50,6 @@ export function buildDrivingProfile(input: {
     issues,
     practice: input.focus?.practice ?? null,
     toMeet: input.unmetCriteria,
+    confidence: confidenceSummary(input.lessons),
   };
 }

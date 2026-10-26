@@ -10,6 +10,7 @@ import { PupilSummariesCard, usePupilSummaries } from '../src/PupilSummariesCard
 import { usePupilGoal } from '../src/usePupilGoal';
 import { SignInFasterCard } from '../src/SignInFasterCard';
 import { planSummary } from '../src/lessonPlan';
+import { missingPupilDetails } from '../src/pupilDetails';
 import { PupilConfidenceCard } from '../src/PupilConfidenceCard';
 import { lessonToRate } from '../src/pupilConfidence';
 import { isPaidTier, tierById } from '../src/tiers';
@@ -224,6 +225,19 @@ export default function StudentAppV2Screen() {
               <Text style={s.agreementTitle}>Sign your Pupil Agreement</Text>
               <Text style={s.agreementSub}>Your instructor needs this before your lessons. It takes a minute.</Text>
               <Text style={s.agreementCta}>Review and sign →</Text>
+            </TouchableOpacity>
+          )}
+
+          {missingPupilDetails(student).length > 0 && (
+            <TouchableOpacity
+              style={s.agreementCard}
+              onPress={() => router.push('/profile-screen' as any)}
+              activeOpacity={0.8}
+              testID="v2-student-details-card"
+            >
+              <Text style={s.agreementTitle}>Complete your details</Text>
+              <Text style={s.agreementSub}>Your instructor still needs your {missingPupilDetails(student).join(', ')}.</Text>
+              <Text style={s.agreementCta}>Add them in your profile →</Text>
             </TouchableOpacity>
           )}
 

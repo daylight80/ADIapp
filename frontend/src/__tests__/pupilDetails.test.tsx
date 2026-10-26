@@ -137,3 +137,17 @@ describe('pupil My details card', () => {
     expect(await screen.findByTestId('pupil-details-message')).toHaveTextContent(/No student record is linked/);
   });
 });
+
+describe('missingPupilDetails', () => {
+  const { missingPupilDetails } = require('../pupilDetails');
+
+  it('names each blank detail and ignores spaces-only values', () => {
+    expect(missingPupilDetails({ phone: '', address: '  ', postcode: 'SM1 4LS', provisional_licence: null }))
+      .toEqual(['mobile number', 'pick-up address', 'provisional licence number']);
+  });
+
+  it('is empty once everything is filled in, or when there is no record yet', () => {
+    expect(missingPupilDetails({ phone: '07700 900123', address: '1 High St', postcode: 'SM1 4LS', provisional_licence: 'MORGA657054SM9IJ' })).toEqual([]);
+    expect(missingPupilDetails(undefined)).toEqual([]);
+  });
+});

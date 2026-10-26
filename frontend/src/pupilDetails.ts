@@ -9,6 +9,20 @@ export type PupilDetailsResult =
   | { ok: true; values: PupilDetailsInput }
   | { ok: false; error: string };
 
+type DetailsLike = { phone?: string | null; address?: string | null; postcode?: string | null; provisional_licence?: string | null };
+
+/** The details the pupil can fill in themselves that are still blank, named for the Home nudge. Empty when all are filled. */
+export function missingPupilDetails(s: DetailsLike | null | undefined): string[] {
+  if (!s) return [];
+  const blank = (v: string | null | undefined) => !(v ?? '').trim();
+  return [
+    blank(s.phone) && 'mobile number',
+    blank(s.address) && 'pick-up address',
+    blank(s.postcode) && 'postcode',
+    blank(s.provisional_licence) && 'provisional licence number',
+  ].filter((x): x is string => !!x);
+}
+
 /** A UK provisional licence number is 16 letters and numbers; spaces are ignored. */
 export function normaliseLicence(raw: string): string {
   return raw.replace(/\s+/g, '').toUpperCase();

@@ -28,7 +28,7 @@ EMAIL_SUPPORT_ADDRESS = os.environ.get("EMAIL_SUPPORT_ADDRESS", "hello@drivingsc
 # Shown in lesson reminder footers specifically — students don't reply to
 # these (instructors have no monitored mailbox), so it's the one contact
 # route offered instead.
-LESSON_REMINDER_SUPPORT_ADDRESS = os.environ.get("LESSON_REMINDER_SUPPORT_ADDRESS", "adipro@drivingschoolsolutions.co.uk")
+LESSON_REMINDER_SUPPORT_ADDRESS = os.environ.get("LESSON_REMINDER_SUPPORT_ADDRESS", "dualcontrol@drivingschoolsolutions.co.uk")
 
 
 class EmailNotConfigured(Exception):

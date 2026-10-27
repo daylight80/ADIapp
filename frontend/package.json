@@ -13,7 +13,7 @@
     "postinstall": "patch-package"
   },
   "dependencies": {
-    "@babel/runtime": "^7.20.6",
+    "@babel/runtime": "^8.0.8",
     "@expo-google-fonts/archivo": "^0.4.2",
     "@expo-google-fonts/barlow": "^0.4.1",
     "@expo/metro-runtime": "^6.1.2",

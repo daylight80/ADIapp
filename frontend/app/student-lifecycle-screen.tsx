@@ -13,6 +13,7 @@ import { useAuth } from '../src/AuthContext';
 import { BottomSheet } from '../src/BottomSheet';
 import { TestOutcomeModal } from '../src/TestOutcomeModal';
 import { LastLessonRouteCard } from '../src/LastLessonRouteCard';
+import { lessonReminderLine } from '../src/lessonReminderLine';
 import { buildInvoiceHtml, generateAndShareInvoicePdf } from '../src/invoice';
 import {
   useStudent, patchStudent, passStudent, useLessonsForStudent, useCompetencies,
@@ -203,10 +204,12 @@ export default function StudentProfileV2Screen() {
   }, [lessons]);
 
   const [reminderStatus, setReminderStatus] = useState<LessonReminderStatus | null>(null);
+  const [reminderLoaded, setReminderLoaded] = useState(false);
   useEffect(() => {
     let cancelled = false;
+    setReminderLoaded(false);
     if (!nextLesson) { setReminderStatus(null); return; }
-    getLatestReminderStatus(nextLesson.id).then((r) => { if (!cancelled) setReminderStatus(r); });
+    getLatestReminderStatus(nextLesson.id).then((r) => { if (!cancelled) { setReminderStatus(r); setReminderLoaded(true); } });
     return () => { cancelled = true; };
   }, [nextLesson?.id]);
 
@@ -619,28 +622,11 @@ export default function StudentProfileV2Screen() {
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 14, paddingBottom: 60 }}>
           {tab === 'overview' && (
             <>
-              {nextLesson && reminderStatus && (
+              {nextLesson && reminderLoaded && (
                 <View style={s.reminderCard} testID="v2-reminder-status">
-                  <View
-                    style={[
-                      s.reminderDot,
-                      {
-                        backgroundColor:
-                          // An emailed reminder can never become delivered/read (no email
-                          // receipts), so 'sent' is its final, healthy state — blue, not the
-                          // red used for a push that hasn't been delivered yet.
-                          reminderStatus.channel === 'email' && reminderStatus.status !== 'failed' ? '#3B82F6'
-                          : reminderStatus.status === 'read' ? '#10B981'
-                          : reminderStatus.status === 'delivered' ? '#F59E0B'
-                          : '#EF4444',
-                      },
-                    ]}
-                  />
+                  <View style={[s.reminderDot, { backgroundColor: lessonReminderLine(reminderStatus).color }]} />
                   <Text style={s.reminderText}>
-                    {reminderStatus.status === 'read' && 'Reminder read'}
-                    {reminderStatus.status === 'delivered' && 'Reminder delivered — not yet read'}
-                    {reminderStatus.status === 'sent' && (reminderStatus.channel === 'email' ? 'Reminder emailed' : 'Reminder sent — not yet delivered')}
-                    {reminderStatus.status === 'failed' && 'Reminder failed to send'}
+                    {lessonReminderLine(reminderStatus).text}
                     {' for '}
                     {new Date(`${nextLesson.date}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}
                     {' at '}{nextLesson.start_time}

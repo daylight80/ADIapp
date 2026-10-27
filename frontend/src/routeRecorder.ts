@@ -82,6 +82,11 @@ export function totalDistance(points: RoutePoint[]): number {
   return total;
 }
 
+/** Start Lesson opens the recorder with ?autostart=1 and it should begin straight away, once, for a paid plan, on a linked lesson. */
+export function shouldAutostart(o: { autostart?: string; lessonId?: string; alreadyStarted: boolean; isRecording: boolean; isPaid: boolean }): boolean {
+  return o.autostart === '1' && !!o.lessonId && !o.alreadyStarted && !o.isRecording && o.isPaid;
+}
+
 /** UK road units: yards for the first tenth of a mile, then miles. The stored distance stays in metres. */
 export function fmtDistance(metres: number): string {
   const miles = metres / 1609.344;

@@ -3,7 +3,8 @@ import { Alert } from 'react-native';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 
 jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }));
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn() }) }));
+const mockPush = jest.fn();
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, back: jest.fn() }) }));
 jest.mock('../supabaseClient', () => ({ supabase: {} }));
 jest.mock('../supabaseDb', () => ({
   listWaitingList: jest.fn(async () => []),
@@ -52,7 +53,7 @@ const lesson: any = {
 
 let alertSpy: jest.SpyInstance;
 beforeEach(() => {
-  [mockPatchAware, mockQueue, mockPatch].forEach((m) => m.mockReset());
+  [mockPatchAware, mockQueue, mockPatch, mockPush].forEach((m) => m.mockReset());
   alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 });
 afterEach(() => alertSpy.mockRestore());
@@ -136,5 +137,16 @@ describe('after completing a lesson', () => {
     await complete();
     await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Could not save the lesson', 'JWT expired'));
     expect(screen.queryByTestId('lesson-saved-dialog')).toBeNull();
+  });
+});
+
+describe('Start lesson', () => {
+  it('opens the recorder for this lesson and pupil and asks it to start at once', async () => {
+    await open();
+    await fireEvent.press(screen.getByTestId('btn-record-route'));
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/route-recorder-screen',
+      params: { lessonId: 'l1', studentId: 'st1', studentName: 'Sam Lee', autostart: '1' },
+    });
   });
 });

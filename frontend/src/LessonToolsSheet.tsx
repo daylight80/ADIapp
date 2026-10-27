@@ -710,13 +710,13 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
                     onClose();
                     router.push({
                       pathname: '/route-recorder-screen',
-                      params: { lessonId: lesson.id, studentId: student.id, studentName: student.name },
+                      params: { lessonId: lesson.id, studentId: student.id, studentName: student.name, autostart: '1' },
                     } as any);
                   }}
                   testID="btn-record-route"
                 >
                   {paid ? <MapPin size={18} color={theme.colors.primary} /> : <Lock size={16} color={theme.colors.textMuted} />}
-                  <Text style={[styles.recordRouteText, !paid && styles.recordRouteTextLocked]}>Record route for this lesson</Text>
+                  <Text style={[styles.recordRouteText, !paid && styles.recordRouteTextLocked]}>Start lesson and record the route</Text>
                 </TouchableOpacity>
 
                 {/* Add this lesson to Google Calendar straight away (Google's own event page, nothing to link). Open to every

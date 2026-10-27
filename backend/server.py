@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -461,6 +462,14 @@ async def sb_update_school(school_id: str, patch: dict) -> dict:
     return rows[0] if rows else {}
 
 
+# Recently verified tokens, so a burst of requests from one signed-in app does one check with Supabase, not one each.
+# shortcut: a token that is revoked or a user who is signed out still works for up to TOKEN_CACHE_TTL seconds, and the
+# cache lives per server process; fine for one instance, shorten the TTL if that ever matters.
+_token_cache: "OrderedDict[str, tuple[float, dict]]" = OrderedDict()
+TOKEN_CACHE_TTL = 30  # seconds
+TOKEN_CACHE_MAX = 1000
+
+
 async def get_current_supabase_user(authorization: Optional[str] = Header(None)) -> dict:
     """FastAPI dependency: verify a Supabase Auth token by asking Supabase's
     /auth/v1/user endpoint. Avoids us having to track ES256 JWKS rotation."""
@@ -469,14 +478,25 @@ async def get_current_supabase_user(authorization: Optional[str] = Header(None))
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
     token = authorization.split(" ", 1)[1]
-    async with httpx.AsyncClient(timeout=10.0) as client_http:
-        r = await client_http.get(
-            f"{SUPABASE_URL.rstrip('/')}/auth/v1/user",
-            headers={"Authorization": f"Bearer {token}", "apikey": SUPABASE_SERVICE_ROLE_KEY},
-        )
-    if r.status_code != 200:
-        raise HTTPException(status_code=401, detail=f"Invalid Supabase token: {r.text[:140]}")
-    user = r.json()
+    key = hashlib.sha256(token.encode()).hexdigest()
+    hit = _token_cache.get(key)
+    if hit and hit[0] > time.monotonic():
+        user = hit[1]
+    else:
+        async with httpx.AsyncClient(timeout=10.0) as client_http:
+            r = await client_http.get(
+                f"{SUPABASE_URL.rstrip('/')}/auth/v1/user",
+                headers={"Authorization": f"Bearer {token}", "apikey": SUPABASE_SERVICE_ROLE_KEY},
+            )
+        if r.status_code != 200:
+            raise HTTPException(status_code=401, detail=f"Invalid Supabase token: {r.text[:140]}")
+        user = r.json()
+        # Only successful checks are cached. The school row below is deliberately NOT cached: a plan change or
+        # upgrade must show at once.
+        _token_cache[key] = (time.monotonic() + TOKEN_CACHE_TTL, user)
+        _token_cache.move_to_end(key)
+        while len(_token_cache) > TOKEN_CACHE_MAX:
+            _token_cache.popitem(last=False)
     auth_user_id = user.get("id")
     email = user.get("email")
     if not auth_user_id:
@@ -509,7 +529,8 @@ async def billing_v2_checkout(req: CheckoutV2Request, sb_user: dict = Depends(ge
     # Ensure a Stripe customer exists
     customer_id = school.get("stripe_customer_id")
     if not customer_id:
-        customer = stripe.Customer.create(
+        customer = await asyncio.to_thread(
+            stripe.Customer.create,
             email=sb_user.get("email"),
             name=school.get("business_name"),
             metadata={"school_id": school["id"], "auth_user_id": sb_user["auth_user_id"]},
@@ -520,7 +541,8 @@ async def billing_v2_checkout(req: CheckoutV2Request, sb_user: dict = Depends(ge
     success_url = (req.success_url or f"{APP_DOMAIN}/pricing-screen") + "?status=success&session_id={CHECKOUT_SESSION_ID}"
     cancel_url = req.cancel_url or f"{APP_DOMAIN}/pricing-screen?status=cancelled"
 
-    session = stripe.checkout.Session.create(
+    session = await asyncio.to_thread(
+        stripe.checkout.Session.create,
         customer=customer_id,
         mode="subscription",
         payment_method_types=["card"],
@@ -539,7 +561,8 @@ async def billing_v2_portal(sb_user: dict = Depends(get_current_supabase_user)):
     school = sb_user.get("school")
     if not school or not school.get("stripe_customer_id"):
         raise HTTPException(status_code=400, detail="No Stripe customer for this school yet")
-    session = stripe.billing_portal.Session.create(
+    session = await asyncio.to_thread(
+        stripe.billing_portal.Session.create,
         customer=school["stripe_customer_id"],
         return_url=f"{APP_DOMAIN}/pricing-screen",
     )
@@ -567,7 +590,7 @@ async def billing_v2_sync_seats(sb_user: dict = Depends(get_current_supabase_use
     target_seat_qty = max(0, seat_count - 1)
 
     # Find the subscription item using the seat price
-    sub = stripe.Subscription.retrieve(sub_id, expand=["items.data.price"])
+    sub = await asyncio.to_thread(stripe.Subscription.retrieve, sub_id, expand=["items.data.price"])
     seat_item = None
     for item in sub["items"]["data"]:
         if item["price"]["id"] == STRIPE_PRICE_FRANCHISE_SEAT:
@@ -576,17 +599,18 @@ async def billing_v2_sync_seats(sb_user: dict = Depends(get_current_supabase_use
 
     if seat_item is None and target_seat_qty > 0:
         # Add the seat line item now
-        seat_item = stripe.SubscriptionItem.create(
+        seat_item = await asyncio.to_thread(
+            stripe.SubscriptionItem.create,
             subscription=sub_id, price=STRIPE_PRICE_FRANCHISE_SEAT, quantity=target_seat_qty,
         )
         return {"updated": True, "action": "added", "quantity": target_seat_qty}
 
     if seat_item is not None:
         if target_seat_qty == 0:
-            stripe.SubscriptionItem.delete(seat_item["id"])
+            await asyncio.to_thread(stripe.SubscriptionItem.delete, seat_item["id"])
             return {"updated": True, "action": "removed", "quantity": 0}
         if int(seat_item.get("quantity") or 0) != target_seat_qty:
-            stripe.SubscriptionItem.modify(seat_item["id"], quantity=target_seat_qty, proration_behavior="create_prorations")
+            await asyncio.to_thread(stripe.SubscriptionItem.modify, seat_item["id"], quantity=target_seat_qty, proration_behavior="create_prorations")
             return {"updated": True, "action": "updated", "quantity": target_seat_qty}
 
     return {"updated": False, "quantity": target_seat_qty}
@@ -708,7 +732,8 @@ async def _apply_referral_reward_if_due(school: dict) -> None:
         # Ensure the referrer has a Stripe customer to credit (same pattern as checkout-session creation above).
         customer_id = referrer_school.get("stripe_customer_id")
         if not customer_id:
-            customer = stripe.Customer.create(
+            customer = await asyncio.to_thread(
+                stripe.Customer.create,
                 name=referrer_school.get("business_name"),
                 metadata={"school_id": referrer_school["id"]},
             )
@@ -721,13 +746,14 @@ async def _apply_referral_reward_if_due(school: dict) -> None:
         try:
             referrer_tier = referrer_school.get("tier") or "pro"
             price_id = tier_to_line_items(referrer_tier)[0]["price"]
-            price = stripe.Price.retrieve(price_id)
+            price = await asyncio.to_thread(stripe.Price.retrieve, price_id)
             credit_amount = price["unit_amount"]  # pence, positive
         except Exception:
             logger.exception("Could not determine referral credit amount for school %s", referrer_school["id"])
             raise
 
-        stripe.Customer.create_balance_transaction(
+        await asyncio.to_thread(
+            stripe.Customer.create_balance_transaction,
             customer_id,
             amount=-credit_amount,  # negative = credit toward their next invoice
             currency="gbp",
@@ -779,7 +805,7 @@ async def stripe_webhook(request: FastAPIRequest):
                 if school and school.get("is_comp_account"):
                     logger.info("Skipping webhook tier update for comp account school %s", school_id)
                 else:
-                    sub = stripe.Subscription.retrieve(sub_id, expand=["items.data.price"])
+                    sub = await asyncio.to_thread(stripe.Subscription.retrieve, sub_id, expand=["items.data.price"])
                     patch = {
                         "tier": _tier_from_subscription(sub) or "pro",
                         "subscription_status": "active",
@@ -804,7 +830,7 @@ async def stripe_webhook(request: FastAPIRequest):
                 elif school:
                     # Stripe does not promise delivery order, so this event body may be older than what the school
                     # has now. Read the subscription's current state instead of trusting the body.
-                    data = stripe.Subscription.retrieve(data["id"], expand=["items.data.price"])
+                    data = await asyncio.to_thread(stripe.Subscription.retrieve, data["id"], expand=["items.data.price"])
                     if data.get("status") == "canceled":
                         await _cancel_school(school, data.get("id"))
                         return {"received": True, "handled": True, "type": etype}

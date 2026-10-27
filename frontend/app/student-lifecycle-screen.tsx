@@ -12,6 +12,7 @@ import { PaywallModal } from '../src/PaywallModal';
 import { useAuth } from '../src/AuthContext';
 import { BottomSheet } from '../src/BottomSheet';
 import { TestOutcomeModal } from '../src/TestOutcomeModal';
+import { LastLessonRouteCard } from '../src/LastLessonRouteCard';
 import { buildInvoiceHtml, generateAndShareInvoicePdf } from '../src/invoice';
 import {
   useStudent, patchStudent, passStudent, useLessonsForStudent, useCompetencies,
@@ -711,6 +712,8 @@ export default function StudentProfileV2Screen() {
               </View>
 
               )}
+
+              {pro && student.status !== 'Passed' && <LastLessonRouteCard studentId={student.id} lessons={lessons} />}
 
               {hasPassedPracticalTest && (
                 <TouchableOpacity style={s.reviewBtn} onPress={handleRequestReview} testID="v2-request-review">

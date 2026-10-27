@@ -16,7 +16,7 @@
  *   invite_student   everyone — a student with a linked account is what lets
  *                    lesson reminders and progress reach them
  *   deadline         paid plans (the Deadlines tracker is a paid feature)
- *   branding         ADI Pro tier only (where business branding is available,
+ *   branding         DC Pro tier only (where business branding is available,
  *                    same gate as My Details' "Business name and logo" link)
  *
  * Shown only to accounts created in the last NEW_ACCOUNT_DAYS days, and never

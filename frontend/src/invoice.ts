@@ -14,7 +14,7 @@ export function buildInvoiceHtml(opts: {
   issuedAt: Date;
   // Real school branding — all optional so this stays backwards compatible
   // for any call site that hasn't been updated. Falls back to the old
-  // hardcoded "ADI Pro" branding when not provided.
+  // hardcoded "DualControl" branding when not provided.
   schoolName?: string | null;
   schoolLogoUrl?: string | null;
   schoolContactEmail?: string | null;
@@ -101,7 +101,7 @@ export function buildInvoiceHtml(opts: {
   <div class="row grand"><span>Total</span><span>£${total.toFixed(2)}</span></div>
 </div>
 
-<div class="footer">Thank you for your business. Payment terms: 14 days. ${schoolName ? escape(schoolName) : 'ADI Pro · adipro.app'}</div>
+<div class="footer">Thank you for your business. Payment terms: 14 days. ${schoolName ? escape(schoolName) : 'DualControl'}</div>
 </body></html>`;
 }
 

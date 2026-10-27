@@ -17,7 +17,7 @@ export type SocialProvider = 'google' | 'apple';
 const KNOWN: SocialProvider[] = ['google', 'apple'];
 
 export const NOT_LINKED_MESSAGE =
-  "That Google or Apple account isn't linked to ADI Pro yet. Open the invite email from your instructor first, then choose \"Continue with Google\" or \"Continue with Apple\" from inside the app. Or sign in with your email and password.";
+  "That Google or Apple account isn't linked to DualControl yet. Open the invite email from your instructor first, then choose \"Continue with Google\" or \"Continue with Apple\" from inside the app. Or sign in with your email and password.";
 
 /** The providers switched on, from a setting like "google,apple". Unknown names are ignored. */
 export function enabledProviders(raw: string | undefined = process.env.EXPO_PUBLIC_SOCIAL_PROVIDERS): SocialProvider[] {
@@ -66,7 +66,7 @@ export type SocialResult = { ok: boolean; error?: string; cancelled?: boolean; p
 
 function friendlyError(raw: string | undefined): string {
   const m = raw || '';
-  if (/identity.*already|already.*linked|already exists/i.test(m)) return 'That account is already linked to another ADI Pro login.';
+  if (/identity.*already|already.*linked|already exists/i.test(m)) return 'That account is already linked to another DualControl login.';
   if (/manual linking/i.test(m)) return "Linking accounts isn't switched on yet. Please tell your instructor.";
   if (/provider.*not enabled|unsupported provider/i.test(m)) return "That sign-in option isn't switched on yet.";
   return m ? `Couldn't sign in that way: ${m}` : "Couldn't sign in that way. Please try again.";

@@ -15,7 +15,7 @@ import {
 
 // Updated 23 Sept 2026, per Grant directly — Growth removed entirely
 // (was priced above Drive My Way's equivalent unlimited-student tier),
-// Pro retitled "ADI Pro" and repriced £24.99 -> £11.99 to match Drive
+// Pro retitled "DC Pro" and repriced £24.99 -> £11.99 to match Drive
 // My Way's Solo Instructor exactly, Franchise repriced £39.99+£10/seat
 // -> £13.99+£9.99/seat to match their Driving School tier exactly.
 // Every test below that referenced 'growth' either now targets 'pro'
@@ -25,7 +25,7 @@ import {
 describe('tierById', () => {
   it('finds each real tier by id', () => {
     expect(tierById('starter').name).toBe('Starter');
-    expect(tierById('pro').name).toBe('ADI Pro');
+    expect(tierById('pro').name).toBe('DC Pro');
     expect(tierById('franchise').name).toBe('Franchise');
   });
 
@@ -189,7 +189,7 @@ describe('studentUsageMessage', () => {
     expect(msg).toMatch(/unlock unlimited students/i);
   });
 
-  it("every non-empty message names ADI Pro's real current price, not a stale hardcoded figure — was Growth's, now the only paid tier above Starter", () => {
+  it("every non-empty message names DC Pro's real current price, not a stale hardcoded figure — was Growth's, now the only paid tier above Starter", () => {
     const proPrice = tierById('pro').price_gbp;
     expect(studentUsageMessage(5, 5)).toContain(String(proPrice));
   });
@@ -238,7 +238,7 @@ describe('TIERS data integrity', () => {
     expect(tierById('starter').price_gbp).toBe(0);
   });
 
-  it('ADI Pro matches Drive My Way Solo Instructor exactly (£11.99/mo)', () => {
+  it('DC Pro matches Drive My Way Solo Instructor exactly (£11.99/mo)', () => {
     expect(tierById('pro').price_gbp).toBe(11.99);
   });
 

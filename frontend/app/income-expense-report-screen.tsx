@@ -149,7 +149,7 @@ export default function IncomeExpenseReportScreen() {
     try {
       const rows: CsvRow[] = [];
       // Header / context block
-      rows.push(['ADI Pro — Income & Expense Report']);
+      rows.push(['DualControl — Income & Expense Report']);
       rows.push(['From', from, 'To', to]);
       rows.push([]);
       // INCOME
@@ -182,7 +182,7 @@ export default function IncomeExpenseReportScreen() {
       rows.push(['Net (£)', csvAmount(totals.net)]);
 
       const csv = rowsToCsv(rows);
-      const fname = `adi-pro-income-expense_${from}_to_${to}.csv`;
+      const fname = `dualcontrol-income-expense_${from}_to_${to}.csv`;
       await downloadOrShareCsv(fname, csv);
     } catch (e: any) {
       setError(e?.message || 'Could not export CSV.');

@@ -46,8 +46,8 @@ export default function EnquiriesScreen() {
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
         <LockedFeature
           variant="fullscreen"
-          title="Enquiries are an ADI Pro feature"
-          subtitle="Keep track of everyone who asks about lessons, and ring or text them from one place. Upgrade to ADI Pro to unlock it."
+          title="Enquiries are a DC Pro feature"
+          subtitle="Keep track of everyone who asks about lessons, and ring or text them from one place. Upgrade to DC Pro to unlock it."
           testID="enquiries-locked"
         />
       </SafeAreaView>

@@ -21,7 +21,7 @@ describe('stepIdsForTier: which steps each plan sees', () => {
     expect(stepIdsForTier('starter')).toEqual(['details', 'first_student', 'first_lesson', 'invite_student']);
   });
 
-  it('ADI Pro adds the deadline and the branding steps', () => {
+  it('DC Pro adds the deadline and the branding steps', () => {
     expect(stepIdsForTier('pro')).toEqual([
       'details', 'first_student', 'first_lesson', 'invite_student', 'deadline', 'branding',
     ]);

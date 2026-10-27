@@ -9,7 +9,7 @@ type Props = {
   visible: boolean;
   onClose: () => void;
   reason?: string;
-  // Which tier to promote — defaults to ADI Pro (was Growth, now removed),
+  // Which tier to promote — defaults to DC Pro (was Growth, now removed),
   // the cheapest paid tier, since that's the natural "upgrade from
   // Starter" prompt for most locked features.
   targetTier?: Tier;

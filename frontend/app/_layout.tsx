@@ -221,7 +221,7 @@ function AuthGate() {
   if (biometricLocked) {
     return (
       <View style={styles.loading} testID="biometric-lock">
-        <Text style={styles.lockTitle}>ADI Pro is locked</Text>
+        <Text style={styles.lockTitle}>DualControl is locked</Text>
         <Text style={styles.lockSub}>Waiting for fingerprint…</Text>
         <TouchableOpacity onPress={() => signOut()} testID="btn-use-password-instead" style={styles.lockFallbackBtn}>
           <Text style={styles.lockFallbackText}>Use password instead</Text>
@@ -283,7 +283,7 @@ function RootLayout() {
         <AuthProvider>
           {/* Browser tab title on web. Without it Expo Router leaves the title blank. */}
           <Head>
-            <title>ADI Pro</title>
+            <title>DualControl</title>
           </Head>
           <AuthGate />
           <Stack

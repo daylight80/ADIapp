@@ -5,7 +5,7 @@
 
   Paste into: Supabase dashboard -> Authentication -> Emails -> Templates ->
   "Confirm sign up".
-  Subject line to use: Confirm your ADI Pro account
+  Subject line to use: Confirm your DualControl account
 
   Variables used (Supabase-provided; no .Data.* here, unlike invite.html —
   this fires for any self-signup, so it can't assume the instructor-specific
@@ -27,15 +27,15 @@
 <body style="margin:0;padding:24px;background:#f5f2ec;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;">
     <tr><td style="padding:28px 28px 8px;">
-      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">ADI PRO</div>
+      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">DUALCONTROL</div>
       <h1 style="font-size:20px;line-height:1.3;margin:10px 0 14px;">Confirm your email address</h1>
-      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">Welcome to ADI Pro — the diary, student tracker, wallet and invoicing app built for approved driving instructors.</p>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">Welcome to DualControl — the diary, student tracker, wallet and invoicing app built for approved driving instructors.</p>
       <p style="font-size:15px;line-height:1.55;margin:0 0 20px;">Confirm your email address to finish setting up your account.</p>
       <p style="margin:0 0 20px;"><a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#ff6b00;color:#ffffff;text-decoration:none;font-weight:bold;font-size:15px;padding:12px 22px;border-radius:10px;">Confirm my account</a></p>
       <p style="font-size:13px;line-height:1.5;color:#64748b;margin:0 0 6px;">If the button doesn't work, copy this link into your browser:<br><span style="word-break:break-all;">{{ .ConfirmationURL }}</span></p>
     </td></tr>
     <tr><td style="padding:16px 28px 24px;border-top:1px solid #e4ded2;">
-      <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">If you didn't create an ADI Pro account, you can safely ignore this email — no account will be created.</p>
+      <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">If you didn't create a DualControl account, you can safely ignore this email — no account will be created.</p>
     </td></tr>
   </table>
 </body>

@@ -744,7 +744,7 @@ export default function OwnerDashboardV2Screen() {
                 style={[s.linkBtn, { backgroundColor: '#EA580C' }]}
                 onPress={() => inviteResult && openSmsComposer(
                   inviteResult.mobile,
-                  `Hi ${inviteResult.name.split(' ')[0]}, you've been added as an instructor on ADI Pro. Tap to set your password: ${inviteResult.link}`,
+                  `Hi ${inviteResult.name.split(' ')[0]}, you've been added as an instructor on DualControl. Tap to set your password: ${inviteResult.link}`,
                 )}
                 testID="invite-sms"
               >

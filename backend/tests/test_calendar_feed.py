@@ -103,7 +103,7 @@ def test_a_bad_block_or_lesson_is_skipped_not_fatal():
 
 def test_the_header_names_the_calendar_and_hints_at_hourly_refresh():
     ics = build()
-    assert "X-WR-CALNAME:ADI Pro — Jon Kenny" in ics
+    assert "X-WR-CALNAME:DualControl — Jon Kenny" in ics
     assert "REFRESH-INTERVAL;VALUE=DURATION:PT1H" in ics and "X-PUBLISHED-TTL:PT1H" in ics
     assert "X-WR-TIMEZONE:Europe/London" in ics
     assert ics.count("\r\n") == len(ics.split("\r\n")) - 1  # every line ends CRLF

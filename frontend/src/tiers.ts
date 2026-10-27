@@ -6,7 +6,7 @@ import { supabase } from './supabaseClient';
 
 // 'growth' removed from the union (23 Sept 2026) — the tier itself is
 // gone, not just relabelled; see Migration 037 for the one-time move of
-// existing Growth schools onto 'pro'/ADI Pro.
+// existing Growth schools onto 'pro'/DC Pro.
 export type Tier = 'starter' | 'pro' | 'franchise';
 
 export type TierSpec = {
@@ -28,7 +28,7 @@ export const TIERS: TierSpec[] = [
     price_gbp: 0,
     student_limit: 5,
     instructor_limit: 1,
-    blurb: 'Free for PDIs training towards their ADI qualification, or for any ADI wanting to try ADI Pro before upgrading.',
+    blurb: 'Free for PDIs training towards their ADI qualification, or for any ADI wanting to try DC Pro before upgrading.',
     features: [
       'Lesson diary, day & week views',
     ],
@@ -48,7 +48,7 @@ export const TIERS: TierSpec[] = [
     // directly into this list below now that there's no separate
     // Growth tier for "Everything in Growth" to point back to.
     id: 'pro',
-    name: 'ADI Pro',
+    name: 'DC Pro',
     price_gbp: 11.99,
     student_limit: null,
     instructor_limit: 1,
@@ -109,7 +109,7 @@ export function isFranchiseTier(tier: string | null | undefined): boolean {
 // Whether Home should offer the School dashboard (owner-dashboard-screen: the
 // school-wide leaderboard, Add instructor and student assignments). Only the
 // owner of a Franchise school — a non-owner instructor inside a Franchise school
-// can't add instructors, and Starter/ADI Pro instructors are solo. This is a UX
+// can't add instructors, and Starter/DC Pro instructors are solo. This is a UX
 // gate only; RLS is the real boundary.
 export function canOpenSchoolDashboard(tier: string | null | undefined, isOwner: boolean): boolean {
   return isFranchiseTier(tier) && isOwner;
@@ -198,7 +198,7 @@ export function studentUsageUrgency(current: number, limit: number | null): Usag
 export function studentUsageMessage(current: number, limit: number | null): string {
   if (limit === null || limit === 0) return '';
   // Was tierById('growth') — Growth no longer exists; Starter's 5-student
-  // cap now nudges straight to ADI Pro (unlimited), the only tier above it.
+  // cap now nudges straight to DC Pro (unlimited), the only tier above it.
   const upgrade = tierById('pro');
   const remaining = limit - current;
   if (remaining <= 0) {

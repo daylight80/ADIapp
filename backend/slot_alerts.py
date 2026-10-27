@@ -24,7 +24,7 @@ How it works
   Passed or Inactive pupils, pupils who have a lesson at that time, and pupils who have already had
   MAX_PER_PUPIL_PER_WEEK alerts in the last 7 days.
 * At most MAX_PUPILS_PER_SLOT pupils are told, the ones waiting for a slot first.
-* Paid plans only (ADI Pro and Franchise), the same rule as lesson reminders.
+* Paid plans only (DC Pro and Franchise), the same rule as lesson reminders.
 * slot_alert_log records who was told about which lesson (migration 063).
 """
 import logging

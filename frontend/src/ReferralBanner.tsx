@@ -115,7 +115,7 @@ export function ReferralBanner() {
     setSharing(true);
     try {
       await Share.share({
-        message: `Come join me on ADI Pro — the app I use to run my driving lessons. Sign up with my code ${code} and you'll help me get a free month: ${shareLink}`,
+        message: `Come join me on DualControl — the app I use to run my driving lessons. Sign up with my code ${code} and you'll help me get a free month: ${shareLink}`,
       });
     } catch {
       // Share sheet being dismissed/cancelled throws — nothing to show for that.

@@ -27,7 +27,7 @@ def test_clean_display_name_fallback_and_truncation():
 
 def test_sender_header_uses_configured_address_and_cleaned_name():
     header = email_service.sender_header('Sam <evil>')
-    assert header == f'"Sam evil via ADI Pro" <{email_service.EMAIL_FROM_ADDRESS}>'
+    assert header == f'"Sam evil via DualControl" <{email_service.EMAIL_FROM_ADDRESS}>'
 
 
 def test_render_referral_email_escapes_html_in_name():
@@ -244,7 +244,7 @@ def test_deadline_greets_by_first_name_and_survives_a_missing_name():
 def test_deadline_email_is_sent_from_adi_pro_itself():
     p = email_service.build_payload(to="a@b.co", subject="s", html_body="h", text_body="t",
                                     from_header=email_service.system_sender_header())
-    assert p["from"] == f'"ADI Pro" <{email_service.EMAIL_FROM_ADDRESS}>'
+    assert p["from"] == f'"DualControl" <{email_service.EMAIL_FROM_ADDRESS}>'
     # the existing behaviour is untouched
     q = email_service.build_payload(to="a@b.co", subject="s", html_body="h", text_body="t", from_display_name="Sam")
     assert q["from"] == email_service.sender_header("Sam")

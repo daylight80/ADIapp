@@ -16,7 +16,7 @@ fresh set. The stage is worked out from "days left today" rather than from
 exact day counts, so if the job misses a morning (a deploy, an outage) the next
 run still sends the right one.
 
-Paid plans only (ADI Pro and Franchise), the same rule as lesson reminders.
+Paid plans only (DC Pro and Franchise), the same rule as lesson reminders.
 Instructors only for now: no fleet vehicles, and school owners aren't told
 about their instructors' deadlines.
 
@@ -260,7 +260,7 @@ async def _send_push(rem: Dict[str, Any], tokens: List[str]) -> bool:
     else:
         title = f"{label} due in {left} days"
     messages = [
-        {"to": t, "title": title, "body": "Open ADI Pro to review your deadlines.", "sound": "default",
+        {"to": t, "title": title, "body": "Open DualControl to review your deadlines.", "sound": "default",
          "data": {"type": "deadline", "kind": item.get("kind")}}
         for t in tokens
     ]

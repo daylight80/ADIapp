@@ -24,8 +24,8 @@ export default function ActionCentreScreen() {
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
         <LockedFeature
           variant="fullscreen"
-          title="The Action Centre is an ADI Pro feature"
-          subtitle="See everything that needs you today in one list. Upgrade to ADI Pro to unlock it."
+          title="The Action Centre is a DC Pro feature"
+          subtitle="See everything that needs you today in one list. Upgrade to DC Pro to unlock it."
           testID="action-centre-locked"
         />
       </SafeAreaView>

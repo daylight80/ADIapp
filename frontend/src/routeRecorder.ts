@@ -220,11 +220,11 @@ export function routeToGPX(r: SavedRoute): string {
     );
   const lines: string[] = [];
   lines.push('<?xml version="1.0" encoding="UTF-8"?>');
-  lines.push('<gpx version="1.1" creator="ADI Pro" xmlns="http://www.topografix.com/GPX/1/1">');
+  lines.push('<gpx version="1.1" creator="DualControl" xmlns="http://www.topografix.com/GPX/1/1">');
   lines.push('  <metadata>');
   lines.push(`    <name>${xmlEsc(r.name)}</name>`);
   lines.push(`    <time>${r.startedAt}</time>`);
-  lines.push(`    <desc>Recorded with ADI Pro · ${fmtDistance(r.distanceMeters)} · ${fmtDuration(r.durationSec)}</desc>`);
+  lines.push(`    <desc>Recorded with DualControl · ${fmtDistance(r.distanceMeters)} · ${fmtDuration(r.durationSec)}</desc>`);
   lines.push('  </metadata>');
   lines.push('  <trk>');
   lines.push(`    <name>${xmlEsc(r.name)}</name>`);

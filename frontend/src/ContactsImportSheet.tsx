@@ -185,7 +185,7 @@ export function ContactsImportSheet({ visible, onClose, onImported }: ContactsIm
               <Text style={styles.webTitle}>Open the app on your phone</Text>
               <Text style={styles.webSub}>
                 Importing from your contacts works on iPhone and Android only. Sign in to the
-                ADI Pro mobile app on your phone and tap this button there.
+                DualControl mobile app on your phone and tap this button there.
               </Text>
               <TouchableOpacity style={styles.secondaryBtn} onPress={onClose}>
                 <Text style={styles.secondaryBtnText}>Got it</Text>

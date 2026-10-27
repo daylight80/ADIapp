@@ -196,7 +196,7 @@ export default function SignInV2Screen() {
   const handleSignUp = async () => {
     setError(null);
     if (!name.trim()) { setError('Please enter your full name'); return; }
-    const pwProblem = passwordProblem(password);
+    const pwProblem = passwordProblem(password, { email: invitePreview?.email || email, name });
     if (pwProblem) { setError(pwProblem); return; }
     setBusy(true);
     let r;

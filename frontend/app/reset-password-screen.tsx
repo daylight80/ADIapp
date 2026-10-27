@@ -42,7 +42,7 @@ const C = {
 
 export default function ResetPasswordScreen() {
   const router = useRouter();
-  const { updatePassword } = useAuth();
+  const { updatePassword, user } = useAuth();
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
 
@@ -96,14 +96,15 @@ export default function ResetPasswordScreen() {
     };
   }, []);
 
-  const strongEnough = passwordProblem(pw1) === null;
+  const pwContext = { email: user?.email, name: user?.name };
+  const strongEnough = passwordProblem(pw1, pwContext) === null;
   const matches = pw1.length > 0 && pw1 === pw2;
   const canSubmit = strongEnough && matches && !busy;
 
   const handleSave = async () => {
     setError(null);
     if (!strongEnough) {
-      setError(passwordProblem(pw1) || 'Choose a stronger password.');
+      setError(passwordProblem(pw1, pwContext) || 'Choose a stronger password.');
       return;
     }
     if (!matches) {

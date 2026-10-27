@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { BottomNav } from '../src/BottomNav';
 import { BottomSheet } from '../src/BottomSheet';
+import { QrCode } from '../src/QrCode';
 import { ContactsImportSheet } from '../src/ContactsImportSheet';
 import { PaywallModal } from '../src/PaywallModal';
 import { useAuth } from '../src/AuthContext';
@@ -641,6 +642,10 @@ export default function StudentsV2Screen() {
             </Text>
             <View style={s.linkBox} testID="v2-invite-link-value">
               <Text style={s.linkText} numberOfLines={2}>{inviteLink}</Text>
+            </View>
+            <View style={{ alignItems: 'center', gap: 6 }}>
+              <QrCode value={inviteLink} size={260} testID="v2-invite-qr" />
+              <Text style={s.sheetHint}>Or let {inviteRecipient.name.split(' ')[0]} scan this with their phone camera.</Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 9 }}>
               <TouchableOpacity style={[s.linkBtn, { backgroundColor: C.primary }]} onPress={copyInviteLink} testID="v2-btn-copy-invite">

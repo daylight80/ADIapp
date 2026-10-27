@@ -17,11 +17,12 @@ import { Card } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
 import {
   listRoutes, saveRoute, deleteRoute, renameRoute, updateRouteNotes, updateRouteFeedback, cleanRouteNotes, MAX_ROUTE_NOTES,
-  fmtDistance, fmtDuration, msToMph, activeSeconds, nextPoint,
+  fmtDistance, fmtDuration, msToMph, activeSeconds, nextPoint, shouldAutostart,
   type SavedRoute, type RoutePoint,
 } from '../src/routeRecorder';
 import { openRouteInMaps, shareRouteGpx } from '../src/routeShare';
 import { useKeyboardHeight } from '../src/useKeyboardHeight';
+import { InLessonTopicsCard } from '../src/InLessonTopicsCard';
 import { useAuth } from '../src/AuthContext';
 import { isPaidTier } from '../src/tiers';
 import { formatDate, formatDateTime } from '../src/dateFormat';
@@ -60,7 +61,7 @@ export default function RouteRecorderScreen() {
   // Present only when launched from a specific lesson's LessonToolsSheet
   // ("Record route for this lesson") — absent when opened generically from
   // the diary header, in which case the saved route stays unlinked as before.
-  const params = useLocalSearchParams<{ lessonId?: string; studentId?: string; studentName?: string }>();
+  const params = useLocalSearchParams<{ lessonId?: string; studentId?: string; studentName?: string; autostart?: string }>();
   const linkedLessonId = typeof params.lessonId === 'string' ? params.lessonId : undefined;
   const linkedStudentId = typeof params.studentId === 'string' ? params.studentId : undefined;
   const linkedStudentName = typeof params.studentName === 'string' ? params.studentName : undefined;
@@ -177,6 +178,7 @@ export default function RouteRecorderScreen() {
   };
 
   // ---- Start recording ----
+  const autoStartedRef = useRef(false);
   const start = async () => {
     setStarting(true);
     try {
@@ -221,6 +223,15 @@ export default function RouteRecorderScreen() {
   };
 
   // ---- Stop recording ----
+  // "Start lesson" opens this screen with ?autostart=1: begin recording at once, one time only.
+  useEffect(() => {
+    if (shouldAutostart({ autostart: params.autostart, lessonId: linkedLessonId, alreadyStarted: autoStartedRef.current, isRecording, isPaid: !!user && isPaidTier(user.tier) })) {
+      autoStartedRef.current = true;
+      start();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.autostart, linkedLessonId, user]);
+
   const stop = async () => {
     try {
       const durationSec = activeSeconds(bankedMsRef.current, runStartedAtRef.current, Date.now());
@@ -382,6 +393,9 @@ export default function RouteRecorderScreen() {
                 <Square size={20} color="#fff" />
                 <Text style={styles.stopBtnText}>Stop & Save</Text>
               </TouchableOpacity>
+              {!!linkedLessonId && !!linkedStudentId && (
+                <InLessonTopicsCard lessonId={linkedLessonId} studentId={linkedStudentId} studentName={linkedStudentName} />
+              )}
               <Text style={styles.notesLabel}>Positives (private)</Text>
               <TextInput
                 value={positives}

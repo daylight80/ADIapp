@@ -156,7 +156,7 @@ def test_reminder_tells_student_to_call_the_instructor_with_their_number():
     for body in (html_body, text_body):
         assert "please call Alex Morgan on 07700 900123" in body
         assert "reply to this email" not in body.lower()
-    assert "adipro@drivingschoolsolutions.co.uk" in text_body
+    assert "dualcontrol@drivingschoolsolutions.co.uk" in text_body
 
 
 def test_reminder_falls_back_to_contact_line_when_no_phone():

@@ -93,7 +93,8 @@
           "organization": "grant-robery",
           "project": "adi-pro"
         }
-      ]
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true

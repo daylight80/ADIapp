@@ -15,6 +15,7 @@ import { Barlow_400Regular, Barlow_500Medium, Barlow_600SemiBold, Barlow_700Bold
 import { createAuthLifecycle } from '../src/appLifecycle';
 import { supabase } from '../src/supabaseClient';
 import { bump } from '../src/useSupabaseData';
+import { IntroVideoGate } from '../src/IntroVideo';
 import { noteReturnFromBackground, reportResumeProblem } from '../src/stallReport';
 
 // Crash and error reporting (phone apps only; the web version does nothing).
@@ -293,6 +294,7 @@ function RootLayout() {
             }}
           />
           <StatusBar style="dark" />
+          <IntroVideoGate />
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

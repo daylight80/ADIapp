@@ -180,7 +180,7 @@ export default function StudentsV2Screen() {
       }));
       const appOrigin = Platform.OS === 'web' && typeof window !== 'undefined'
         ? window.location.origin
-        : (process.env.EXPO_PUBLIC_APP_URL || 'https://adiapp.netlify.app');
+        : (process.env.EXPO_PUBLIC_APP_URL || 'https://webapp.drivingschoolsolutions.co.uk');
       const inviteUrl = `${appOrigin}/?invite=${payload}`;
 
       setAddName(''); setAddEmail(''); setAddPhone(''); setAddAddress(''); setAddPostcode(''); setAddLicence('');

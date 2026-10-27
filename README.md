@@ -4,7 +4,7 @@ A management platform for UK driving instructors and driving schools — lesson 
 student CRM, DVSA progress tracking, mock tests, invoicing/wallet, and referrals — built
 as a single Expo codebase that ships to iOS, Android and the web.
 
-- **Web app**: [webapp.drivingschoolsolutions.co.uk](https://webapp.drivingschoolsolutions.co.uk) (also reachable at `adiapp.netlify.app`)
+- **Web app**: [webapp.drivingschoolsolutions.co.uk](https://webapp.drivingschoolsolutions.co.uk) (the Netlify site name is internal and not used by the app)
 - **Backend API**: FastAPI, hosted on Render
 - **Database/Auth/Storage**: Supabase (Postgres + Row Level Security)
 

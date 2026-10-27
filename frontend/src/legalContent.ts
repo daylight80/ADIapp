@@ -1,5 +1,5 @@
 /**
- * Terms of Service and Privacy Policy text for ADI Pro (28 Sept 2026).
+ * Terms of Service and Privacy Policy text for DualControl (28 Sept 2026).
  *
  * DRAFT FOR REVIEW. Written in plain English to match what the app and backend
  * actually do (checked against the code and the live Supabase project on the
@@ -28,7 +28,7 @@ export type LegalSection = {
 };
 
 export const TERMS_INTRO =
-  `These terms are the agreement between you and ${OPERATOR.name} ("we", "us") for using ADI Pro, ` +
+  `These terms are the agreement between you and ${OPERATOR.name} ("we", "us") for using DualControl, ` +
   'our diary, student-tracking, wallet and invoicing app for driving instructors, on the web and on mobile. ' +
   'Please read them, together with our Privacy Policy, before you create an account.';
 
@@ -36,15 +36,15 @@ export const TERMS_SECTIONS: LegalSection[] = [
   {
     heading: '1. Who we are',
     body: [
-      `ADI Pro is run by ${OPERATOR.name}, ${OPERATOR.address}. You can reach us at ${OPERATOR.email}.`,
-      'By creating an account or using ADI Pro you agree to these terms. If you do not agree, please do not use it.',
+      `DualControl is run by ${OPERATOR.name}, ${OPERATOR.address}. You can reach us at ${OPERATOR.email}.`,
+      'By creating an account or using DualControl you agree to these terms. If you do not agree, please do not use it.',
     ],
   },
   {
-    heading: '2. Who can use ADI Pro',
+    heading: '2. Who can use DualControl',
     body: [
-      'ADI Pro is built for approved driving instructors (ADIs) and driving schools in the UK. When you register you must give your real name, a working email address and your correct DVSA ADI number.',
-      'Students and pupils use ADI Pro only by invitation from their instructor, so they cannot register on their own. A pupil who accepts an invitation is bound by these terms too, although most of what follows concerns instructors and schools.',
+      'DualControl is built for approved driving instructors (ADIs) and driving schools in the UK. When you register you must give your real name, a working email address and your correct DVSA ADI number.',
+      'Students and pupils use DualControl only by invitation from their instructor, so they cannot register on their own. A pupil who accepts an invitation is bound by these terms too, although most of what follows concerns instructors and schools.',
     ],
   },
   {
@@ -57,7 +57,7 @@ export const TERMS_SECTIONS: LegalSection[] = [
   {
     heading: '4. Plans and payment',
     body: [
-      'ADI Pro has a free Starter plan with limits on the number of students, and paid plans (ADI Pro and Franchise) with more features. The current features and prices are shown in the app on the plans screen and again before you pay.',
+      'DualControl has a free Starter plan with limits on the number of students, and paid plans (DC Pro and Franchise) with more features. The current features and prices are shown in the app on the plans screen and again before you pay.',
       'Paid plans are charged monthly in advance through our payment provider, Stripe, and renew automatically until you cancel. Prices include or exclude VAT as shown at checkout. If we change a price we will tell you in advance, and the new price only applies from your next renewal.',
       'You can cancel at any time from Manage subscription in the app. Your paid features continue until the end of the period you have already paid for, and then your account moves to the Starter plan.',
       // [REVIEW] Refund position: currently "no refunds except where the law requires".
@@ -67,15 +67,15 @@ export const TERMS_SECTIONS: LegalSection[] = [
   {
     heading: '5. Your students and your data',
     body: [
-      'You stay responsible for the personal information about your pupils that you put into ADI Pro. You must have a lawful reason to hold it, keep it accurate, and only use ADI Pro to run your driving lessons.',
+      'You stay responsible for the personal information about your pupils that you put into DualControl. You must have a lawful reason to hold it, keep it accurate, and only use DualControl to run your driving lessons.',
       'When you import contacts from your phone, you confirm you are allowed to add those people as students.',
       'Our Privacy Policy explains how personal data is handled, including that you (or your driving school) are responsible for your pupils\' data and we process it on your behalf.',
     ],
   },
   {
-    heading: '6. Reminders and messages sent through ADI Pro',
+    heading: '6. Reminders and messages sent through DualControl',
     body: [
-      'On paid plans, ADI Pro can send lesson reminders to your students by push notification and by email, using the contact details you hold for them. Emails are sent in your name and replies go to you.',
+      'On paid plans, DualControl can send lesson reminders to your students by push notification and by email, using the contact details you hold for them. Emails are sent in your name and replies go to you.',
       'You are responsible for making sure those contact details are correct and that your students expect to hear from you about their lessons.',
     ],
   },
@@ -83,34 +83,34 @@ export const TERMS_SECTIONS: LegalSection[] = [
     heading: '7. Acceptable use',
     body: ['You must not:'],
     bullets: [
-      'use ADI Pro for anything unlawful, or to send spam or misleading messages;',
+      'use DualControl for anything unlawful, or to send spam or misleading messages;',
       'try to get into other people\'s accounts or data, or to probe, disrupt or overload the service;',
-      'copy, resell or reverse-engineer ADI Pro, except where the law allows;',
+      'copy, resell or reverse-engineer DualControl, except where the law allows;',
       'upload content that is unlawful, harmful or that you have no right to share.',
     ],
   },
   {
     heading: '8. Your content',
     body: [
-      'You own what you put into ADI Pro. You give us permission to store, process and display it only so that we can provide the service to you, for example to show your diary, send your reminders or produce your invoices.',
+      'You own what you put into DualControl. You give us permission to store, process and display it only so that we can provide the service to you, for example to show your diary, send your reminders or produce your invoices.',
     ],
   },
   {
     heading: '9. Tools that support your teaching',
     body: [
-      'ADI Pro is not connected to or endorsed by the DVSA. Features such as the DL25 mock test, standards check, syllabus tracking and the theory and Show Me / Tell Me tools are practice and record-keeping aids. They are not official assessments, and they do not replace your own professional judgement.',
+      'DualControl is not connected to or endorsed by the DVSA. Features such as the DL25 mock test, standards check, syllabus tracking and the theory and Show Me / Tell Me tools are practice and record-keeping aids. They are not official assessments, and they do not replace your own professional judgement.',
     ],
   },
   {
     heading: '10. Third-party services',
     body: [
-      'ADI Pro relies on other providers, such as Stripe for payments and Google for travel-time estimates. We are not responsible for their services, and they may have their own terms.',
+      'DualControl relies on other providers, such as Stripe for payments and Google for travel-time estimates. We are not responsible for their services, and they may have their own terms.',
     ],
   },
   {
     heading: '11. Availability and your records',
     body: [
-      'We work hard to keep ADI Pro running and to look after your data, but we cannot promise it will always be available or free from errors. We may change or improve features over time.',
+      'We work hard to keep DualControl running and to look after your data, but we cannot promise it will always be available or free from errors. We may change or improve features over time.',
       'You are responsible for keeping any records you are legally required to keep. We recommend you use the backup and export tools in the app regularly.',
     ],
   },
@@ -119,21 +119,21 @@ export const TERMS_SECTIONS: LegalSection[] = [
     body: [
       'Nothing in these terms limits liability for death or personal injury caused by negligence, for fraud, or for anything else the law does not allow us to limit.',
       // [REVIEW] Liability cap: currently fees paid in the previous 12 months.
-      'Otherwise, and as far as the law allows, we are not liable for loss of profit, income, business or data, or for indirect or consequential loss. Our total liability to you for anything arising from your use of ADI Pro is limited to the fees you paid us in the 12 months before the event that caused the claim.',
+      'Otherwise, and as far as the law allows, we are not liable for loss of profit, income, business or data, or for indirect or consequential loss. Our total liability to you for anything arising from your use of DualControl is limited to the fees you paid us in the 12 months before the event that caused the claim.',
       'If you are a consumer, your statutory rights are not affected by these terms.',
     ],
   },
   {
     heading: '13. Ending your account',
     body: [
-      'You can stop using ADI Pro at any time, and you can ask us to delete your account from Profile > Privacy & data.',
+      'You can stop using DualControl at any time, and you can ask us to delete your account from Profile > Privacy & data.',
       'We may suspend or close an account that breaks these terms or puts other users or the service at risk. Where reasonable we will tell you first and explain why.',
     ],
   },
   {
     heading: '14. Changes to these terms',
     body: [
-      'We may update these terms from time to time. If a change matters, we will tell you in the app or by email before it takes effect. If you keep using ADI Pro after that, you accept the updated terms.',
+      'We may update these terms from time to time. If a change matters, we will tell you in the app or by email before it takes effect. If you keep using DualControl after that, you accept the updated terms.',
     ],
   },
   {
@@ -149,18 +149,18 @@ export const TERMS_SECTIONS: LegalSection[] = [
 ];
 
 export const PRIVACY_INTRO =
-  `This policy explains what personal information ADI Pro collects, why, who sees it, and the choices you have. ` +
+  `This policy explains what personal information DualControl collects, why, who sees it, and the choices you have. ` +
   'It is written to be read, so we have kept it plain.';
 
 export const PRIVACY_SECTIONS: LegalSection[] = [
   {
     heading: '1. Who is responsible for your data',
     body: [
-      `${OPERATOR.name} (${OPERATOR.address}) runs ADI Pro. The role we play depends on whose data it is:`,
+      `${OPERATOR.name} (${OPERATOR.address}) runs DualControl. The role we play depends on whose data it is:`,
     ],
     bullets: [
       'Instructors and school owners: for your own account and billing details we are the "controller" of your personal data.',
-      'Pupils and students: the instructor or driving school that adds you is the controller of your lesson, progress and contact records. We process that information only on their behalf and on their instructions, to provide ADI Pro.',
+      'Pupils and students: the instructor or driving school that adds you is the controller of your lesson, progress and contact records. We process that information only on their behalf and on their instructions, to provide DualControl.',
     ],
   },
   {
@@ -193,7 +193,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
   },
   {
     heading: '3. Your phone\'s permissions',
-    body: ['ADI Pro only asks for what a feature needs, and each is optional:'],
+    body: ['DualControl only asks for what a feature needs, and each is optional:'],
     bullets: [
       'Camera and photos: to scan or attach receipts.',
       'Contacts: only when you choose to import contacts. Your contacts are listed on your phone for you to tick; only the people you select are saved as students.',
@@ -205,7 +205,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
     heading: '4. Why we use it, and our legal basis',
     body: ['We use personal data for these purposes:'],
     bullets: [
-      'To provide ADI Pro and your account, including sending lesson reminders, invitations, sign-up confirmation and password-reset emails (contract).',
+      'To provide DualControl and your account, including sending lesson reminders, invitations, sign-up confirmation and password-reset emails (contract).',
       'To take payment and keep the financial records the law requires (contract and legal obligation).',
       'To keep the service secure, prevent misuse and fix problems (legitimate interests).',
       'To use your phone\'s camera, contacts, location and notifications when you switch those features on (your consent, which you can withdraw in your phone\'s settings).',
@@ -214,13 +214,13 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
   {
     heading: 'What we do not do',
     body: [
-      'We do not sell your personal data, and we do not use it for advertising. ADI Pro does not contain advertising or third-party analytics or tracking tools.',
+      'We do not sell your personal data, and we do not use it for advertising. DualControl does not contain advertising or third-party analytics or tracking tools.',
     ],
   },
   {
     heading: '5. Who we share it with',
     body: [
-      'We use a small number of service providers to run ADI Pro. They may only use your data to provide their service to us:',
+      'We use a small number of service providers to run DualControl. They may only use your data to provide their service to us:',
     ],
     bullets: [
       'Supabase: our database and sign-in. Data is stored in London, UK.',
@@ -237,7 +237,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
     ],
   },
   {
-    heading: 'Sharing within ADI Pro',
+    heading: 'Sharing within DualControl',
     body: [
       'An instructor can see their own students. A school owner can see the instructors and students in their school. A pupil can see their own records. We may also share information if the law requires it.',
     ],
@@ -272,7 +272,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
   {
     heading: '10. Children',
     body: [
-      'ADI Pro is designed for instructors. Pupils are usually 17 or over. We do not knowingly collect data from anyone under 16. If a pupil is under 18, their instructor is responsible for handling their information appropriately.',
+      'DualControl is designed for instructors. Pupils are usually 17 or over. We do not knowingly collect data from anyone under 16. If a pupil is under 18, their instructor is responsible for handling their information appropriately.',
     ],
   },
   {

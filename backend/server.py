@@ -1361,7 +1361,7 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
     title = req.title or "Lesson slot just opened!"
     body  = req.body  or (
         f"A {start_hhmm}–{end_hhmm} slot has just freed up on "
-        f"{lesson_date}. Open ADI Pro to grab it before it's gone."
+        f"{lesson_date}. Open DualControl to grab it before it's gone."
     )
     # Only the actual longest-waiting person gets the personalised
     # "you've been waiting" wording — sending that to the "plus active
@@ -1371,7 +1371,7 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
     offered_title = req.title or "A slot's yours if you want it!"
     offered_body  = req.body  or (
         f"You've been waiting the longest, so first refusal is yours: a "
-        f"{start_hhmm}–{end_hhmm} slot on {lesson_date} just freed up. Open ADI Pro to grab it."
+        f"{start_hhmm}–{end_hhmm} slot on {lesson_date} just freed up. Open DualControl to grab it."
     )
     offered_to_auth_id = waiting_rows[0]["students"]["auth_user_id"] if (not req.student_ids and req.target != "everyone" and waiting_rows and waiting_rows[0].get("students")) else None
 
@@ -3169,7 +3169,7 @@ async def calendar_feed_endpoint(token_with_ext: str, travel: int = 0):
         content=body,
         media_type="text/calendar; charset=utf-8",
         headers={
-            "Content-Disposition": f"inline; filename=\"adi-pro-{token[:8]}.ics\"",
+            "Content-Disposition": f"inline; filename=\"dualcontrol-{token[:8]}.ics\"",
             "Cache-Control": "private, max-age=60",
         },
     )

@@ -185,7 +185,7 @@ export default function RouteRecorderScreen() {
         setPermissionStatus('denied');
         Alert.alert(
           'Location permission needed',
-          'ADI Pro needs location access to record your driving lesson route. Please enable it in Settings.',
+          'DualControl needs location access to record your driving lesson route. Please enable it in Settings.',
         );
         return;
       }

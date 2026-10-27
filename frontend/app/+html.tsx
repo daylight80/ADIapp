@@ -8,10 +8,10 @@ export default function Root({ children }: PropsWithChildren) {
       <head>
         <meta charSet="utf-8" />
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
-        <title>ADI Pro | Diary, pupils and payments for driving instructors</title>
+        <title>DualControl | Diary, pupils and payments for driving instructors</title>
         <meta
           name="description"
-          content="ADI Pro is the diary, pupil tracker, wallet and invoicing app for UK driving instructors."
+          content="DualControl is the diary, pupil tracker, wallet and invoicing app for UK driving instructors."
         />
         <meta
           name="viewport"

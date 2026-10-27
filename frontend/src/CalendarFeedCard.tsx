@@ -112,7 +112,7 @@ export function CalendarFeedCard() {
       {!status.enabled ? (
         <>
           <Text style={styles.hint}>
-            Subscribe to your ADI Pro diary in Apple Calendar, Google Calendar or Outlook.
+            Subscribe to your DualControl diary in Apple Calendar, Google Calendar or Outlook.
             Lessons appear as “Driving lesson — Student name”, with Practical Test details and your
             blocked time. Cancelled lessons are left out.
           </Text>

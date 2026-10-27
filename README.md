@@ -1,4 +1,4 @@
-# ADI Pro
+# DualControl
 
 A management platform for UK driving instructors and driving schools — lesson diary,
 student CRM, DVSA progress tracking, mock tests, invoicing/wallet, and referrals — built
@@ -13,10 +13,10 @@ as a single Expo codebase that ships to iOS, Android and the web.
 | Tier | Price | Instructors | Students | Notes |
 |---|---|---|---|---|
 | Starter | Free | 1 | up to 5 | No invoicing |
-| ADI Pro | £11.99/mo | 1 | unlimited | Invoicing, business branding |
+| DC Pro | £11.99/mo | 1 | unlimited | Invoicing, business branding |
 | Franchise | £13.99/mo + £9.99/seat | unlimited | unlimited | Multi-instructor schools |
 
-(Internally the ADI Pro tier's id is still `pro` in the database — only the display name
+(Internally the DC Pro tier's id is still `pro` in the database — only the display name
 changed.)
 
 ## Repo layout
@@ -39,7 +39,7 @@ design_guidelines.json   Design tokens (colors, etc.) used throughout the app
 - Student CRM with lifecycle status (lead → active → passed/cancelled, with undo)
 - DVSA progress tracker and DL25 mock tests — runnable by the student or started by the
   instructor from the student's profile
-- Wallet and Stripe-powered invoicing (ADI Pro and Franchise tiers)
+- Wallet and Stripe-powered invoicing (DC Pro and Franchise tiers)
 - Referral and transactional email via Resend (referral invites, signup confirmation,
   password reset)
 - Deadline tracking for instructors (ADI badge, MOT, insurance, road tax, dual-control

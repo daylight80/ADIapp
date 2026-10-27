@@ -130,7 +130,7 @@ export async function exportReceiptsZip(
     return `  - ${meta?.emoji || ''} ${meta?.label || k}: ${n}`;
   });
   const readme = [
-    'ADI Pro — Expense Receipts Archive',
+    'DualControl — Expense Receipts Archive',
     '===================================',
     '',
     `Exported on: ${new Date().toISOString()}`,
@@ -158,7 +158,7 @@ export async function exportReceiptsZip(
 
   // ---- 5) Generate the binary
   onProgress?.({ phase: 'zipping' });
-  const fileName = `adi-pro-receipts-${new Date().toISOString().slice(0, 10)}.zip`;
+  const fileName = `dualcontrol-receipts-${new Date().toISOString().slice(0, 10)}.zip`;
 
   if (Platform.OS === 'web') {
     const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });

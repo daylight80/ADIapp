@@ -83,7 +83,7 @@ describe('Home card', () => {
   });
 });
 
-describe('plan gating (Action Centre is an ADI Pro feature)', () => {
+describe('plan gating (Action Centre is a DC Pro feature)', () => {
   it('Starter sees a locked screen, and the Action Centre is not even loaded', async () => {
     mockTier = 'starter';
     mockHook.items = [item('x', 'tests', 'Sam: test', { screen: 'diary' })];

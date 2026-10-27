@@ -51,7 +51,7 @@ beforeEach(() => {
   mockTier = 'pro';
 });
 
-describe('plan gating (Enquiries is an ADI Pro feature)', () => {
+describe('plan gating (Enquiries is a DC Pro feature)', () => {
   it('Starter sees a locked screen with no enquiries', async () => {
     mockTier = 'starter';
     await render(<EnquiriesScreen />);

@@ -1,6 +1,6 @@
-# Supabase — ADI Pro database
+# Supabase — DualControl database
 
-This folder holds the canonical Postgres schema for the **ADI Pro** UK driving-school CRM. All SQL is hand-written so it can be applied through either the Supabase **SQL editor**, the **Supabase CLI** (`supabase db push`), or any standard `psql` connection.
+This folder holds the canonical Postgres schema for the **DualControl** UK driving-school CRM. All SQL is hand-written so it can be applied through either the Supabase **SQL editor**, the **Supabase CLI** (`supabase db push`), or any standard `psql` connection.
 
 ## Apply the schema
 

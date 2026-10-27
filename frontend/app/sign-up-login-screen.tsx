@@ -299,7 +299,7 @@ export default function SignInV2Screen() {
                 resizeMode="contain"
               />
             </View>
-            <Text style={s.brandTitle}>ADI Pro</Text>
+            <Text style={s.brandTitle}>DualControl</Text>
             <Text style={s.brandSub}>Instructor &amp; student portal</Text>
           </View>
 
@@ -314,13 +314,13 @@ export default function SignInV2Screen() {
               <Text style={s.inviteLabel}>You&apos;ve been invited</Text>
               {invitePreview?.type === 'instructor' ? (
                 <Text style={s.inviteLine}>
-                  You&apos;ve been added as an instructor on ADI Pro. Choose a password to finish setting up your account.
+                  You&apos;ve been added as an instructor on DualControl. Choose a password to finish setting up your account.
                 </Text>
               ) : (
                 <Text style={s.inviteLine}>
                   {invitePreview?.instructor_name || 'Your instructor'}
                   {invitePreview?.instructor_adi ? ` (ADI ${invitePreview.instructor_adi})` : ''} has invited you to join
-                  ADI Pro as a student. Choose a password to finish setting up your account.
+                  DualControl as a student. Choose a password to finish setting up your account.
                 </Text>
               )}
             </View>

@@ -1,4 +1,4 @@
-// Removes personal data from what is sent to Sentry. ADI Pro's requests carry pupils' and
+// Removes personal data from what is sent to Sentry. DualControl's requests carry pupils' and
 // instructors' details in URLs (for example a Supabase filter like students?email=eq.sam@x.co),
 // and Sentry records them as breadcrumbs, so URLs are cut back to their path before sending.
 // Pure functions with no Sentry import, so they can be tested.

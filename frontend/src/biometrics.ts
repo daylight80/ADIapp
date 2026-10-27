@@ -25,7 +25,7 @@ const BIOMETRIC_ENABLED_KEY = 'biometric_unlock_enabled';
 // blank-spinner hang on cold launch (logcat showed the app's own JS
 // completing everything up to and including auth session restore, then
 // total silence — no crash, no further log lines at all). The screen
-// recording that caught it never showed the "ADI Pro is locked / Waiting
+// recording that caught it never showed the "DualControl is locked / Waiting
 // for fingerprint…" text at any point, which _layout.tsx's AuthGate sets
 // synchronously as soon as isBiometricEnabled() resolves true — before
 // authenticateWithBiometrics() (the actual native OS prompt) is even
@@ -85,7 +85,7 @@ export async function authenticateWithBiometrics(): Promise<boolean> {
     (async () => {
       try {
         const result = await LocalAuthentication.authenticateAsync({
-          promptMessage: 'Unlock ADI Pro',
+          promptMessage: 'Unlock DualControl',
           cancelLabel: 'Use password instead',
           // Deliberately true (3 Sept 2026) — Grant's chosen fallback is the
           // app's own email/password screen specifically, not the device's

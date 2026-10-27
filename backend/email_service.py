@@ -59,7 +59,7 @@ def clean_display_name(name: Optional[str], fallback: str = "A fellow instructor
 
 
 def sender_header(display_name: str) -> str:
-    return f'"{clean_display_name(display_name)} via ADI Pro" <{EMAIL_FROM_ADDRESS}>'
+    return f'"{clean_display_name(display_name)} via DualControl" <{EMAIL_FROM_ADDRESS}>'
 
 
 def render_referral_email(referrer_name: str, code: str, share_link: str) -> Tuple[str, str, str]:
@@ -70,12 +70,12 @@ def render_referral_email(referrer_name: str, code: str, share_link: str) -> Tup
     esc_link = html.escape(share_link, quote=True)
     esc_support = html.escape(EMAIL_SUPPORT_ADDRESS)
 
-    subject = f"{name} thinks you'd like ADI Pro"
+    subject = f"{name} thinks you'd like DualControl"
 
     text = (
         f"Hi,\n\n"
-        f"{name} uses ADI Pro to run their driving lessons and asked us to send you an invite.\n\n"
-        f"ADI Pro is a diary, student tracker, wallet and invoicing app built for approved "
+        f"{name} uses DualControl to run their driving lessons and asked us to send you an invite.\n\n"
+        f"DualControl is a diary, student tracker, wallet and invoicing app built for approved "
         f"driving instructors.\n\n"
         f"Sign up here: {share_link}\n"
         f"Referral code: {code}\n\n"
@@ -90,11 +90,11 @@ def render_referral_email(referrer_name: str, code: str, share_link: str) -> Tup
 <body style="margin:0;padding:24px;background:#f5f2ec;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;">
     <tr><td style="padding:28px 28px 8px;">
-      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">ADI PRO</div>
-      <h1 style="font-size:20px;line-height:1.3;margin:10px 0 14px;">{esc_name} thinks you'd like ADI Pro</h1>
-      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc_name} uses ADI Pro to run their driving lessons and asked us to send you an invite.</p>
+      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">DUALCONTROL</div>
+      <h1 style="font-size:20px;line-height:1.3;margin:10px 0 14px;">{esc_name} thinks you'd like DualControl</h1>
+      <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc_name} uses DualControl to run their driving lessons and asked us to send you an invite.</p>
       <p style="font-size:15px;line-height:1.55;margin:0 0 20px;">It's a diary, student tracker, wallet and invoicing app built for approved driving instructors.</p>
-      <p style="margin:0 0 20px;"><a href="{esc_link}" style="display:inline-block;background:#ff6b00;color:#ffffff;text-decoration:none;font-weight:bold;font-size:15px;padding:12px 22px;border-radius:10px;">Sign up to ADI Pro</a></p>
+      <p style="margin:0 0 20px;"><a href="{esc_link}" style="display:inline-block;background:#ff6b00;color:#ffffff;text-decoration:none;font-weight:bold;font-size:15px;padding:12px 22px;border-radius:10px;">Sign up to DualControl</a></p>
       <p style="font-size:13px;color:#64748b;margin:0 0 6px;">Referral code: <strong>{esc_code}</strong></p>
     </td></tr>
     <tr><td style="padding:16px 28px 24px;border-top:1px solid #e4ded2;">
@@ -175,7 +175,7 @@ def render_lesson_reminder_email(
         contact_line,
         "",
         f"You're receiving this reminder email because {instructor} booked a driving lesson for you using "
-        f"ADI Pro. Questions about these emails: {LESSON_REMINDER_SUPPORT_ADDRESS}.",
+        f"DualControl. Questions about these emails: {LESSON_REMINDER_SUPPORT_ADDRESS}.",
     ]
     text = "\n".join(text_lines) + "\n"
 
@@ -198,7 +198,7 @@ def render_lesson_reminder_email(
 <body style="margin:0;padding:24px;background:#f5f2ec;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;">
     <tr><td style="padding:28px 28px 8px;">
-      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">ADI PRO</div>
+      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">DUALCONTROL</div>
       <h1 style="font-size:20px;line-height:1.3;margin:10px 0 14px;">{esc(headline)}</h1>
       <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(greeting)}</p>
       <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(lead)}</p>
@@ -208,7 +208,7 @@ def render_lesson_reminder_email(
       <p style="font-size:15px;line-height:1.55;margin:14px 0 20px;">{contact_html}</p>
     </td></tr>
     <tr><td style="padding:16px 28px 24px;border-top:1px solid #e4ded2;">
-      <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">You're receiving this reminder email because {esc(instructor)} booked a driving lesson for you using ADI Pro. Questions about these emails: <a href="mailto:{esc_lesson_support}" style="color:#64748b;">{esc_lesson_support}</a>.</p>
+      <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">You're receiving this reminder email because {esc(instructor)} booked a driving lesson for you using DualControl. Questions about these emails: <a href="mailto:{esc_lesson_support}" style="color:#64748b;">{esc_lesson_support}</a>.</p>
     </td></tr>
   </table>
 </body>
@@ -248,7 +248,7 @@ def render_slot_alert_email(
     else:
         action = f"If you would like it, please contact {instructor}. Slots go to whoever asks first."
     footer = (
-        "You're receiving this because you have Slot alerts switched on in ADI Pro. "
+        "You're receiving this because you have Slot alerts switched on in DualControl. "
         "To stop them, open the app and turn off Slot alerts on the My Learning screen. "
         f"Questions about these emails: {LESSON_REMINDER_SUPPORT_ADDRESS}."
     )
@@ -260,7 +260,7 @@ def render_slot_alert_email(
 <body style="margin:0;padding:24px;background:#f5f2ec;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;">
     <tr><td style="padding:28px 28px 8px;">
-      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">ADI PRO</div>
+      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">DUALCONTROL</div>
       <h1 style="font-size:20px;line-height:1.3;margin:10px 0 14px;">{esc(headline)}</h1>
       <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(greeting)}</p>
       <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(lead)}</p>
@@ -306,7 +306,7 @@ def render_payment_reminder_email(
     else:
         check = f"If you think this is wrong, or you have already paid, please contact {instructor}."
     footer = (
-        f"You're receiving this because {instructor} sent you a payment reminder using ADI Pro. "
+        f"You're receiving this because {instructor} sent you a payment reminder using DualControl. "
         f"Questions about these emails: {LESSON_REMINDER_SUPPORT_ADDRESS}."
     )
     esc = html.escape
@@ -317,7 +317,7 @@ def render_payment_reminder_email(
 <body style="margin:0;padding:24px;background:#f5f2ec;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;">
     <tr><td style="padding:28px 28px 8px;">
-      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">ADI PRO</div>
+      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">DUALCONTROL</div>
       <h1 style="font-size:20px;line-height:1.3;margin:10px 0 14px;">{esc(headline)}</h1>
       <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(greeting)}</p>
       <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(lead)}</p>
@@ -350,7 +350,7 @@ def render_lesson_summary_email(
     lead = f"{instructor} has written you a short summary of your driving lesson:"
     plan_label = "For your next lesson:"
     footer = (
-        f"You're receiving this because {instructor} sent you a lesson summary using ADI Pro. "
+        f"You're receiving this because {instructor} sent you a lesson summary using DualControl. "
         f"Questions about these emails: {LESSON_REMINDER_SUPPORT_ADDRESS}."
     )
     subject = f"Your lesson summary from {instructor}"
@@ -377,7 +377,7 @@ def render_lesson_summary_email(
 <body style="margin:0;padding:24px;background:#f5f2ec;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;">
     <tr><td style="padding:28px 28px 8px;">
-      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">ADI PRO</div>
+      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">DUALCONTROL</div>
       <h1 style="font-size:20px;line-height:1.3;margin:10px 0 14px;">Your lesson summary</h1>
       <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(greeting)}</p>
       <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(lead)}</p>
@@ -402,9 +402,9 @@ def looks_like_email(value: Optional[str]) -> bool:
 
 
 def system_sender_header() -> str:
-    """Sender for messages ADI Pro sends about the recipient's own account
-    (deadline reminders), where "<someone> via ADI Pro" would read oddly."""
-    return f'"ADI Pro" <{EMAIL_FROM_ADDRESS}>'
+    """Sender for messages DualControl sends about the recipient's own account
+    (deadline reminders), where "<someone> via DualControl" would read oddly."""
+    return f'"DualControl" <{EMAIL_FROM_ADDRESS}>'
 
 
 # What a deadline reminder is for. Kept next to the template, and deliberately
@@ -495,9 +495,9 @@ def render_deadline_reminder_email(
     if kind == "standards_check":
         # This one's date is worked out from the checks the instructor has
         # logged, so there is no date to edit — logging the new check is the fix.
-        renewed = "Had your check already? Log it in ADI Pro (Profile > My Standards Check) so we stop reminding you."
+        renewed = "Had your check already? Log it in DualControl (Profile > My Standards Check) so we stop reminding you."
     else:
-        renewed = "Already sorted it? Update the date in ADI Pro (Profile > Deadlines) so we stop reminding you."
+        renewed = "Already sorted it? Update the date in DualControl (Profile > Deadlines) so we stop reminding you."
 
     text_lines = [greeting, "", lead]
     if hint:
@@ -505,7 +505,7 @@ def render_deadline_reminder_email(
     text_lines += ["", renewed]
     if link:
         text_lines += ["", f"Open your deadlines: {link}"]
-    text_lines += ["", "You're getting this because you track this deadline in ADI Pro."]
+    text_lines += ["", "You're getting this because you track this deadline in DualControl."]
     text = "\n".join(text_lines) + "\n"
 
     hint_html = f'<p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(hint)}</p>' if hint else ""
@@ -520,7 +520,7 @@ def render_deadline_reminder_email(
 <body style="margin:0;padding:24px;background:#f5f2ec;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;">
     <tr><td style="padding:28px 28px 8px;">
-      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">ADI PRO</div>
+      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">DUALCONTROL</div>
       <h1 style="font-size:20px;line-height:1.3;margin:10px 0 14px;">{esc(headline)}</h1>
       <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(greeting)}</p>
       <p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{esc(lead)}</p>
@@ -529,7 +529,7 @@ def render_deadline_reminder_email(
       <p style="font-size:13px;line-height:1.5;color:#64748b;margin:0 0 6px;">{esc(renewed)}</p>
     </td></tr>
     <tr><td style="padding:16px 28px 24px;border-top:1px solid #e4ded2;">
-      <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">You're getting this because you track this deadline in ADI Pro. Questions: <a href="mailto:{support}" style="color:#64748b;">{support}</a>.</p>
+      <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">You're getting this because you track this deadline in DualControl. Questions: <a href="mailto:{support}" style="color:#64748b;">{support}</a>.</p>
     </td></tr>
   </table>
 </body>

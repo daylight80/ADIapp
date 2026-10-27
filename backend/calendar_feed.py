@@ -7,7 +7,7 @@ feed (cancelled or deleted) is removed by the subscriber at its next refresh.
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
-PRODID = "-//ADI Pro//Lesson Diary//EN"
+PRODID = "-//DualControl//Lesson Diary//EN"
 
 
 # ---- text helpers ------------------------------------------------------------------------------------------------
@@ -197,16 +197,16 @@ def build_ics(
 ) -> str:
     now = now or datetime.now(timezone.utc)
     dtstamp = fmt_utc(now)
-    name = instructor_name or "ADI Pro Instructor"
+    name = instructor_name or "DualControl Instructor"
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
         f"PRODID:{PRODID}",
         "METHOD:PUBLISH",
         "CALSCALE:GREGORIAN",
-        f"X-WR-CALNAME:{ics_escape('ADI Pro — ' + name)}",
+        f"X-WR-CALNAME:{ics_escape('DualControl — ' + name)}",
         "X-WR-TIMEZONE:Europe/London",
-        f"X-WR-CALDESC:{ics_escape('Driving lessons from ADI Pro')}",
+        f"X-WR-CALDESC:{ics_escape('Driving lessons from DualControl')}",
         # Hints for calendar apps that honour them (Apple does). Google ignores them and refreshes every 12 to 24 hours.
         "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
         "X-PUBLISHED-TTL:PT1H",

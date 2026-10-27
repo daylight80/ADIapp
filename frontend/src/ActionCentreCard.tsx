@@ -12,7 +12,7 @@ import { routeForTarget } from './actionCentreNav';
  * Home card for the Action Centre: how many things need the instructor, the top three, and a way into the full
  * list. Always shown (with an "all caught up" line when there is nothing) so the way in never disappears.
  */
-/** Paid plans only (Action Centre is an ADI Pro feature): Starter sees nothing here and nothing is fetched. */
+/** Paid plans only (Action Centre is a DC Pro feature): Starter sees nothing here and nothing is fetched. */
 export function ActionCentreCard() {
   const { user } = useAuth();
   return isPaidTier(user?.tier) ? <ActionCentreCardContent /> : null;

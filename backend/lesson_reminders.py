@@ -1,5 +1,5 @@
 """
-ADI Pro — Lesson Reminder Dispatcher
+DualControl — Lesson Reminder Dispatcher
 ====================================
 
 Sends Expo push notifications to STUDENTS at three fixed intervals before a

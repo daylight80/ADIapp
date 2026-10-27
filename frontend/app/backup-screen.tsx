@@ -94,7 +94,7 @@ export default function BackupScreen() {
       const backupJson = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error((backupJson as any)?.detail || `Could not gather backup data (HTTP ${resp.status})`);
 
-      const fileName = `adi-pro-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      const fileName = `dualcontrol-backup-${new Date().toISOString().slice(0, 10)}.json`;
       const boundary = 'adiProBackupBoundary';
       const metadata = { name: fileName, mimeType: 'application/json' };
       const body =

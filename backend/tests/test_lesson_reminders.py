@@ -235,7 +235,7 @@ def test_email_payload_has_uk_time_phone_contact_and_instructor_sender(monkeypat
     p = sent[0]
     assert p["to"] == ["student@example.com"]
     assert "reply_to" not in p
-    assert "Alex Morgan via ADI Pro" in p["from"]
+    assert "Alex Morgan via DualControl" in p["from"]
     assert "07700 900123" in p["text"]
     # 08:00 UTC on 8 Oct 2026 is 09:00 BST — the UK-time fix must apply to email too
     assert "09:00" in p["subject"] and "08:00" not in p["subject"]

@@ -294,7 +294,7 @@ export default function SignInV2Screen() {
           <View style={s.brand}>
             <View style={s.logoRing}>
               <Image
-                source={require('../assets/images/adi-pro-logo.png')}
+                source={require('../assets/images/dualcontrol-logo.png')}
                 style={{ width: '100%', height: '100%' }}
                 resizeMode="contain"
               />

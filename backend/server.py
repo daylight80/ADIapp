@@ -1797,7 +1797,9 @@ async def v2_school_student_allocations(
 
 
 class ReassignStudentsRequest(BaseModel):
-    assignments: List[dict]   # [{"student_id": uuid, "new_instructor_id": uuid}]
+    # [{"student_id": uuid, "new_instructor_id": uuid}]. Each pupil takes several sequential database calls, so a
+    # request is capped; the app sends larger selections in batches of this size.
+    assignments: List[dict] = Field(max_length=100)
 
 
 class ReassignStudentsResponse(BaseModel):
@@ -1811,9 +1813,9 @@ async def v2_reassign_students(
     req: ReassignStudentsRequest,
     sb_user: dict = Depends(get_current_supabase_user),
 ):
-    """Owner-only. Atomically reassigns one or more students from their current
-    instructor to a new instructor in the same school. Verifies both the student
-    and the target instructor belong to the owner's school."""
+    """Owner-only. Reassigns up to 100 students from their current instructor to a new instructor in the same
+    school, one pupil at a time: a failure part-way leaves the earlier pupils moved and is listed in `errors`.
+    Verifies both the student and the target instructor belong to the owner's school."""
     if not await _is_school_owner(sb_user):
         raise HTTPException(status_code=403, detail="Only the school owner can reassign students")
     school_id = sb_user["school"]["id"]

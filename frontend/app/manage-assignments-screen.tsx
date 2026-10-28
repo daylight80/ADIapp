@@ -14,6 +14,7 @@ import { useAuth } from '../src/AuthContext';
 import { isFranchiseTier, tierById } from '../src/tiers';
 
 const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || '';
+const REASSIGN_BATCH = 100; // the most pupils the server moves in one request
 
 type SchoolInstructor = {
   id: string;
@@ -142,22 +143,31 @@ export default function ManageAssignmentsScreen() {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
       if (!token) throw new Error('Not signed in');
-      const resp = await fetch(`${BACKEND}/api/v2/students/reassign`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          assignments: Array.from(selected).map((sid) => ({
-            student_id: sid, new_instructor_id: newInstructorId,
-          })),
-        }),
-      });
-      const json = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(json?.detail || `Reassign failed (HTTP ${resp.status})`);
+      // The server takes at most 100 pupils a request, so a bigger selection goes in batches.
+      const ids = Array.from(selected);
+      let moved = 0;
+      let skipped = 0;
+      for (let i = 0; i < ids.length; i += REASSIGN_BATCH) {
+        const resp = await fetch(`${BACKEND}/api/v2/students/reassign`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            assignments: ids.slice(i, i + REASSIGN_BATCH).map((sid) => ({ student_id: sid, new_instructor_id: newInstructorId })),
+          }),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          const done = moved ? ` ${moved} moved before it stopped.` : '';
+          throw new Error((json?.detail || `Reassign failed (HTTP ${resp.status})`) + done);
+        }
+        moved += json.moved || 0;
+        skipped += json.skipped || 0;
+      }
       const target = instructorById.get(newInstructorId)?.full_name || 'the chosen instructor';
       Alert.alert(
         'Reassigned',
-        `${json.moved} student${json.moved === 1 ? '' : 's'} moved to ${target}.` +
-          (json.skipped ? `\n${json.skipped} skipped.` : ''),
+        `${moved} student${moved === 1 ? '' : 's'} moved to ${target}.` +
+          (skipped ? `\n${skipped} skipped.` : ''),
       );
       clearSelection();
       setPickerOpen(false);

@@ -11,7 +11,7 @@
  * touching any layout code. To change what a section says, edit it here.
  */
 
-export const LEGAL_LAST_UPDATED = '21 October 2026';
+export const LEGAL_LAST_UPDATED = '28 October 2026';
 
 export const OPERATOR = {
   name: 'Driving School Solutions',
@@ -75,7 +75,7 @@ export const TERMS_SECTIONS: LegalSection[] = [
   {
     heading: '6. Reminders and messages sent through DualControl',
     body: [
-      'On paid plans, DualControl can send lesson reminders to your students by push notification and by email, using the contact details you hold for them. Emails are sent in your name and replies go to you.',
+      'On paid plans, DualControl can send lesson reminders to your students by push notification and by email, using the contact details you hold for them. Emails show your name as the sender (for example “Sam Smith via DualControl”) but are sent from a DualControl address, so replies do not go to you. They tell your student to contact you about their lesson, and give a DualControl address for questions about the emails themselves.',
       'You are responsible for making sure those contact details are correct and that your students expect to hear from you about their lessons.',
     ],
   },
@@ -170,16 +170,16 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
       'name, email address, DVSA ADI number, phone number and business or school name and logo;',
       'your password, which is stored securely by our sign-in provider and which we cannot read;',
       'your plan and subscription status (card details go directly to Stripe and we never see them);',
-      'what you record in the app: diary and lessons, vehicles, invoices, wallet, income and expenses, and receipt photos.',
+      'what you record in the app: diary and lessons, your private lesson notes, enquiries from people who are not pupils yet (name, phone number and notes), vehicles, invoices, wallet, income and expenses, and receipt photos.',
     ],
   },
   {
     heading: 'Pupils and students',
     body: ['Entered by your instructor, or by you when you use the app:'],
     bullets: [
-      'name, email address, phone number and pick-up address;',
+      'name, email address, phone number and pick-up address, and your provisional licence number if you choose to enter it;',
       'for pupils under 18, the name, phone number and email address of a parent or guardian, which the instructor can add so they can be reached about lessons;',
-      'lesson history and notes, progress against the driving syllabus, mock test and theory test results, reflective logs and test outcomes;',
+      'lesson history and notes, progress against the driving syllabus, mock test and theory test results, reflective logs, test outcomes, and the 1 to 5 confidence ratings you give after lessons;',
       'payments and balances, and your signed pupil agreement (the name you type as a signature and the time you signed).',
     ],
   },

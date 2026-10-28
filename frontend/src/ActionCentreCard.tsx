@@ -31,7 +31,7 @@ function ActionCentreCardContent() {
       <TouchableOpacity style={s.head} onPress={() => router.push('/action-centre-screen' as any)} activeOpacity={0.8} testID="action-centre-open">
         {items.length === 0 ? <CheckCircle2 size={20} color={accent} /> : <ListChecks size={20} color={accent} />}
         <View style={{ flex: 1 }}>
-          <Text style={[s.label, { color: accent }]}>Needs you today</Text>
+          <Text style={[s.label, { color: accent }]}>Needs attention</Text>
           <Text style={s.summary} testID="action-centre-summary">{loading && items.length === 0 ? 'Checking…' : actionSummary(items.length)}</Text>
         </View>
         {loading && items.length === 0 ? <ActivityIndicator size="small" color={accent} /> : <ChevronRight size={18} color={accent} />}

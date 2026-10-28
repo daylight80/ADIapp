@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 import server
 
@@ -87,6 +88,13 @@ def test_a_failure_moving_the_lessons_is_reported(db):
     out = reassign(("stu-1", "instr-b"))
     assert out.moved == 1
     assert any("booked lessons could not be moved" in e for e in out.errors)
+
+
+def test_one_request_takes_at_most_100_pupils():
+    pairs = [{"student_id": f"s{i}", "new_instructor_id": "instr-b"} for i in range(101)]
+    server.ReassignStudentsRequest(assignments=pairs[:100])
+    with pytest.raises(ValidationError):
+        server.ReassignStudentsRequest(assignments=pairs)
 
 
 def test_only_the_school_owner_may_reassign(monkeypatch, db):

@@ -7,6 +7,7 @@ export { default as Activity } from 'lucide-react-native/icons/activity';
 export { default as AlertTriangle } from 'lucide-react-native/icons/triangle-alert';
 export { default as Archive } from 'lucide-react-native/icons/archive';
 export { default as ArrowLeft } from 'lucide-react-native/icons/arrow-left';
+export { default as ArrowLeftRight } from 'lucide-react-native/icons/arrow-left-right';
 export { default as ArrowRight } from 'lucide-react-native/icons/arrow-right';
 export { default as Award } from 'lucide-react-native/icons/award';
 export { default as Ban } from 'lucide-react-native/icons/ban';

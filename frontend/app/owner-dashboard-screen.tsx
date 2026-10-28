@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, TextInput, Modal, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { UserPlus, X, ArrowLeft } from 'lucide-react-native';
+import { UserPlus, X, ArrowLeft, ArrowLeftRight, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '../src/AuthContext';
 import { supabase } from '../src/supabaseClient';
 import { DateField } from '../src/DateTimeFields';
@@ -14,6 +14,7 @@ import {
 } from '../src/supabaseDb';
 import { inviteInstructor } from '../src/useSupabaseData';
 import { formatDate } from '../src/dateFormat';
+import { BOARD_SORTS, sortBoard, boardBarPct, boardMain, boardSub, revenueBars, todayTotals, type BoardSort } from '../src/schoolBoard';
 
 /**
  * Owner Dashboard — redesigned visual direction from the Claude Design
@@ -48,19 +49,20 @@ import { formatDate } from '../src/dateFormat';
 const C = {
   pageBg: '#DCD6CA',
   surface: '#F5F2EC',
-  border: '#E4DED2',
+  border: '#E3DED3',
   divider: '#EDE8DE',
+  inset: '#F1EEE7',
   text: '#0F172A',
-  textMuted: '#6B6356',
-  textMuted2: '#566377',
+  textMuted: '#475569',
+  textMuted2: '#475569',
   primary: '#00539F',
   primaryLight: '#E5F0FA',
   accent: '#FF6B00',
   ink: '#0F172A',
   success: '#047857',
-  warnBg: '#FEF3C7',
-  warnBorder: '#FDE68A',
-  warnText: '#92400E',
+  warnBg: '#FFF0DC',
+  warnBorder: '#FED7AA',
+  warnText: '#8A4400',
   warnChevron: '#B45309',
   warmBg: '#FFF7ED',
   warmBorder: '#FED7AA',
@@ -92,8 +94,6 @@ type Leaderboard = {
   totals_prev_month: { lessons_month: number; revenue_month: number };
   rows: LeaderboardRow[];
 };
-type SortKey = 'revenue_month' | 'lessons_month' | 'students_active' | 'pass_rate';
-
 type TodayLesson = {
   lesson_id: string;
   instructor_id: string;
@@ -119,12 +119,15 @@ type StudentAllocationResponse = {
   rows: StudentAllocationRow[];
 };
 
-const SORT_LABEL: Record<SortKey, string> = {
-  revenue_month: 'Revenue',
-  lessons_month: 'Lessons',
-  students_active: 'Students',
-  pass_rate: 'Pass rate',
-};
+function Heading({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
+  return (
+    <View style={s.headingRow}>
+      <View style={s.headingBar} />
+      <Text style={[s.sectionLabel, { flex: 1 }]}>{children}</Text>
+      {right}
+    </View>
+  );
+}
 
 export default function OwnerDashboardV2Screen() {
   const router = useRouter();
@@ -198,7 +201,7 @@ export default function OwnerDashboardV2Screen() {
   };
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>('revenue_month');
+  const [sortKey, setSortKey] = useState<BoardSort>('revenue_month');
   const [isRevenueHidden, setIsRevenueHidden] = useState(true);
 
   // Student allocations by date range — Franchise tier only. Counts
@@ -293,7 +296,7 @@ export default function OwnerDashboardV2Screen() {
 
   const sortedRows = useMemo(() => {
     if (!leaderboard?.rows) return [];
-    return [...leaderboard.rows].sort((a, b) => (b[sortKey] as number) - (a[sortKey] as number));
+    return sortBoard(leaderboard.rows, sortKey);
   }, [leaderboard, sortKey]);
 
   const issues = useMemo(() => {
@@ -323,11 +326,6 @@ export default function OwnerDashboardV2Screen() {
     return t.slice(0, 5);
   };
 
-  const cycleSort = () => {
-    const keys: SortKey[] = ['revenue_month', 'lessons_month', 'students_active', 'pass_rate'];
-    setSortKey(keys[(keys.indexOf(sortKey) + 1) % keys.length]);
-  };
-
   if (loading) {
     return (
       <SafeAreaView style={s.safe} edges={['top']}>
@@ -345,6 +343,23 @@ export default function OwnerDashboardV2Screen() {
     ? monthTrend(leaderboard.totals.lessons_month, leaderboard.totals_prev_month.lessons_month, (n) => `${n > 0 ? '+' : ''}${n}%`)
     : null;
 
+  const schoolName = schoolDisplayName(user?.tier, leaderboard?.business_name, user?.name, user?.adi_number);
+  const bars = revenueBars(leaderboard?.totals.revenue_month || 0, leaderboard?.totals_prev_month.revenue_month || 0);
+  const todaySummary = todayTotals(today);
+  const showAddInstructor = isOwner && (isFranchise || !!leaderboard?.can_add_instructor);
+  const kpis: { key: string; value: string; label: string; note?: string; warn?: boolean }[] = [
+    { key: 'lessons', value: String(leaderboard?.totals.lessons_month ?? 0), label: 'Lessons this month', note: lessonTrend?.text },
+    { key: 'students', value: String(leaderboard?.totals.students_active ?? 0), label: 'Active pupils' },
+    {
+      key: 'pass', value: `${leaderboard?.totals.pass_rate ?? 0}%`, label: 'Pass rate',
+      note: testKpis.practicalTotal > 0 ? `${testKpis.practicalTotal} practical tests` : undefined,
+    },
+    {
+      key: 'owed', value: maskRevenue(`£${arrears.total_gbp}`, isRevenueHidden), label: 'Money owed',
+      note: arrears.count > 0 ? `${arrears.count} pupil${arrears.count === 1 ? '' : 's'}` : 'Nobody owes anything', warn: arrears.count > 0,
+    },
+  ];
+
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
       <ScrollView
@@ -352,34 +367,35 @@ export default function OwnerDashboardV2Screen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchAll(); }} />}
       >
         {/* Header */}
-        <View style={{ paddingHorizontal: 20, paddingTop: 10 }}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
           {/* This screen has no bottom nav, so it needs its own way back to Home
               (added when Home gained a School dashboard entry, 26 Sept 2026). */}
           <TouchableOpacity style={s.backBtn} onPress={() => router.replace('/home-screen' as any)} testID="btn-back-home">
             <ArrowLeft size={18} color={C.textMuted2} />
             <Text style={s.backBtnText}>Home</Text>
           </TouchableOpacity>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-            <Text style={s.ownerLabel}>School owner</Text>
-            <Text style={s.tierPill}>{leaderboard?.tier || 'starter'}</Text>
-          </View>
-          <Text style={s.schoolName} numberOfLines={2}>
-            {schoolDisplayName(user?.tier, leaderboard?.business_name, user?.name, user?.adi_number)}
-          </Text>
-          <Text style={s.subline}>
-            {leaderboard?.seat_count || 1} instructor{(leaderboard?.seat_count || 1) === 1 ? '' : 's'}
-            {leaderboard?.seat_limit ? ` of ${leaderboard.seat_limit} seats` : ''}
-          </Text>
-          {isOwner && isFranchise && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={s.ownerLabel}>Owner view · {new Date().toLocaleDateString('en-GB', { month: 'long' })}</Text>
+                <Text style={s.tierPill}>{leaderboard?.tier || 'starter'}</Text>
+              </View>
+              <Text style={s.schoolName} numberOfLines={2}>{schoolName}</Text>
+              <Text style={s.subline}>
+                {leaderboard?.seat_count || 1} instructor{(leaderboard?.seat_count || 1) === 1 ? '' : 's'}
+                {leaderboard?.seat_limit ? ` of ${leaderboard.seat_limit} seats` : ''}
+              </Text>
+            </View>
             <TouchableOpacity
-              style={s.addInstructorBtn}
-              onPress={() => setAddInstructorOpen(true)}
-              testID="btn-add-instructor"
+              style={s.avatar}
+              onPress={() => router.push('/profile-screen' as any)}
+              accessibilityRole="button"
+              accessibilityLabel="Account: school owner"
+              testID="v2-owner-avatar"
             >
-              <UserPlus size={16} color="#fff" />
-              <Text style={s.addInstructorBtnText}>Add instructor</Text>
+              <Text style={s.avatarText}>{(schoolName || 'S').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()}</Text>
             </TouchableOpacity>
-          )}
+          </View>
         </View>
 
         {!!error && (
@@ -387,6 +403,59 @@ export default function OwnerDashboardV2Screen() {
             <Text style={s.errorText}>{error}</Text>
           </View>
         )}
+
+        {/* Revenue — sign-style card with this month against last month */}
+        <View style={s.revenueCard} testID="v2-revenue-card">
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 }}>
+            <Text style={s.revenueLabel}>Revenue this month</Text>
+            <View style={{ flex: 1 }} />
+            <TouchableOpacity
+              style={s.eyeBtn}
+              onPress={() => setIsRevenueHidden((v) => !v)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: !isRevenueHidden }}
+              testID="v2-toggle-revenue"
+            >
+              {isRevenueHidden ? <Eye size={20} color="#fff" /> : <EyeOff size={20} color="#fff" />}
+              <Text style={s.eyeBtnText}>{isRevenueHidden ? 'Reveal' : 'Hide'}</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={s.revenueValueRow}>
+            <Text style={s.revenueValue} testID="v2-revenue-value">
+              {maskRevenue(`£${(leaderboard?.totals.revenue_month || 0).toFixed(0)}`, isRevenueHidden)}
+            </Text>
+            {!!revTrend && (
+              <Text style={[s.trendPill, revTrend.direction === 'down' && s.trendPillDown]}>{revTrend.text}</Text>
+            )}
+          </View>
+          <View style={{ paddingHorizontal: 4, gap: 8 }}>
+            <View>
+              <View style={s.revenueBarHead}>
+                <Text style={s.revenueBarLabel}>This month</Text>
+                <Text style={s.revenueBarLabel}>{maskRevenue(`£${(leaderboard?.totals.revenue_month || 0).toFixed(0)}`, isRevenueHidden)}</Text>
+              </View>
+              <View style={s.revenueBarTrack}><View style={[s.revenueBarFill, { width: `${bars.currentPct}%`, backgroundColor: C.accent }]} /></View>
+            </View>
+            <View>
+              <View style={s.revenueBarHead}>
+                <Text style={s.revenueBarLabel}>Last month</Text>
+                <Text style={s.revenueBarLabel}>{maskRevenue(`£${(leaderboard?.totals_prev_month.revenue_month || 0).toFixed(0)}`, isRevenueHidden)}</Text>
+              </View>
+              <View style={s.revenueBarTrack}><View style={[s.revenueBarFill, { width: `${bars.previousPct}%`, backgroundColor: '#fff' }]} /></View>
+            </View>
+          </View>
+        </View>
+
+        {/* Key figures */}
+        <View style={s.kpiGrid}>
+          {kpis.map((k) => (
+            <View key={k.key} style={[s.kpiTile, k.warn && s.kpiTileWarn]} testID={`v2-kpi-${k.key}`}>
+              <Text style={[s.kpiValue, k.warn && { color: C.warnText }]}>{k.value}</Text>
+              <Text style={[s.kpiLabel, k.warn && { color: C.warnText }]}>{k.label}</Text>
+              {!!k.note && <Text style={[s.kpiNote, k.warn && { color: C.warnText }]}>{k.note}</Text>}
+            </View>
+          ))}
+        </View>
 
         {/* Needs attention */}
         {issues.length > 0 ? (
@@ -396,7 +465,7 @@ export default function OwnerDashboardV2Screen() {
               {issues.map((i, idx) => (
                 <TouchableOpacity
                   key={i.key}
-                  style={[s.attentionRow, idx > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(146,64,14,.15)' }]}
+                  style={[s.attentionRow, idx > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(138,68,0,.2)' }]}
                   onPress={i.onPress}
                   testID={`v2-issue-${i.key}`}
                 >
@@ -413,159 +482,43 @@ export default function OwnerDashboardV2Screen() {
           </View>
         )}
 
-        {/* Revenue hero */}
-        <View style={s.revenueCard}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-            <Text style={s.revenueLabel}>Revenue this month</Text>
-            <TouchableOpacity style={s.eyeBtn} onPress={() => setIsRevenueHidden((v) => !v)} testID="v2-toggle-revenue">
-              <Text style={s.eyeBtnText}>{isRevenueHidden ? 'Show' : 'Hide'}</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, marginTop: 9 }}>
-            <Text style={s.revenueValue}>
-              {maskRevenue(`£${(leaderboard?.totals.revenue_month || 0).toFixed(0)}`, isRevenueHidden)}
-            </Text>
-            {!!revTrend && (
-              <Text style={[s.trendText, revTrend.direction === 'down' && { color: '#FCA5A5' }]}>{revTrend.text}</Text>
-            )}
-          </View>
-          <View style={s.revenueStatsRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.heroStatValue}>{leaderboard?.totals.students_active ?? 0}</Text>
-              <Text style={s.heroStatKey}>Active students</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={s.heroStatValue}>{leaderboard?.totals.lessons_month ?? 0}</Text>
-              <Text style={s.heroStatKey}>Lessons</Text>
-              {!!lessonTrend && (
-                <Text style={[s.heroStatTrend, lessonTrend.direction === 'down' && { color: '#FCA5A5' }]}>
-                  {lessonTrend.text}
-                </Text>
-              )}
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={s.heroStatValue}>{leaderboard?.totals.pass_rate ?? 0}%</Text>
-              <Text style={s.heroStatKey}>Pass rate</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Test performance */}
-        <View style={{ marginHorizontal: 20, marginTop: 22 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-            <Text style={s.sectionLabel}>Test performance</Text>
-            <TouchableOpacity onPress={() => router.push('/student-crm-screen' as any)}>
-              <Text style={s.sectionLinkText}>Log a test</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={s.perfCard}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-              <View>
-                <Text style={s.perfPct}>{testKpis.practicalPassRatePct}%</Text>
-                <Text style={s.perfPctLabel}>Practical pass rate</Text>
-              </View>
-              <View style={{ flex: 1, gap: 6 }}>
-                <View style={s.perfBarTrack}>
-                  <View style={[s.perfBarFill, { width: `${testKpis.practicalPassRatePct}%` }]} />
-                </View>
-                <Text style={s.perfSplit}>
-                  {testKpis.practicalPasses} passed · {testKpis.practicalTotal - testKpis.practicalPasses} failed
-                  {' '}of {testKpis.practicalTotal}
-                </Text>
-              </View>
-            </View>
-
-            {recentPracticals.length > 0 && (
-              <View style={{ marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.divider }}>
-                <Text style={s.perfRecentLabel}>Most recent practical results</Text>
-                <View style={{ marginTop: 10, gap: 9 }}>
-                  {recentPracticals.map((t) => (
-                    <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}>
-                      <Text style={[s.resultPill, t.result === 'pass' ? s.resultPass : s.resultFail]}>
-                        {t.result === 'pass' ? 'PASS' : 'FAIL'}
-                      </Text>
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={s.resultTitle} numberOfLines={1}>
-                          {formatDate(`${t.test_date}T00:00:00`)}
-                        </Text>
-                        <Text style={s.resultMeta} numberOfLines={1}>
-                          {t.driving_faults != null ? `${t.driving_faults} driving faults` : 'Practical test'}
-                          {t.serious_faults ? ` · ${t.serious_faults} serious` : ''}
-                        </Text>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            )}
-          </View>
-        </View>
-
-        {/* Quick actions */}
-        <View style={{ flexDirection: 'row', gap: 8, marginHorizontal: 20, marginTop: 20 }}>
-          {[
-            { label: 'Students', route: '/student-crm-screen' },
-            { label: 'Receipts', route: '/receipts-screen' },
-            { label: 'Assignments', route: '/manage-assignments-screen' },
-            { label: 'School', route: '/school-profile-screen' },
-          ].map((a) => (
-            <TouchableOpacity key={a.label} style={s.quickAction} onPress={() => router.push(a.route as any)} testID={`v2-qa-${a.label}`}>
-              <Text style={s.quickActionText}>{a.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Was previously mislabeled — linked to /manage-assignments-screen
-            (student reassignment, not an invite flow at all). The label
-            and can_add_instructor gating (a seat-availability check) both
-            clearly signal this was always meant to open the real
-            add-instructor flow, just wired to the wrong destination.
-            Found 1 Sept 2026 while confirming how Franchise
-            multi-instructor schools work. Also added the missing isOwner
-            check — this button's own form is owner-only, matching the
-            other Add Instructor button elsewhere on this same page. */}
-        {isOwner && leaderboard?.can_add_instructor && (
-          <TouchableOpacity style={s.inviteBtn} onPress={() => setAddInstructorOpen(true)} testID="v2-invite-instructor">
-            <Text style={s.inviteBtnText}>+ Invite instructor</Text>
-          </TouchableOpacity>
-        )}
-
         {/* Leaderboard */}
-        <View style={{ marginHorizontal: 20, marginTop: 22 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-            <Text style={s.sectionLabel}>{isFranchise ? 'Instructor leaderboard' : 'Your performance'}</Text>
-            {isFranchise && (
-              <TouchableOpacity style={s.sortBtn} onPress={cycleSort} testID="v2-sort-leaderboard">
-                <Text style={s.sortBtnText}>{SORT_LABEL[sortKey]} ⇅</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <View style={{ marginTop: 9, gap: 8 }}>
+        <View style={s.card}>
+          <Heading>{isFranchise ? 'Instructor leaderboard' : 'Your performance'}</Heading>
+          {isFranchise && (
+            <View style={s.segment} accessibilityRole="tablist" testID="v2-sort-leaderboard">
+              {BOARD_SORTS.map((o) => (
+                <TouchableOpacity
+                  key={o.key}
+                  style={[s.segmentBtn, sortKey === o.key && s.segmentBtnOn]}
+                  onPress={() => setSortKey(o.key)}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: sortKey === o.key }}
+                  testID={`v2-sort-${o.key}`}
+                >
+                  <Text style={[s.segmentText, sortKey === o.key && { color: '#fff' }]} numberOfLines={1}>{o.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+          <View>
             {sortedRows.map((r, idx) => (
-              <View key={r.instructor_id} style={s.boardCard} testID={`v2-board-${r.instructor_id}`}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}>
-                  {isFranchise && <Text style={s.rankBadge}>{idx + 1}</Text>}
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View key={r.instructor_id} style={s.boardRow} testID={`v2-board-${r.instructor_id}`}>
+                {isFranchise && <Text style={[s.rankBadge, idx === 0 && s.rankBadgeFirst]}>{idx + 1}</Text>}
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 }}>
                       <Text style={s.boardName} numberOfLines={1}>{r.full_name}</Text>
                       {r.is_owner && <Text style={s.ownerBadge}>OWNER</Text>}
                     </View>
-                    <Text style={s.boardAdi}>{r.adi_number ? `ADI ${r.adi_number}` : 'No ADI number'}</Text>
+                    <Text style={s.boardMain}>{boardMain(r, sortKey, isRevenueHidden)}</Text>
                   </View>
-                  <Text style={s.boardRevenue}>{maskRevenue(`£${r.revenue_month.toFixed(0)}`, isRevenueHidden)}</Text>
-                </View>
-                <View style={s.boardStatsRow}>
-                  {[
-                    { k: 'Students', v: String(r.students_active) },
-                    { k: 'Lessons', v: String(r.lessons_month) },
-                    { k: 'Pass rate', v: `${r.pass_rate}%` },
-                  ].map((st) => (
-                    <View key={st.k} style={{ flex: 1, alignItems: 'center' }}>
-                      <Text style={s.boardStatValue}>{st.v}</Text>
-                      <Text style={s.boardStatKey}>{st.k}</Text>
-                    </View>
-                  ))}
+                  <Text style={s.boardSub} numberOfLines={1}>
+                    {r.adi_number ? `ADI ${r.adi_number}` : 'No ADI number'} · {boardSub(r, sortKey, isRevenueHidden)}
+                  </Text>
+                  <View style={s.boardTrack}>
+                    <View style={[s.boardFill, { width: `${boardBarPct(r[sortKey], sortKey, sortedRows)}%`, backgroundColor: idx === 0 && isFranchise ? C.accent : C.primary }]} />
+                  </View>
                 </View>
               </View>
             ))}
@@ -581,63 +534,29 @@ export default function OwnerDashboardV2Screen() {
           )}
         </View>
 
-        {/* Student allocations by date range — Franchise tier only.
-            Counts students per instructor added within the range. */}
+        {/* Today across the school — Franchise tier only, real-time via /api/v2/school/today. */}
         {isFranchise && (
-          <View style={{ marginHorizontal: 20, marginTop: 22 }}>
-            <Text style={s.sectionLabel}>Student allocations</Text>
-            <View style={s.allocRow}>
-              <View style={{ flex: 1 }}>
-                <DateField value={allocFrom} onChange={setAllocFrom} testID="v2-alloc-from" />
-              </View>
-              <Text style={s.allocSep}>to</Text>
-              <View style={{ flex: 1 }}>
-                <DateField value={allocTo} onChange={setAllocTo} testID="v2-alloc-to" />
-              </View>
-              <TouchableOpacity style={s.allocViewBtn} onPress={fetchAllocations} disabled={allocLoading} testID="v2-btn-view-allocations">
-                {allocLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.allocViewBtnText}>View</Text>}
-              </TouchableOpacity>
-            </View>
-
-            {allocError ? (
-              <View style={s.errorCard}><Text style={s.errorText}>{allocError}</Text></View>
-            ) : allocRows && allocRows.length === 0 ? (
-              <View style={s.perfCard}><Text style={s.emptyMuted}>No students added in this date range.</Text></View>
-            ) : allocRows ? (
-              <View style={s.perfCard}>
-                {allocRows.map((r, i) => (
-                  <View key={r.instructor_id} style={[s.allocResultRow, i === allocRows.length - 1 && { borderBottomWidth: 0 }]} testID={`v2-alloc-row-${r.instructor_id}`}>
-                    <Text style={s.allocResultName} numberOfLines={1}>{r.full_name}</Text>
-                    <Text style={s.allocResultCount}>{r.student_count}</Text>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-          </View>
-        )}
-
-        {/* Today across the school — Franchise tier only, real-time via
-            /api/v2/school/today. */}
-        {isFranchise && (
-          <View style={{ marginHorizontal: 20, marginTop: 22, marginBottom: 20 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-              <Text style={s.sectionLabel}>Today across the school</Text>
-              <Text style={s.sectionLinkText}>{today.length} lesson{today.length === 1 ? '' : 's'}</Text>
+          <View style={s.card}>
+            <Heading right={<Text style={s.sectionLinkText}>{today.length} lesson{today.length === 1 ? '' : 's'}</Text>}>Today across the school</Heading>
+            <View style={s.tileRow}>
+              <View style={s.tile}><Text style={s.tileValue}>{todaySummary.lessons}</Text><Text style={s.tileLabel}>lessons today</Text></View>
+              <View style={s.tile}><Text style={s.tileValue}>{todaySummary.instructors}</Text><Text style={s.tileLabel}>instructors working</Text></View>
+              <View style={s.tile}><Text style={s.tileValue}>{todaySummary.done}</Text><Text style={s.tileLabel}>done so far</Text></View>
             </View>
             {today.length === 0 ? (
-              <View style={s.perfCard}>
+              <View>
                 <Text style={s.emptyMuted}>Nothing scheduled today across the school.</Text>
                 <TouchableOpacity style={[s.allocViewBtn, { alignSelf: 'flex-start', marginTop: 9 }]} onPress={() => router.push('/lesson-diary-screen' as any)} testID="v2-btn-empty-go-diary">
                   <Text style={s.allocViewBtnText}>Open diary</Text>
                 </TouchableOpacity>
               </View>
             ) : (
-              <View style={{ marginTop: 9, gap: 8 }}>
+              <View style={{ gap: 2 }}>
                 {today.map((t) => (
-                  <View key={t.lesson_id} style={s.todayCard} testID={`v2-today-${t.lesson_id}`}>
+                  <View key={t.lesson_id} style={s.todayRow} testID={`v2-today-${t.lesson_id}`}>
                     <View style={s.todayTimePill}>
                       <Text style={s.todayTimeText}>{fmtTime(t.start_time)}</Text>
-                      <Text style={s.todayTimeText}>{fmtTime(t.end_time)}</Text>
+                      <Text style={s.todayTimeEnd}>{fmtTime(t.end_time)}</Text>
                     </View>
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={s.todayStudent} numberOfLines={1}>{t.student_name || '(no student)'}</Text>
@@ -657,7 +576,121 @@ export default function OwnerDashboardV2Screen() {
             )}
           </View>
         )}
+
+        {/* Test performance */}
+        <View style={s.card}>
+          <Heading right={
+            <TouchableOpacity onPress={() => router.push('/student-crm-screen' as any)}>
+              <Text style={s.sectionLinkText}>Log a test</Text>
+            </TouchableOpacity>
+          }>Test performance</Heading>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+            <View>
+              <Text style={s.perfPct}>{testKpis.practicalPassRatePct}%</Text>
+              <Text style={s.perfPctLabel}>Practical pass rate</Text>
+            </View>
+            <View style={{ flex: 1, gap: 6 }}>
+              <View style={s.perfBarTrack}>
+                <View style={[s.perfBarFill, { width: `${testKpis.practicalPassRatePct}%` }]} />
+              </View>
+              <Text style={s.perfSplit}>
+                {testKpis.practicalPasses} passed · {testKpis.practicalTotal - testKpis.practicalPasses} failed
+                {' '}of {testKpis.practicalTotal}
+              </Text>
+            </View>
+          </View>
+
+          {recentPracticals.length > 0 && (
+            <View style={{ paddingTop: 12, borderTopWidth: 1, borderTopColor: C.divider }}>
+              <Text style={s.perfRecentLabel}>Most recent practical results</Text>
+              <View style={{ marginTop: 10, gap: 9 }}>
+                {recentPracticals.map((t) => (
+                  <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}>
+                    <Text style={[s.resultPill, t.result === 'pass' ? s.resultPass : s.resultFail]}>
+                      {t.result === 'pass' ? 'PASS' : 'FAIL'}
+                    </Text>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={s.resultTitle} numberOfLines={1}>
+                        {formatDate(`${t.test_date}T00:00:00`)}
+                      </Text>
+                      <Text style={s.resultMeta} numberOfLines={1}>
+                        {t.driving_faults != null ? `${t.driving_faults} driving faults` : 'Practical test'}
+                        {t.serious_faults ? ` · ${t.serious_faults} serious` : ''}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* Student allocations by date range — Franchise tier only. Counts students per instructor added within the range. */}
+        {isFranchise && (
+          <View style={s.card}>
+            <Heading>Student allocations</Heading>
+            <View style={s.allocRow}>
+              <View style={{ flex: 1 }}>
+                <DateField value={allocFrom} onChange={setAllocFrom} testID="v2-alloc-from" />
+              </View>
+              <Text style={s.allocSep}>to</Text>
+              <View style={{ flex: 1 }}>
+                <DateField value={allocTo} onChange={setAllocTo} testID="v2-alloc-to" />
+              </View>
+              <TouchableOpacity style={s.allocViewBtn} onPress={fetchAllocations} disabled={allocLoading} testID="v2-btn-view-allocations">
+                {allocLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.allocViewBtnText}>View</Text>}
+              </TouchableOpacity>
+            </View>
+
+            {allocError ? (
+              <View style={s.errorInline}><Text style={s.errorText}>{allocError}</Text></View>
+            ) : allocRows && allocRows.length === 0 ? (
+              <Text style={s.emptyMuted}>No students added in this date range.</Text>
+            ) : allocRows ? (
+              <View>
+                {allocRows.map((r, i) => (
+                  <View key={r.instructor_id} style={[s.allocResultRow, i === allocRows.length - 1 && { borderBottomWidth: 0 }]} testID={`v2-alloc-row-${r.instructor_id}`}>
+                    <Text style={s.allocResultName} numberOfLines={1}>{r.full_name}</Text>
+                    <Text style={s.allocResultCount}>{r.student_count}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        )}
+
+        {/* Quick actions */}
+        <View style={{ flexDirection: 'row', gap: 8, marginHorizontal: 16, marginTop: 20 }}>
+          {[
+            { label: 'Students', route: '/student-crm-screen' },
+            { label: 'Receipts', route: '/receipts-screen' },
+            { label: 'Assignments', route: '/manage-assignments-screen' },
+            { label: 'School', route: '/school-profile-screen' },
+          ].map((a) => (
+            <TouchableOpacity key={a.label} style={s.quickAction} onPress={() => router.push(a.route as any)} testID={`v2-qa-${a.label}`}>
+              <Text style={s.quickActionText}>{a.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </ScrollView>
+
+      {/* Owner actions, always in reach: the design's bottom bar. Add instructor opens the same form as before. */}
+      {(showAddInstructor || isFranchise) && (
+        <View style={s.dock} testID="v2-owner-dock">
+          {showAddInstructor && (
+            <TouchableOpacity style={s.dockPrimary} onPress={() => setAddInstructorOpen(true)} accessibilityRole="button" testID="btn-add-instructor">
+              <UserPlus size={22} color={C.ink} />
+              <Text style={s.dockPrimaryText}>Add instructor</Text>
+            </TouchableOpacity>
+          )}
+          {isFranchise && (
+            <TouchableOpacity style={s.dockOutline} onPress={() => router.push('/manage-assignments-screen' as any)} accessibilityRole="button" testID="v2-dock-reassign">
+              <ArrowLeftRight size={22} color={C.primary} />
+              <Text style={s.dockOutlineText}>Reassign pupils</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
 
       {/* Add instructor form — owner-only (25 Aug 2026). Fields per Grant's
           exact list: full name, ADI/PDI number, mobile, email, address,
@@ -763,46 +796,55 @@ const s = StyleSheet.create({
 
   backBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 6, marginBottom: 6 },
   backBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 14, color: C.textMuted2 },
-  ownerLabel: { fontFamily: 'Archivo_800ExtraBold', fontSize: 11, letterSpacing: 1.8, textTransform: 'uppercase', color: C.accent },
+  ownerLabel: { fontFamily: 'Barlow_600SemiBold', fontSize: 13, letterSpacing: 0.9, textTransform: 'uppercase', color: C.textMuted },
   tierPill: { fontFamily: 'Barlow_700Bold', fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: C.primary, backgroundColor: C.primaryLight, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, overflow: 'hidden' },
-  schoolName: { fontFamily: 'Archivo_800ExtraBold', fontSize: 22, letterSpacing: -0.45, color: C.text, marginTop: 5 },
-  subline: { fontFamily: 'Barlow_500Medium', fontSize: 12.5, color: C.textMuted2, marginTop: 2 },
+  schoolName: { fontFamily: 'Archivo_800ExtraBold', fontSize: 24, letterSpacing: -0.3, color: C.text, marginTop: 3 },
+  subline: { fontFamily: 'Barlow_500Medium', fontSize: 14, color: C.textMuted2, marginTop: 2 },
+  avatar: { width: 44, height: 44, borderRadius: 22, borderWidth: 2, borderColor: C.primary, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontFamily: 'Archivo_800ExtraBold', fontSize: 14, color: C.primary },
 
-  errorCard: { marginHorizontal: 20, marginTop: 14, backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 14, padding: 13 },
+  errorCard: { marginHorizontal: 16, marginTop: 14, backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 14, padding: 13 },
+  errorInline: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 14, padding: 13 },
   errorText: { fontFamily: 'Barlow_600SemiBold', fontSize: 13, color: '#B91C1C' },
 
-  attentionCard: { marginHorizontal: 20, marginTop: 14, backgroundColor: C.warnBg, borderWidth: 1, borderColor: C.warnBorder, borderRadius: 16, padding: 13 },
+  attentionCard: { marginHorizontal: 16, marginTop: 16, backgroundColor: C.warnBg, borderWidth: 1, borderColor: C.warnBorder, borderRadius: 16, padding: 13 },
   attentionLabel: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1.5, textTransform: 'uppercase', color: C.warnText },
   attentionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9 },
   attentionRowText: { flex: 1, fontFamily: 'Barlow_600SemiBold', fontSize: 13, color: C.warnText },
   attentionChevron: { fontFamily: 'Barlow_700Bold', fontSize: 15, color: C.warnChevron },
 
-  allClearRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 20, marginTop: 14 },
+  allClearRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 16 },
   allClearTick: { width: 18, height: 18, borderRadius: 999, backgroundColor: '#10B981', alignItems: 'center', justifyContent: 'center' },
   allClearTickText: { color: '#fff', fontSize: 10, fontFamily: 'Barlow_700Bold' },
   allClearText: { fontFamily: 'Barlow_500Medium', fontSize: 13, color: C.textMuted2, flex: 1 },
 
-  revenueCard: { marginHorizontal: 20, marginTop: 14, backgroundColor: C.ink, borderRadius: 20, padding: 17 },
-  revenueLabel: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1.7, textTransform: 'uppercase', color: 'rgba(255,255,255,.5)' },
-  eyeBtn: { paddingHorizontal: 11, paddingVertical: 5, borderRadius: 8, backgroundColor: 'rgba(255,255,255,.14)' },
-  eyeBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 11.5, color: '#fff' },
-  revenueValue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 40, letterSpacing: -1.3, color: '#fff' },
-  trendText: { fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: '#6EE7B7', paddingBottom: 6 },
-  revenueStatsRow: { flexDirection: 'row', marginTop: 15, paddingTop: 14, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,.16)' },
-  heroStatValue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 22, letterSpacing: -0.4, color: '#fff' },
-  heroStatKey: { fontFamily: 'Barlow_600SemiBold', fontSize: 11, color: 'rgba(255,255,255,.5)', marginTop: 2 },
-  heroStatTrend: { fontFamily: 'Barlow_600SemiBold', fontSize: 10.5, color: '#6EE7B7', marginTop: 2 },
+  // Sign-style card: blue with an orange pill, as in the design.
+  revenueCard: { marginHorizontal: 16, marginTop: 20, backgroundColor: C.primary, borderWidth: 2, borderColor: C.primary, borderRadius: 20, paddingTop: 16, paddingHorizontal: 12, paddingBottom: 16, gap: 14 },
+  revenueLabel: { fontFamily: 'Archivo_800ExtraBold', fontSize: 12, letterSpacing: 1.2, textTransform: 'uppercase', color: '#fff' },
+  eyeBtn: { minHeight: 44, paddingHorizontal: 14, borderRadius: 12, borderWidth: 2, borderColor: '#fff', flexDirection: 'row', alignItems: 'center', gap: 8 },
+  eyeBtnText: { fontFamily: 'Archivo_800ExtraBold', fontSize: 14, color: '#fff' },
+  revenueValueRow: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', gap: 10, paddingHorizontal: 4 },
+  revenueValue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 40, color: '#fff' },
+  trendPill: { fontFamily: 'Archivo_800ExtraBold', fontSize: 13, color: C.ink, backgroundColor: C.accent, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6, overflow: 'hidden' },
+  trendPillDown: { backgroundColor: '#FECACA' },
+  revenueBarHead: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  revenueBarLabel: { fontFamily: 'Barlow_600SemiBold', fontSize: 14, color: '#fff' },
+  revenueBarTrack: { height: 14, borderRadius: 7, backgroundColor: 'rgba(255,255,255,.2)', overflow: 'hidden' },
+  revenueBarFill: { height: 14, borderRadius: 7 },
 
-  sectionLabel: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1.8, textTransform: 'uppercase', color: C.textMuted },
-  // Fixed a real, silent duplicate-StyleSheet-key bug (1 Sept 2026): this
-  // was also named `linkText`, identical to the muted, informational one
-  // further down (for the invite-link display text) — JS's last-key-wins
-  // behavior meant this one was dead, and the two tappable section links
-  // below ("Log a test", "N lessons") were silently rendering in muted
-  // grey instead of the intended primary-colored, link-like text.
+  kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginHorizontal: 16, marginTop: 20 },
+  kpiTile: { flexBasis: '47%', flexGrow: 1, minHeight: 96, padding: 14, borderRadius: 16, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border },
+  kpiTileWarn: { backgroundColor: C.warnBg, borderColor: C.warnBorder },
+  kpiValue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 30, color: C.text },
+  kpiLabel: { fontFamily: 'Barlow_700Bold', fontSize: 15, color: C.text, marginTop: 6 },
+  kpiNote: { fontFamily: 'Barlow_500Medium', fontSize: 14, color: C.textMuted, marginTop: 2 },
+
+  card: { marginHorizontal: 16, marginTop: 20, padding: 16, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 20, gap: 12 },
+  headingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headingBar: { width: 18, height: 4, borderRadius: 2, backgroundColor: C.accent },
+  sectionLabel: { fontFamily: 'Archivo_800ExtraBold', fontSize: 13, letterSpacing: 1.3, textTransform: 'uppercase', color: C.textMuted },
   sectionLinkText: { fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: C.primary },
 
-  perfCard: { marginTop: 9, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 18, padding: 15 },
   perfPct: { fontFamily: 'Archivo_800ExtraBold', fontSize: 42, letterSpacing: -1.3, color: C.success },
   perfPctLabel: { fontFamily: 'Barlow_700Bold', fontSize: 9.5, letterSpacing: 1.3, textTransform: 'uppercase', color: C.textMuted, marginTop: 1 },
   perfBarTrack: { height: 8, borderRadius: 999, backgroundColor: C.divider, overflow: 'hidden' },
@@ -817,21 +859,20 @@ const s = StyleSheet.create({
 
   quickAction: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 12 },
   quickActionText: { fontFamily: 'Barlow_700Bold', fontSize: 12.5, color: C.text },
-  inviteBtn: { marginHorizontal: 20, marginTop: 10, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(0,83,159,.25)', borderRadius: 12, backgroundColor: C.primaryLight },
-  inviteBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: C.primary },
+  segment: { flexDirection: 'row', gap: 4, backgroundColor: C.inset, borderRadius: 14, padding: 4 },
+  segmentBtn: { flex: 1, minHeight: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2 },
+  segmentBtnOn: { backgroundColor: C.primary },
+  segmentText: { fontFamily: 'Archivo_800ExtraBold', fontSize: 13, color: C.text },
 
-  sortBtn: { height: 32, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border, borderRadius: 9, backgroundColor: '#fff' },
-  sortBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 12, color: C.text },
-
-  boardCard: { backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 },
-  rankBadge: { fontFamily: 'Archivo_800ExtraBold', fontSize: 15, color: C.textMuted, width: 20 },
-  boardName: { fontFamily: 'Archivo_700Bold', fontSize: 15.5, color: C.text, flexShrink: 1 },
-  ownerBadge: { fontFamily: 'Archivo_800ExtraBold', fontSize: 8.5, letterSpacing: 1.2, color: '#fff', backgroundColor: C.accent, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4, overflow: 'hidden' },
-  boardAdi: { fontFamily: 'Barlow_500Medium', fontSize: 11.5, color: C.textMuted2, marginTop: 2 },
-  boardRevenue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 17, color: C.text },
-  boardStatsRow: { flexDirection: 'row', marginTop: 11, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.divider },
-  boardStatValue: { fontFamily: 'Archivo_700Bold', fontSize: 17, color: C.text },
-  boardStatKey: { fontFamily: 'Barlow_600SemiBold', fontSize: 11, color: C.textMuted2, marginTop: 1 },
+  boardRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 68, paddingVertical: 8 },
+  rankBadge: { width: 32, height: 32, borderRadius: 16, overflow: 'hidden', textAlign: 'center', lineHeight: 32, fontFamily: 'Archivo_800ExtraBold', fontSize: 15, color: C.primary, backgroundColor: C.primaryLight },
+  rankBadgeFirst: { color: C.ink, backgroundColor: C.accent },
+  boardName: { fontFamily: 'Archivo_800ExtraBold', fontSize: 17, color: C.text, flexShrink: 1 },
+  ownerBadge: { fontFamily: 'Archivo_800ExtraBold', fontSize: 9, letterSpacing: 1.2, color: C.ink, backgroundColor: C.accent, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4, overflow: 'hidden' },
+  boardMain: { fontFamily: 'Archivo_800ExtraBold', fontSize: 20, color: C.text },
+  boardSub: { fontFamily: 'Barlow_500Medium', fontSize: 14, color: C.textMuted, marginTop: 1 },
+  boardTrack: { height: 8, borderRadius: 4, backgroundColor: C.inset, marginTop: 6, overflow: 'hidden' },
+  boardFill: { height: 8, borderRadius: 4 },
 
   upsellCard: { marginTop: 10, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.warmBg, borderWidth: 1, borderColor: C.warmBorder, borderRadius: 14, padding: 13 },
   upsellText: { flex: 1, fontFamily: 'Barlow_400Regular', fontSize: 12.5, lineHeight: 18, color: C.warnText },
@@ -847,15 +888,24 @@ const s = StyleSheet.create({
   allocResultName: { fontFamily: 'Barlow_600SemiBold', fontSize: 14, color: C.text, flex: 1 },
   allocResultCount: { fontFamily: 'Archivo_700Bold', fontSize: 17, color: C.text },
 
-  todayCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 13 },
-  todayTimePill: { alignItems: 'center', paddingHorizontal: 9 },
-  todayTimeText: { fontFamily: 'Barlow_700Bold', fontSize: 12, color: C.text },
-  todayStudent: { fontFamily: 'Archivo_700Bold', fontSize: 15, color: C.text },
-  todaySub: { fontFamily: 'Barlow_500Medium', fontSize: 12, color: C.textMuted2, marginTop: 1 },
-  todayStatus: { fontFamily: 'Barlow_700Bold', fontSize: 10, letterSpacing: 0.8, textTransform: 'uppercase', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, overflow: 'hidden' },
+  tileRow: { flexDirection: 'row', gap: 8 },
+  tile: { flex: 1, backgroundColor: C.inset, borderRadius: 12, padding: 10 },
+  tileValue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 24, color: C.text },
+  tileLabel: { fontFamily: 'Barlow_500Medium', fontSize: 13, color: C.textMuted, marginTop: 4 },
+  todayRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 60, paddingVertical: 8 },
+  todayTimePill: { alignItems: 'center', width: 46 },
+  todayTimeText: { fontFamily: 'Archivo_800ExtraBold', fontSize: 14, color: C.text },
+  todayTimeEnd: { fontFamily: 'Barlow_500Medium', fontSize: 12, color: C.textMuted },
+  todayStudent: { fontFamily: 'Barlow_700Bold', fontSize: 16, color: C.text },
+  todaySub: { fontFamily: 'Barlow_500Medium', fontSize: 14, color: C.textMuted, marginTop: 1 },
+  todayStatus: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 0.8, textTransform: 'uppercase', paddingHorizontal: 8, paddingVertical: 5, borderRadius: 6, overflow: 'hidden' },
 
-  addInstructorBtn: { flexDirection: 'row', alignItems: 'center', gap: 7, alignSelf: 'flex-start', marginTop: 12, height: 42, paddingHorizontal: 16, borderRadius: 12, backgroundColor: C.primary },
-  addInstructorBtnText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: '#fff' },
+  // The design's bottom bar of owner actions.
+  dock: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border },
+  dockPrimary: { flex: 1, minHeight: 56, borderRadius: 14, backgroundColor: C.accent, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  dockPrimaryText: { fontFamily: 'Archivo_800ExtraBold', fontSize: 15, color: C.ink },
+  dockOutline: { flex: 1, minHeight: 56, borderRadius: 14, borderWidth: 2, borderColor: C.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  dockOutlineText: { fontFamily: 'Archivo_800ExtraBold', fontSize: 15, color: C.primary },
 
   formBackdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.55)', justifyContent: 'flex-end' },
   formCard: { backgroundColor: '#fff', borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 20, maxHeight: '86%' },

@@ -1,8 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Check, X, ArrowLeft, RotateCcw, Home, History } from 'lucide-react-native';
+import { Check, X, ArrowLeft, RotateCcw, Home, History, MapPin } from 'lucide-react-native';
+import { listRoutes } from '../src/routeRecorder';
 import { theme } from '../src/theme';
 import { faultedRows } from '../src/dl25Items';
 import { Card, Badge } from '../src/ui';
@@ -21,6 +22,15 @@ export default function Dl25ReportScreen() {
   // shown here lines up with whatever attempt was just saved.
   const instructorStudentId = (params.studentId as string) || '';
   const fromRecorder = !!instructorStudentId && params.from === 'recorder';
+  // The recording this test was run during. Recordings live on one phone, so the link only shows where it is found.
+  const routeId = typeof params.routeId === 'string' ? params.routeId : '';
+  const [hasRoute, setHasRoute] = useState(false);
+  useEffect(() => {
+    if (!routeId) { setHasRoute(false); return; }
+    let alive = true;
+    listRoutes().then((all) => { if (alive) setHasRoute(all.some((r) => r.id === routeId)); }).catch(() => {});
+    return () => { alive = false; };
+  }, [routeId]);
   const { student: instructorStudent } = useStudent(instructorStudentId || undefined);
   const { student: sbStudentByAuth } = useStudentByAuthId(instructorStudentId ? undefined : user?.id);
   const { student: sbStudentByEmail } = useStudentByEmail(
@@ -162,6 +172,16 @@ export default function Dl25ReportScreen() {
 
         {/* Actions */}
         <View style={{ gap: 10, marginTop: 4 }}>
+          {hasRoute && (
+            <TouchableOpacity
+              style={[styles.btnPrimary, { backgroundColor: theme.colors.primary }]}
+              onPress={() => router.push({ pathname: '/route-recorder-screen', params: { openRoute: routeId } } as any)}
+              testID="btn-view-recording"
+            >
+              <MapPin size={18} color="#fff" />
+              <Text style={styles.btnText}>View recording</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={styles.btnPrimary}
             onPress={() => router.replace(

@@ -30,6 +30,7 @@ export default function Dl25MockTestScreen() {
   // same as theory-test-screen.
   const instructorStudentId = (params.studentId as string) || '';
   const fromRecorder = !!instructorStudentId && params.from === 'recorder';
+  const routeId = fromRecorder && typeof params.routeId === 'string' ? params.routeId : '';
   const { student: instructorStudent } = useStudent(instructorStudentId || undefined);
   const { student: sbStudentByAuth } = useStudentByAuthId(instructorStudentId ? undefined : user?.id);
   const { student: sbStudentByEmail } = useStudentByEmail(
@@ -76,6 +77,7 @@ export default function Dl25MockTestScreen() {
           dangerous_faults: totals.dangerous,
           passed,
           category_breakdown: faults,
+          ...(routeId ? { route_id: routeId } : {}),
         });
         if (passed) void awardMockPassBadge(supabaseStudent.id);
       } catch (e: any) {
@@ -102,6 +104,7 @@ export default function Dl25MockTestScreen() {
         // student (and its Retake button comes back here with it too).
         ...(instructorStudentId ? { studentId: instructorStudentId } : {}),
         ...(fromRecorder ? { from: 'recorder' } : {}),
+        ...(routeId ? { routeId } : {}),
       },
     } as any);
   };

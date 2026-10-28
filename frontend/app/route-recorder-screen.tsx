@@ -22,6 +22,7 @@ import {
 } from '../src/routeRecorder';
 import { openRouteInMaps, shareRouteGpx } from '../src/routeShare';
 import { useKeyboardHeight } from '../src/useKeyboardHeight';
+import { listMockTestAttemptsForRoute, type MockTestAttempt } from '../src/supabaseDb';
 import { InLessonTopicsCard } from '../src/InLessonTopicsCard';
 import { useAuth } from '../src/AuthContext';
 import { isPaidTier } from '../src/tiers';
@@ -41,6 +42,10 @@ import { formatDate, formatDateTime } from '../src/dateFormat';
  * foreground tracking in this MVP. Use `expo-keep-awake` to prevent the
  * screen from dimming during a recording session.
  */
+const newRouteId = (): string => (typeof globalThis !== 'undefined' && (globalThis as any).crypto?.randomUUID)
+  ? (globalThis as any).crypto.randomUUID()
+  : `r-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
 export default function RouteRecorderScreen() {
   const router = useRouter();
   const { user } = useAuth();
@@ -61,7 +66,7 @@ export default function RouteRecorderScreen() {
   // Present only when launched from a specific lesson's LessonToolsSheet
   // ("Record route for this lesson") — absent when opened generically from
   // the diary header, in which case the saved route stays unlinked as before.
-  const params = useLocalSearchParams<{ lessonId?: string; studentId?: string; studentName?: string; autostart?: string }>();
+  const params = useLocalSearchParams<{ lessonId?: string; studentId?: string; studentName?: string; autostart?: string; openRoute?: string }>();
   const linkedLessonId = typeof params.lessonId === 'string' ? params.lessonId : undefined;
   const linkedStudentId = typeof params.studentId === 'string' ? params.studentId : undefined;
   const linkedStudentName = typeof params.studentName === 'string' ? params.studentName : undefined;
@@ -79,6 +84,7 @@ export default function RouteRecorderScreen() {
   // Persisted across re-renders without triggering them. The GPS callback reads these refs, not state, so
   // it always sees the latest points and pause state.
   const startedAtRef = useRef<number>(0);
+  const routeIdRef = useRef('');
   const bankedMsRef = useRef(0); // recording time before the current run
   const runStartedAtRef = useRef<number | null>(null); // when the current run began; null while paused
   const pointsRef = useRef<RoutePoint[]>([]);
@@ -109,6 +115,15 @@ export default function RouteRecorderScreen() {
   }, []);
 
   useFocusEffect(useCallback(() => { reloadRoutes(); }, [reloadRoutes]));
+
+  // Arrived from a mock test report's "View recording": open that route's details once the list has loaded.
+  const openedRouteRef = useRef('');
+  useEffect(() => {
+    const id = typeof params.openRoute === 'string' ? params.openRoute : '';
+    if (!id || openedRouteRef.current === id) return;
+    const r = saved.find((x) => x.id === id);
+    if (r) { openedRouteRef.current = id; setDetail(r); }
+  }, [params.openRoute, saved]);
 
   // ---- Helpers ----
   const addPoint = (raw: Location.LocationObject) => {
@@ -194,6 +209,7 @@ export default function RouteRecorderScreen() {
       setPermissionStatus('granted');
 
       // Reset state
+      routeIdRef.current = newRouteId(); // fixed now, so a mock test run during the recording can link to it
       pointsRef.current = [];
       distanceRef.current = 0;
       bankedMsRef.current = 0;
@@ -253,11 +269,8 @@ export default function RouteRecorderScreen() {
       const defaultName = linkedStudentName
         ? `${linkedStudentName} · ${new Date(startedAtRef.current).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${new Date(startedAtRef.current).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
         : `Lesson · ${new Date(startedAtRef.current).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${new Date(startedAtRef.current).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
-      const id = (typeof globalThis !== 'undefined' && (globalThis as any).crypto?.randomUUID)
-        ? (globalThis as any).crypto.randomUUID()
-        : `r-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const route: SavedRoute = {
-        id,
+        id: routeIdRef.current,
         name: defaultName,
         startedAt: new Date(startedAtRef.current).toISOString(),
         endedAt: new Date().toISOString(),
@@ -397,7 +410,7 @@ export default function RouteRecorderScreen() {
               {!!linkedStudentId && (
                 <TouchableOpacity
                   style={styles.mockBtn}
-                  onPress={() => router.push({ pathname: '/dl25-mock-test-screen', params: { studentId: linkedStudentId, from: 'recorder' } } as any)}
+                  onPress={() => router.push({ pathname: '/dl25-mock-test-screen', params: { studentId: linkedStudentId, from: 'recorder', routeId: routeIdRef.current } } as any)}
                   testID="btn-start-mock-test"
                 >
                   <Flag size={20} color="#fff" />
@@ -554,6 +567,15 @@ function RouteDetail({
   const [notes, setNotes] = useState(route.notes || '');
   const [positives, setPositives] = useState(route.positives || '');
   const [negatives, setNegatives] = useState(route.negatives || '');
+  const router = useRouter();
+  // Mock tests run during this recording. A failed lookup just leaves them out.
+  const [mockTests, setMockTests] = useState<MockTestAttempt[]>([]);
+  useEffect(() => {
+    let alive = true;
+    setMockTests([]);
+    listMockTestAttemptsForRoute(route.id).then((a) => { if (alive) setMockTests(a); }).catch(() => {});
+    return () => { alive = false; };
+  }, [route.id]);
   const saveFeedback = (p: string, n: string) => {
     if (p.trim() !== (route.positives || '') || n.trim() !== (route.negatives || '')) onFeedbackSaved({ positives: p, negatives: n });
   };
@@ -623,6 +645,27 @@ function RouteDetail({
       <Text style={styles.helperText}>
         Recorded on {formatDateTime(route.startedAt)}
       </Text>
+
+      {mockTests.map((m) => (
+        <TouchableOpacity
+          key={m.id}
+          style={styles.actionBtn}
+          onPress={() => router.push({
+            pathname: '/dl25-report-screen',
+            params: {
+              d: String(m.driving_faults), s: String(m.serious_faults), x: String(m.dangerous_faults),
+              passed: m.passed ? '1' : '0', breakdown: JSON.stringify(m.category_breakdown),
+              routeId: route.id, ...(route.studentId ? { studentId: route.studentId } : {}),
+            },
+          } as any)}
+          testID={`route-mock-${m.id}`}
+        >
+          <Flag size={18} color={theme.colors.accent} />
+          <Text style={styles.actionText}>
+            Mock test · {m.passed ? 'PASS' : 'FAIL'} · {m.driving_faults} driving, {m.serious_faults} serious, {m.dangerous_faults} dangerous
+          </Text>
+        </TouchableOpacity>
+      ))}
 
       <View style={{ height: 1, backgroundColor: theme.colors.border, marginVertical: 4 }} />
 

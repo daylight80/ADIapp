@@ -2848,6 +2848,8 @@ export type MockTestAttempt = {
   /** An AI-written summary the instructor chose to attach (migration 074); the pupil sees it on their home screen. */
   ai_debrief?: string | null;
   ai_debrief_generated_at?: string | null;
+  /** The Route Recorder recording this test was run during (migration 093); recordings live on the instructor's phone. */
+  route_id?: string | null;
 };
 
 function isMissingMockTestAttemptsTable(msg: string): boolean {
@@ -2861,6 +2863,7 @@ export async function addMockTestAttempt(input: {
   dangerous_faults: number;
   passed: boolean;
   category_breakdown: MockTestCategoryBreakdown;
+  route_id?: string;
 }): Promise<MockTestAttempt> {
   const { data, error } = await supabase
     .from('mock_test_attempts')
@@ -2874,6 +2877,17 @@ export async function addMockTestAttempt(input: {
     throw error;
   }
   return data as MockTestAttempt;
+}
+
+/** The mock tests run during one recording, newest first. */
+export async function listMockTestAttemptsForRoute(routeId: string): Promise<MockTestAttempt[]> {
+  const { data, error } = await supabase
+    .from('mock_test_attempts')
+    .select('*')
+    .eq('route_id', routeId)
+    .order('taken_at', { ascending: false });
+  if (error) throw error;
+  return (data || []) as MockTestAttempt[];
 }
 
 export async function listMockTestAttempts(studentId: string): Promise<MockTestAttempt[]> {

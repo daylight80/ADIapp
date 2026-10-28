@@ -60,11 +60,12 @@ describe('DL25 mock test screen', () => {
   });
 
   it('run from the Route Recorder: saves a copy, then replaces itself with the report so back lands on the recording', async () => {
-    mockParams = { studentId: 'stu-1', from: 'recorder' };
+    mockParams = { studentId: 'stu-1', from: 'recorder', routeId: 'route-9' };
     await render(<Dl25MockTestScreen />);
     await fireEvent.press(screen.getByTestId('btn-finish-test'));
     await waitFor(() => expect(mockAdd).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(expect.objectContaining({ pathname: '/dl25-report-screen', params: expect.objectContaining({ from: 'recorder', studentId: 'stu-1' }) })));
+    expect(mockAdd.mock.calls[0][0].route_id).toBe('route-9'); // linked to the recording
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(expect.objectContaining({ pathname: '/dl25-report-screen', params: expect.objectContaining({ from: 'recorder', studentId: 'stu-1', routeId: 'route-9' }) })));
     expect(mockPush).not.toHaveBeenCalled();
   });
 

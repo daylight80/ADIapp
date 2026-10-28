@@ -3,6 +3,7 @@ import asyncio
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 import server
 
@@ -113,6 +114,8 @@ def test_allocations_refuse_bad_or_backwards_dates(db, a, b):
 
 
 # --------------------------------------------------------------------------- free-slot alert
+S1 = "11111111-1111-4111-8111-111111111111"
+S2 = "22222222-2222-4222-8222-222222222222"
 LESSON = {"id": "les-1", "instructor_id": "instr-1", "start_time": "2026-10-30T10:00:00", "end_time": "2026-10-30T11:00:00", "topic": "x", "instructors": {"school_id": "school-1"}}
 
 
@@ -138,7 +141,7 @@ def test_a_picked_list_is_limited_to_the_lessons_own_school_and_only_those_with_
     db["tables"]["lessons"] = [LESSON]
     db["tables"]["students"] = [{"id": "s1", "auth_user_id": "u1", "full_name": "Ben"}, {"id": "s2", "auth_user_id": "u2", "full_name": "Priya"}]
     db["tables"]["push_tokens"] = [{"auth_user_id": "u1", "expo_token": "ExponentPushToken[a]"}]
-    out = alert(TEACHER, student_ids=["s1", "s2"])
+    out = alert(TEACHER, student_ids=[S1, S2])
     students_call = next(p for t, p in db["gets"] if t == "students")
     assert students_call["school_id"] == "eq.school-1"
     assert out.sent == 1 and out.skipped == 1
@@ -148,6 +151,35 @@ def test_a_picked_list_is_limited_to_the_lessons_own_school_and_only_those_with_
 def test_nobody_with_a_push_token_means_nothing_is_sent(db):
     db["tables"]["lessons"] = [LESSON]
     db["tables"]["students"] = [{"id": "s1", "auth_user_id": "u1", "full_name": "Ben"}]
-    out = alert(OWNER, student_ids=["s1"])
+    out = alert(OWNER, student_ids=[S1])
     assert out.sent == 0
     assert db["pushes"] == []
+
+
+def test_a_teacher_who_is_not_the_owner_reaches_only_their_own_pupils(db):
+    db["tables"]["lessons"] = [LESSON]
+    alert(TEACHER, student_ids=[S1])
+    students_call = next(p for t, p in db["gets"] if t == "students")
+    assert students_call["instructor_id"] == "eq.instr-1"
+
+
+def test_the_owner_is_not_limited_to_one_instructors_pupils(db):
+    db["tables"]["lessons"] = [LESSON]
+    alert(OWNER, student_ids=[S1])
+    students_call = next(p for t, p in db["gets"] if t == "students")
+    assert "instructor_id" not in students_call
+
+
+def test_the_active_pupils_added_by_the_plus_active_mode_are_also_own_pupils_only_for_a_teacher(db):
+    db["tables"]["lessons"] = [LESSON]
+    alert(TEACHER, target="longest_waiting_plus_active")
+    active_call = next(p for t, p in db["gets"] if t == "students")
+    assert active_call["status"] == "eq.Active" and active_call["instructor_id"] == "eq.instr-1"
+
+
+def test_the_picked_list_is_capped_and_must_be_real_ids():
+    server.GapBroadcastRequest(lesson_id="l", student_ids=[S1] * 100)
+    with pytest.raises(ValidationError):
+        server.GapBroadcastRequest(lesson_id="l", student_ids=[S1] * 101)
+    with pytest.raises(ValidationError):
+        server.GapBroadcastRequest(lesson_id="l", student_ids=["x),school_id.neq.1"])

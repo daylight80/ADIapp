@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, ActivityIndicator, Switch } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, ActivityIndicator, Linking, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/AuthContext';
@@ -16,9 +16,12 @@ import { lessonToRate } from '../src/pupilConfidence';
 import { isPaidTier, tierById } from '../src/tiers';
 import {
   useStudentByAuthId, useStudentByEmail, useCompetencies, useLessonsForStudent,
-  useBadges, useReflectiveLogs, useMockTestAttempts, createReflectiveLog,
+  useBadges, useReflectiveLogs, useMockTestAttempts, createReflectiveLog, useBlockBookings,
 } from '../src/useSupabaseData';
-import { DVSA_SYLLABUS, rateLessonConfidence } from '../src/supabaseDb';
+import { DVSA_SYLLABUS, rateLessonConfidence, getMyInstructorCard } from '../src/supabaseDb';
+import { smsUrl, type InstructorCardData } from '../src/instructorCard';
+import { prepaidHoursLeft, fmtHours, testDateLabel, skillBar } from '../src/pupilProgress';
+import { MAX_LEVEL } from '../src/competencyLevels';
 import { agreementStatus } from '../src/pupilAgreement';
 import { nextUpcomingLesson, describeLessonWhen, mostRecentCompletedLesson } from '../src/nextLesson';
 import { formatDate } from '../src/dateFormat';
@@ -59,10 +62,11 @@ import { testSummary } from '../src/diary/testBooking';
 const C = {
   pageBg: '#DCD6CA',
   surface: '#F5F2EC',
-  border: '#E4DED2',
+  border: '#E3DED3',
   text: '#0F172A',
-  textMuted: '#6B6356',
-  textMuted2: '#566377',
+  textMuted: '#475569',
+  textMuted2: '#475569',
+  inset: '#F1EEE7',
   primary: '#00539F',
   accent: '#FF6B00',
   ink: '#0F172A',
@@ -75,8 +79,14 @@ const MANOEUVRE_KEYS = ['parallel_park', 'bay_park_forward', 'bay_park_reverse',
 const MIN_LESSONS = 25;
 const READY_LEVEL = 4;
 
-function initialsOf(name: string): string {
-  return name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+function Heading({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
+  return (
+    <View style={s.headingRow}>
+      <View style={s.headingBar} />
+      <Text style={[s.sectionLabel, { flex: 1 }]}>{children}</Text>
+      {right}
+    </View>
+  );
 }
 
 export default function StudentAppV2Screen() {
@@ -109,6 +119,17 @@ export default function StudentAppV2Screen() {
   const instructorSummaries = usePupilSummaries(!!supabaseStudent);
   const nextGoal = usePupilGoal(!!supabaseStudent);
   const { attempts: mockTestAttempts } = useMockTestAttempts(supabaseStudent?.id);
+  const { bookings } = useBlockBookings(supabaseStudent?.id);
+
+  // The pupil's own instructor, for the Message button on the next-lesson card. A pupil cannot read the instructors
+  // table, so this comes from my_instructor_card(); no card just means no button.
+  const [instructorCard, setInstructorCard] = useState<InstructorCardData | null>(null);
+  useEffect(() => {
+    if (!supabaseStudent?.id) return;
+    let on = true;
+    getMyInstructorCard().then((c) => { if (on) setInstructorCard(c); }).catch(() => {});
+    return () => { on = false; };
+  }, [supabaseStudent?.id]);
 
   const [reflectOpen, setReflectOpen] = useState(false);
   const [moodEmoji, setMoodEmoji] = useState<string | null>(null);
@@ -207,12 +228,9 @@ export default function StudentAppV2Screen() {
     <SafeAreaView style={s.safe} edges={['top']}>
       <View style={s.surface}>
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 100 }}>
-          <View style={{ paddingHorizontal: 20, paddingTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <View>
-              <Text style={s.eyebrow}>Hello</Text>
-              <Text style={s.greeting} numberOfLines={1}>{(student.name || 'Student').split(' ')[0]}</Text>
-            </View>
-            <View style={s.avatar}><Text style={s.avatarText}>{initialsOf(student.name || 'S')}</Text></View>
+          <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+            <Text style={s.eyebrow}>Your learner account</Text>
+            <Text style={s.greeting} numberOfLines={1}>Hi {(student.name || 'Student').split(' ')[0]}</Text>
           </View>
 
           {!agreementStatus(student).signed && (
@@ -243,15 +261,16 @@ export default function StudentAppV2Screen() {
 
           <SignInFasterCard />
 
+          {/* Sign-style card, as in the design: blue, with an orange badge. */}
           <View style={s.nextLessonCard} testID="v2-student-next-lesson">
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={s.sectionLabel}>Next lesson</Text>
-              {nextLessonWhen?.inProgress && <Text style={s.nextLessonBadge}>Happening now</Text>}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 }}>
+              <Text style={s.nextLessonBadge}>Your next lesson</Text>
+              {nextLessonWhen?.inProgress && <Text style={s.nextLessonNow}>Happening now</Text>}
             </View>
             {nextLesson && nextLessonWhen ? (
               <>
                 <Text style={s.nextLessonWhen} testID="v2-student-next-lesson-when">
-                  {nextLessonWhen.day} · {nextLessonWhen.time}
+                  {nextLessonWhen.day}, {nextLessonWhen.time}
                 </Text>
                 <Text style={s.nextLessonSub} numberOfLines={2}>
                   {[
@@ -279,11 +298,73 @@ export default function StudentAppV2Screen() {
                 {lessonsLoading ? 'Loading…' : 'No upcoming lessons booked yet.'}
               </Text>
             )}
+            {!!instructorCard?.contact_phone && (
+              <TouchableOpacity
+                style={s.messageBtn}
+                onPress={() => Linking.openURL(smsUrl(instructorCard.contact_phone || '', '', Platform.OS)).catch(() => {})}
+                accessibilityRole="button"
+                testID="v2-student-message-instructor"
+              >
+                <Text style={s.messageBtnText}>Message {(instructorCard.instructor_name || 'your instructor').split(' ')[0]}</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           {!!confidenceLesson && (
             <PupilConfidenceCard onRate={async (score) => { await rateLessonConfidence(confidenceLesson.id, score); await refreshLessons(); }} />
           )}
+
+          {/* Your progress — the design's tiles and skill bars (the DVSA syllabus tracker, paid plans) */}
+          <View style={s.progressCard} testID="v2-student-progress">
+            <Heading right={paid ? <Text style={s.sectionMeta}>{competencies.length}/{DVSA_SYLLABUS.length} started</Text> : undefined}>Your progress</Heading>
+            <View style={s.tileRow}>
+              <View style={s.tile}>
+                <Text style={s.tileValue} testID="v2-tile-lessons">{completedLessons.length}</Text>
+                <Text style={s.tileLabel}>lessons done</Text>
+              </View>
+              {bookings.length > 0 && (
+                <View style={s.tile}>
+                  <Text style={s.tileValue} testID="v2-tile-prepaid">{fmtHours(prepaidHoursLeft(bookings))}</Text>
+                  <Text style={s.tileLabel}>prepaid left</Text>
+                </View>
+              )}
+              <View style={s.tile}>
+                <Text style={s.tileValue} testID="v2-tile-test">{testDateLabel(student.test_date) || 'Not set'}</Text>
+                <Text style={s.tileLabel}>driving test</Text>
+              </View>
+            </View>
+            {!paid ? (
+              <View style={s.lockedCard}>
+                <View style={s.lockedIcon}><Text style={{ fontSize: 17, color: C.warmText }}>✳</Text></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.lockedTitle}>Tracker locked</Text>
+                  <Text style={s.lockedSub}>{`Included from ${tierById('pro').name} tier. Ask your instructor to upgrade.`}</Text>
+                </View>
+              </View>
+            ) : (
+              <View style={{ gap: 4 }}>
+                {competencies.slice(0, 12).map((c) => {
+                  const bar = skillBar(c.level);
+                  return (
+                    <TouchableOpacity
+                      key={c.category_key}
+                      style={s.skillRow}
+                      onPress={() => router.push({ pathname: '/competency-detail-screen', params: { id: student.id, key: c.category_key } } as any)}
+                      testID={`v2-comp-${c.category_key}`}
+                    >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+                        <Text style={s.skillName} numberOfLines={1}>{c.category_name}</Text>
+                        <Text style={s.skillScore}>{c.level} of {MAX_LEVEL}</Text>
+                      </View>
+                      <View style={s.skillTrack}>
+                        <View style={[s.skillFill, { width: `${bar.widthPct}%`, backgroundColor: bar.needsWork ? C.accent : C.primary }]} />
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </View>
 
           <View style={s.readyCard}>
             <View style={s.readyInner}>
@@ -324,13 +405,12 @@ export default function StudentAppV2Screen() {
           </TouchableOpacity>
 
           {recentLesson && (
-            <View style={{ marginHorizontal: 20, marginTop: 22 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-                <Text style={s.sectionLabel}>Last lesson</Text>
+            <View style={{ marginHorizontal: 16, marginTop: 22 }}>
+              <Heading right={
                 <Text style={s.sectionMeta}>
                   {new Date(`${recentLesson.date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                 </Text>
-              </View>
+              }>Last lesson</Heading>
               <View style={s.feedbackCard}>
                 <Text style={s.feedbackTopic}>{recentLesson.topic || recentLesson.lesson_type}</Text>
                 {!!recentLesson.notes && <Text style={s.feedbackNote}>&ldquo;{recentLesson.notes}&rdquo;</Text>}
@@ -344,45 +424,9 @@ export default function StudentAppV2Screen() {
             </View>
           )}
 
-          <View style={{ marginHorizontal: 20, marginTop: 22 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-              <Text style={s.sectionLabel}>DVSA syllabus</Text>
-              <Text style={s.sectionMeta}>{competencies.length}/{DVSA_SYLLABUS.length} started</Text>
-            </View>
-            {!paid ? (
-              <View style={s.lockedCard}>
-                <View style={s.lockedIcon}><Text style={{ fontSize: 17, color: C.warmText }}>✳</Text></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.lockedTitle}>Tracker locked</Text>
-                  <Text style={s.lockedSub}>{`Included from ${tierById('pro').name} tier. Ask your instructor to upgrade.`}</Text>
-                </View>
-              </View>
-            ) : (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 9 }}>
-                {competencies.slice(0, 12).map((c) => (
-                  <TouchableOpacity
-                    key={c.category_key}
-                    style={s.compCard}
-                    onPress={() => router.push({ pathname: '/competency-detail-screen', params: { id: student.id, key: c.category_key } } as any)}
-                    testID={`v2-comp-${c.category_key}`}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <Text style={s.compName} numberOfLines={1}>{c.category_name}</Text>
-                      <Text style={[s.compLevel, c.level >= READY_LEVEL && { color: '#047857' }]}>L{c.level}</Text>
-                    </View>
-                    <View style={s.compTrack}>
-                      <View style={[s.compFill, { width: `${c.progress}%`, backgroundColor: c.level >= READY_LEVEL ? '#10B981' : C.primary }]} />
-                    </View>
-                    <Text style={s.compPct}>{c.progress}%</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-          </View>
-
           {badges.length > 0 && (
-            <View style={{ marginHorizontal: 20, marginTop: 22 }}>
-              <Text style={s.sectionLabel}>Badges earned</Text>
+            <View style={{ marginHorizontal: 16, marginTop: 22 }}>
+              <Heading>Badges earned</Heading>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 10 }}>
                 {badges.map((b) => (
                   <View key={b.id} style={s.badgeChip}>
@@ -409,13 +453,12 @@ export default function StudentAppV2Screen() {
             </TouchableOpacity>
           </View>
 
-          <View style={{ marginHorizontal: 20, marginTop: 22 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={s.sectionLabel}>Reflective log</Text>
+          <View style={{ marginHorizontal: 16, marginTop: 22 }}>
+            <Heading right={
               <TouchableOpacity style={s.addBtn} onPress={() => setReflectOpen(true)} testID="v2-add-reflection">
                 <Text style={s.addBtnText}>+ Add</Text>
               </TouchableOpacity>
-            </View>
+            }>Reflective log</Heading>
 
             {(sbReflections || []).length === 0 ? (
               <View style={s.emptyReflect}>
@@ -442,6 +485,8 @@ export default function StudentAppV2Screen() {
               </View>
             )}
           </View>
+
+          <Text style={s.privacyNote}>You only ever see your own lessons, progress and payments.</Text>
         </ScrollView>
 
         <BottomNav role="student" />
@@ -556,10 +601,22 @@ const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.pageBg },
   surface: { flex: 1, backgroundColor: C.surface },
 
-  eyebrow: { fontFamily: 'Barlow_600SemiBold', fontSize: 12, letterSpacing: 1.7, textTransform: 'uppercase', color: C.textMuted },
-  greeting: { fontFamily: 'Archivo_800ExtraBold', fontSize: 30, letterSpacing: -0.6, color: C.text, marginTop: 1 },
-  avatar: { width: 46, height: 46, borderRadius: 999, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontFamily: 'Archivo_700Bold', fontSize: 15, color: '#fff' },
+  eyebrow: { fontFamily: 'Barlow_600SemiBold', fontSize: 13, letterSpacing: 0.9, textTransform: 'uppercase', color: C.textMuted },
+  greeting: { fontFamily: 'Archivo_800ExtraBold', fontSize: 26, letterSpacing: -0.3, color: C.text, marginTop: 3 },
+
+  headingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headingBar: { width: 18, height: 4, borderRadius: 2, backgroundColor: C.accent },
+  progressCard: { marginHorizontal: 16, marginTop: 16, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 20, padding: 16, gap: 12 },
+  tileRow: { flexDirection: 'row', gap: 8 },
+  tile: { flex: 1, backgroundColor: C.inset, borderRadius: 12, padding: 10 },
+  tileValue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 24, color: C.text },
+  tileLabel: { fontFamily: 'Barlow_500Medium', fontSize: 13, color: C.textMuted, marginTop: 4 },
+  skillRow: { minHeight: 44, paddingVertical: 5, gap: 5, justifyContent: 'center' },
+  skillName: { flex: 1, fontFamily: 'Barlow_700Bold', fontSize: 16, color: C.text },
+  skillScore: { fontFamily: 'Barlow_700Bold', fontSize: 16, color: C.text },
+  skillTrack: { height: 10, borderRadius: 5, backgroundColor: C.inset, overflow: 'hidden' },
+  skillFill: { height: 10, borderRadius: 5 },
+  privacyNote: { marginHorizontal: 16, marginTop: 24, fontFamily: 'Barlow_500Medium', fontSize: 14, lineHeight: 20, color: C.textMuted, textAlign: 'center' },
 
   readyCard: { marginHorizontal: 20, marginTop: 16, borderRadius: 22, backgroundColor: C.primary, padding: 6, shadowColor: '#003A6F', shadowOffset: { width: 0, height: 14 }, shadowOpacity: 0.35, shadowRadius: 28, elevation: 6 },
   readyInner: { borderWidth: 2, borderColor: 'rgba(255,255,255,.5)', borderRadius: 17, padding: 16 },
@@ -578,12 +635,15 @@ const s = StyleSheet.create({
   agreementTitle: { fontFamily: 'Barlow_700Bold', fontSize: 15, color: C.warmText },
   agreementSub: { fontSize: 13, color: C.textMuted2, marginTop: 3, lineHeight: 18 },
   agreementCta: { fontFamily: 'Barlow_700Bold', fontSize: 13, color: C.accent, marginTop: 8 },
-  nextLessonCard: { marginHorizontal: 20, marginTop: 14, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 18, padding: 16 },
-  nextLessonBadge: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: '#fff', backgroundColor: C.accent, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, overflow: 'hidden' },
-  nextLessonWhen: { fontFamily: 'Archivo_800ExtraBold', fontSize: 22, letterSpacing: -0.4, color: C.text, marginTop: 6 },
-  nextLessonSub: { fontFamily: 'Barlow_500Medium', fontSize: 13.5, color: C.textMuted2, marginTop: 4 },
-  nextLessonGoal: { fontSize: 14, lineHeight: 20, color: C.text, marginTop: 8 },
-  nextLessonEmpty: { fontFamily: 'Barlow_500Medium', fontSize: 14, color: C.textMuted2, marginTop: 6 },
+  nextLessonCard: { marginHorizontal: 16, marginTop: 20, backgroundColor: C.primary, borderWidth: 2, borderColor: C.primary, borderRadius: 20, paddingTop: 18, paddingHorizontal: 12, paddingBottom: 14, gap: 8 },
+  nextLessonBadge: { fontFamily: 'Archivo_800ExtraBold', fontSize: 12, letterSpacing: 1.2, textTransform: 'uppercase', color: C.ink, backgroundColor: C.accent, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 6, overflow: 'hidden' },
+  nextLessonNow: { fontFamily: 'Barlow_700Bold', fontSize: 13, color: '#fff' },
+  nextLessonWhen: { fontFamily: 'Archivo_800ExtraBold', fontSize: 30, letterSpacing: -0.3, color: '#fff', paddingHorizontal: 4 },
+  nextLessonSub: { fontFamily: 'Barlow_500Medium', fontSize: 17, lineHeight: 23, color: '#fff', paddingHorizontal: 4 },
+  nextLessonGoal: { fontFamily: 'Barlow_500Medium', fontSize: 15, lineHeight: 21, color: 'rgba(255,255,255,.92)', paddingHorizontal: 4 },
+  nextLessonEmpty: { fontFamily: 'Barlow_500Medium', fontSize: 16, color: '#fff', paddingHorizontal: 4 },
+  messageBtn: { minHeight: 56, borderRadius: 14, borderWidth: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  messageBtnText: { fontFamily: 'Archivo_800ExtraBold', fontSize: 17, color: '#fff' },
   chev: { fontFamily: 'Barlow_700Bold', fontSize: 20, color: '#fff' },
 
   smtmCard: { marginHorizontal: 20, marginTop: 9, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 13 },
@@ -593,7 +653,7 @@ const s = StyleSheet.create({
   smtmSub: { fontFamily: 'Barlow_500Medium', fontSize: 12.5, color: C.textMuted },
   chevMuted: { fontFamily: 'Barlow_700Bold', fontSize: 18, color: '#A69C8B' },
 
-  sectionLabel: { fontFamily: 'Barlow_700Bold', fontSize: 11, letterSpacing: 1.8, textTransform: 'uppercase', color: C.textMuted },
+  sectionLabel: { fontFamily: 'Archivo_800ExtraBold', fontSize: 13, letterSpacing: 1.3, textTransform: 'uppercase', color: C.textMuted },
   sectionMeta: { fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: C.textMuted },
 
   feedbackCard: { marginTop: 9, backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 15 },
@@ -606,13 +666,6 @@ const s = StyleSheet.create({
   lockedIcon: { width: 42, height: 42, borderRadius: 999, backgroundColor: C.warmBorder, alignItems: 'center', justifyContent: 'center' },
   lockedTitle: { fontFamily: 'Archivo_700Bold', fontSize: 14.5, color: C.text },
   lockedSub: { fontFamily: 'Barlow_400Regular', fontSize: 12.5, lineHeight: 17, color: C.textMuted, marginTop: 1 },
-
-  compCard: { width: '48%', backgroundColor: '#fff', borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 11, gap: 8 },
-  compName: { fontFamily: 'Barlow_600SemiBold', fontSize: 12.5, color: C.text, flex: 1 },
-  compLevel: { fontFamily: 'Barlow_700Bold', fontSize: 11, color: C.textMuted },
-  compTrack: { height: 5, borderRadius: 999, backgroundColor: '#EDE8DE', overflow: 'hidden' },
-  compFill: { height: '100%' },
-  compPct: { fontFamily: 'Barlow_600SemiBold', fontSize: 12, color: C.textMuted2 },
 
   badgeChip: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 13, paddingVertical: 9, backgroundColor: C.warmBg, borderWidth: 1, borderColor: C.accent, borderRadius: 999 },
   badgeChipText: { fontFamily: 'Barlow_700Bold', fontSize: 13, color: C.warmText },

@@ -27,6 +27,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -49,6 +51,8 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
@@ -62,13 +66,12 @@ jobs:
     name: Secrets scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Reports only for now: it scans the whole history, so a first run may flag old keys.
-    # Look at the result, rotate anything real, then remove this line to make it a gate.
-    continue-on-error: true
+    # A real gate: it scans the whole history, and the first full run (28 Oct 2026) found nothing.
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

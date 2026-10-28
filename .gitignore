@@ -31,7 +31,20 @@ dist/
 dist
 
 # Environment files (comprehensive coverage)
+.env
+.env.*
+!.env.example
 
+# Keys and credentials: never commit these (the Android signing keystore, Firebase and cloud service-account files)
+*.keystore
+*.jks
+*.p8
+*.p12
+*.pfx
+*.mobileprovision
+*-adminsdk-*.json
+*service-account*.json
+*serviceAccount*.json
 *token.json*
 *credentials.json*
 

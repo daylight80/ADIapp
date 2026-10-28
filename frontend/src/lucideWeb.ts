@@ -17,7 +17,6 @@ export { default as Building2 } from 'lucide-react-native/icons/building-2';
 export { default as Calendar } from 'lucide-react-native/icons/calendar';
 export { default as CalendarClock } from 'lucide-react-native/icons/calendar-clock';
 export { default as CalendarDays } from 'lucide-react-native/icons/calendar-days';
-export { default as CalendarPlus } from 'lucide-react-native/icons/calendar-plus';
 export { default as CalendarRange } from 'lucide-react-native/icons/calendar-range';
 export { default as CalendarSync } from 'lucide-react-native/icons/calendar-sync';
 export { default as Camera } from 'lucide-react-native/icons/camera';

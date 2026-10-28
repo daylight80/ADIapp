@@ -17,20 +17,19 @@ import {
   PoundSterling,
   MapPin,
   Lock,
-  Phone, CalendarPlus } from 'lucide-react-native';
+  Phone } from 'lucide-react-native';
 import { theme } from './theme';
 import { mockDb } from './mockDb';
 import { Lesson, Student, listWaitingList, type WaitingListEntry, studentAppUsageWarning } from './supabaseDb';
 import { patchLesson } from './useSupabaseData';
 import { patchLessonOfflineAware, isNetworkError } from './offlineSync';
 import { useStudent, useStudents, useVehicles, useInstructorProfile, useCompetencies } from './useSupabaseData';
-import { navButtonLabel, resolveNavApp } from './navApp';
+import { resolveNavApp } from './navApp';
 import { countUpcomingInSeries, cancelSeriesFromDate } from './useSupabaseData';
 import { useAuth } from './AuthContext';
 import { isPaidTier, tierById } from './tiers';
 import { PaywallModal } from './PaywallModal';
 import { LessonSummarySheet } from './LessonSummarySheet';
-import { googleCalendarUrl, lessonCalendarEvent } from './googleCalendarLink';
 import { LastLessonFocusCard, useLastLessonFocus } from './LastLessonFocusCard';
 import { LessonPlanSection } from './LessonPlanSection';
 import { suggestTopics } from './lessonPlan';
@@ -338,24 +337,6 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
     ? lesson.test_centre
     : lesson.pickup_address || [student.address, student.postcode].filter(Boolean).join(', ');
 
-  const onArrived = async () => {
-    const body = `Hi ${student.name.split(' ')[0]}, I've arrived for your ${lesson.start_time} lesson. See you in a moment! — Your instructor.`;
-    const ok = await openSmsComposer(student.phone, body);
-    if (ok) {
-      await fireInstantNotification('Arrival message sent', `Notified ${student.name}`);
-      onClose();
-    } else {
-      // Previously silent — the instructor tapped the button and nothing
-      // visibly happened, with no way to tell whether it failed or the
-      // student was just notified in the background. Now it says so
-      // explicitly and gives the phone number so they can text manually.
-      Alert.alert(
-        "Couldn't open messages",
-        `Your device didn't open a text message to ${student.name}. You can text them directly at ${student.phone}.`,
-      );
-    }
-  };
-
   const completePrecheck = async () => {
     if (!allChecks) {
       Alert.alert('Complete all checks', 'All three pre-lesson checks must be confirmed before the lesson starts.');
@@ -627,11 +608,6 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
                   />
                 )}
 
-                {/* Navigation */}
-                <Text style={styles.section}>Navigate to pickup</Text>
-                <Text style={styles.address}>
-                  {pickupAddress}
-                </Text>
                 {eta && (
                   <View style={styles.etaCard} testID="live-eta">
                     <Car size={16} color={theme.colors.primary} />
@@ -645,11 +621,6 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
                     </View>
                   </View>
                 )}
-                <NavBtn
-                  label={navButtonLabel(myProfile?.preferred_nav_app)}
-                  onPress={() => openNavigation(resolveNavApp(myProfile?.preferred_nav_app), pickupAddress)}
-                  testID="nav-preferred"
-                />
                 {isTest && !!lesson.test_centre && !!lesson.test_time && (
                   <NavBtn
                     label="Navigate to test centre"
@@ -693,18 +664,12 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
                   </View>
                 )}
 
-                {/* I'm Here */}
-                <TouchableOpacity style={styles.imHereBtn} onPress={onArrived} testID="btn-im-here">
-                  <MessageSquare size={18} color="#fff" />
-                  <Text style={styles.imHereText}>I&apos;ve arrived — Text {student.name.split(' ')[0]}</Text>
-                </TouchableOpacity>
-
                 {/* Record route — tags the recording with this lesson + student
                     so it shows up linked instead of as a generic unnamed trip.
                     Greyed out on non-paid tiers rather than hidden, matching
                     the Receipts button's convention on the home screen. */}
                 <TouchableOpacity
-                  style={[styles.recordRouteBtn, !paid && styles.recordRouteBtnLocked]}
+                  style={paid ? styles.imHereBtn : [styles.recordRouteBtn, styles.recordRouteBtnLocked]}
                   onPress={() => {
                     if (!paid) { setRoutePaywallOpen(true); return; }
                     onClose();
@@ -715,23 +680,8 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
                   }}
                   testID="btn-record-route"
                 >
-                  {paid ? <MapPin size={18} color={theme.colors.primary} /> : <Lock size={16} color={theme.colors.textMuted} />}
-                  <Text style={[styles.recordRouteText, !paid && styles.recordRouteTextLocked]}>Start lesson and record the route</Text>
-                </TouchableOpacity>
-
-                {/* Add this lesson to Google Calendar straight away (Google's own event page, nothing to link). Open to every
-                    plan: unlike the subscribed calendar feed, which Google refreshes only every 12 to 24 hours. */}
-                <TouchableOpacity
-                  style={styles.recordRouteBtn}
-                  onPress={() => {
-                    const ev = lessonCalendarEvent(lesson as any, student.name, pickupAddress);
-                    if (!ev) { Alert.alert('Can\u2019t add this lesson', 'Its start and end times could not be read.'); return; }
-                    Linking.openURL(googleCalendarUrl(ev)).catch(() => Alert.alert('Could not open Google Calendar', 'Please try again.'));
-                  }}
-                  testID="btn-add-to-google-calendar"
-                >
-                  <CalendarPlus size={18} color={theme.colors.primary} />
-                  <Text style={styles.recordRouteText}>Add to Google Calendar</Text>
+                  {paid ? <MapPin size={18} color="#fff" /> : <Lock size={16} color={theme.colors.textMuted} />}
+                  <Text style={paid ? styles.imHereText : [styles.recordRouteText, styles.recordRouteTextLocked]}>Start lesson and record the route</Text>
                 </TouchableOpacity>
 
                 {/* Dictated summary for the pupil: speak a few sentences, review the draft, approve and send.

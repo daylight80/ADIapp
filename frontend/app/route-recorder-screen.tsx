@@ -23,6 +23,8 @@ import {
 import { openRouteInMaps, shareRouteGpx, shareAllRoutesGpx } from '../src/routeShare';
 import { useKeyboardHeight } from '../src/useKeyboardHeight';
 import { listMockTestAttemptsForRoute, type MockTestAttempt } from '../src/supabaseDb';
+import { setLiveRecording, clearMockDraft } from '../src/recordingSession';
+import { mockReportRoute, mockTestLabel } from '../src/mockTestLink';
 import { InLessonTopicsCard } from '../src/InLessonTopicsCard';
 import { useAuth } from '../src/AuthContext';
 import { isPaidTier } from '../src/tiers';
@@ -116,6 +118,15 @@ export default function RouteRecorderScreen() {
 
   useFocusEffect(useCallback(() => { reloadRoutes(); }, [reloadRoutes]));
 
+  // Mock tests run during this recording, refreshed whenever the instructor comes back to this screen.
+  const [liveMockTests, setLiveMockTests] = useState<MockTestAttempt[]>([]);
+  useFocusEffect(useCallback(() => {
+    if (!isRecording || !routeIdRef.current) return undefined;
+    let alive = true;
+    listMockTestAttemptsForRoute(routeIdRef.current).then((a) => { if (alive) setLiveMockTests(a); }).catch(() => {});
+    return () => { alive = false; };
+  }, [isRecording]));
+
   // Arrived from a mock test report's "View recording": open that route's details once the list has loaded.
   const openedRouteRef = useRef('');
   useEffect(() => {
@@ -172,6 +183,7 @@ export default function RouteRecorderScreen() {
     if (runStartedAtRef.current == null) return;
     bankedMsRef.current += Date.now() - runStartedAtRef.current;
     runStartedAtRef.current = null;
+    setLiveRecording({ routeId: routeIdRef.current, bankedMs: bankedMsRef.current, runStartedAt: null });
     endWatching();
     try { deactivateKeepAwake('adipro-route'); } catch { /* ignore */ }
     setDurationSec(activeSeconds(bankedMsRef.current, null, Date.now()));
@@ -183,6 +195,7 @@ export default function RouteRecorderScreen() {
     try {
       afterPauseRef.current = true;
       runStartedAtRef.current = Date.now();
+      setLiveRecording({ routeId: routeIdRef.current, bankedMs: bankedMsRef.current, runStartedAt: runStartedAtRef.current });
       try { await activateKeepAwakeAsync('adipro-route'); } catch { /* not supported on web */ }
       await beginWatching();
       setIsPaused(false);
@@ -225,6 +238,8 @@ export default function RouteRecorderScreen() {
       setIsPaused(false);
       startedAtRef.current = Date.now();
       runStartedAtRef.current = Date.now();
+      setLiveRecording({ routeId: routeIdRef.current, bankedMs: 0, runStartedAt: runStartedAtRef.current });
+      setLiveMockTests([]);
 
       // Keep the screen awake during the recording so the watcher keeps ticking.
       try { await activateKeepAwakeAsync('adipro-route'); } catch { /* not supported on web */ }
@@ -254,6 +269,8 @@ export default function RouteRecorderScreen() {
       const points = pointsRef.current;
       const distanceM = distanceRef.current;
       runStartedAtRef.current = null;
+      setLiveRecording(null);
+      clearMockDraft(routeIdRef.current);
       endWatching();
       try { deactivateKeepAwake('adipro-route'); } catch { /* ignore */ }
       setIsRecording(false);
@@ -286,7 +303,7 @@ export default function RouteRecorderScreen() {
       await reloadRoutes();
       Alert.alert(
         'Route saved',
-        `${fmtDistance(distanceM)} · ${fmtDuration(durationSec)} · ${points.length} GPS points${linkedStudentName ? `\nSaved to ${linkedStudentName}’s profile.` : ''}`,
+        `${fmtDistance(distanceM)} · ${fmtDuration(durationSec)} · ${points.length} GPS points${linkedStudentName ? `\nSaved to ${linkedStudentName}’s profile.` : ''}${liveMockTests.length ? `\n${liveMockTests.length} mock test${liveMockTests.length === 1 ? '' : 's'} linked to this route.` : ''}`,
       );
     } catch (e: any) {
       Alert.alert('Save failed', e?.message || String(e));
@@ -295,6 +312,7 @@ export default function RouteRecorderScreen() {
 
   // ---- Cleanup on unmount ----
   useEffect(() => () => {
+    setLiveRecording(null);
     if (watcherRef.current) watcherRef.current.remove();
     if (tickRef.current) clearInterval(tickRef.current);
     try { deactivateKeepAwake('adipro-route'); } catch { /* ignore */ }
@@ -313,6 +331,8 @@ export default function RouteRecorderScreen() {
             style: 'destructive',
             onPress: () => {
               runStartedAtRef.current = null;
+              setLiveRecording(null);
+              clearMockDraft(routeIdRef.current);
               endWatching();
               try { deactivateKeepAwake('adipro-route'); } catch { /* ignore */ }
               setIsRecording(false);
@@ -417,6 +437,16 @@ export default function RouteRecorderScreen() {
                   <Text style={styles.stopBtnText}>Start Mock Test</Text>
                 </TouchableOpacity>
               )}
+              {liveMockTests.map((m) => (
+                <TouchableOpacity
+                  key={m.id}
+                  style={styles.mockDone}
+                  onPress={() => router.push(mockReportRoute(m, linkedStudentId) as any)}
+                  testID={`rec-mock-${m.id}`}
+                >
+                  <Text style={styles.mockDoneText}>{mockTestLabel(m)} · saved. View report</Text>
+                </TouchableOpacity>
+              ))}
               {!!linkedLessonId && !!linkedStudentId && (
                 <InLessonTopicsCard lessonId={linkedLessonId} studentId={linkedStudentId} studentName={linkedStudentName} />
               )}
@@ -662,20 +692,11 @@ function RouteDetail({
         <TouchableOpacity
           key={m.id}
           style={styles.actionBtn}
-          onPress={() => router.push({
-            pathname: '/dl25-report-screen',
-            params: {
-              d: String(m.driving_faults), s: String(m.serious_faults), x: String(m.dangerous_faults),
-              passed: m.passed ? '1' : '0', breakdown: JSON.stringify(m.category_breakdown),
-              routeId: route.id, ...(route.studentId ? { studentId: route.studentId } : {}),
-            },
-          } as any)}
+          onPress={() => router.push(mockReportRoute(m, route.studentId) as any)}
           testID={`route-mock-${m.id}`}
         >
           <Flag size={18} color={theme.colors.accent} />
-          <Text style={styles.actionText}>
-            Mock test · {m.passed ? 'PASS' : 'FAIL'} · {m.driving_faults} driving, {m.serious_faults} serious, {m.dangerous_faults} dangerous
-          </Text>
+          <Text style={styles.actionText}>{mockTestLabel(m)}</Text>
         </TouchableOpacity>
       ))}
 
@@ -741,6 +762,8 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.danger, paddingHorizontal: 28, paddingVertical: 14,
     borderRadius: 999, marginTop: 4, alignSelf: 'stretch',
   },
+  mockDone: { alignSelf: 'stretch', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, backgroundColor: theme.colors.primaryLight },
+  mockDoneText: { fontSize: 13, fontWeight: '700', color: theme.colors.primary },
   mockBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     backgroundColor: theme.colors.accent, paddingHorizontal: 28, paddingVertical: 14,

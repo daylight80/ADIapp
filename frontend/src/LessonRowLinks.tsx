@@ -5,6 +5,7 @@ import { Flag, FileCheck } from 'lucide-react-native';
 import { theme } from './theme';
 import type { SavedRoute } from './routeRecorder';
 import type { MockTestAttempt, InstructorLessonNote } from './supabaseDb';
+import { mockReportRoute, mockTestLabel } from './mockTestLink';
 
 /** The mock tests run during this lesson's recording(s). Only a test run from the Route Recorder carries a route. */
 export function mockTestsForRoutes(attempts: MockTestAttempt[], routes: SavedRoute[]): MockTestAttempt[] {
@@ -36,18 +37,11 @@ export function LessonRowLinks({ lessonId, studentId, studentName, routes, attem
         <TouchableOpacity
           key={m.id}
           style={s.row}
-          onPress={() => router.push({
-            pathname: '/dl25-report-screen',
-            params: {
-              d: String(m.driving_faults), s: String(m.serious_faults), x: String(m.dangerous_faults),
-              passed: m.passed ? '1' : '0', breakdown: JSON.stringify(m.category_breakdown),
-              studentId, routeId: m.route_id as string,
-            },
-          } as any)}
+          onPress={() => router.push(mockReportRoute(m, studentId) as any)}
           testID={`lesson-mock-${m.id}`}
         >
           <Flag size={16} color={theme.colors.accent} />
-          <Text style={s.text}>Mock test · {m.passed ? 'PASS' : 'FAIL'} · {m.driving_faults} driving, {m.serious_faults} serious, {m.dangerous_faults} dangerous</Text>
+          <Text style={s.text}>{mockTestLabel(m)}</Text>
         </TouchableOpacity>
       ))}
 

@@ -1,12 +1,14 @@
 import React from 'react';
+import { Alert } from 'react-native';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 
 jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }));
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
+const mockBack = jest.fn();
 let mockParams: Record<string, string> = { studentId: 'stu-1' };
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: (...a: unknown[]) => mockPush(...a), replace: (...a: unknown[]) => mockReplace(...a), back: jest.fn() }),
+  useRouter: () => ({ push: (...a: unknown[]) => mockPush(...a), replace: (...a: unknown[]) => mockReplace(...a), back: (...a: unknown[]) => mockBack(...a) }),
   useLocalSearchParams: () => mockParams,
 }));
 jest.mock('react-native-safe-area-context', () => ({ SafeAreaView: ({ children }: any) => children }));
@@ -22,8 +24,10 @@ const mockAdd = jest.fn();
 jest.mock('../supabaseDb', () => ({ addMockTestAttempt: (...a: unknown[]) => mockAdd(...a) }));
 
 import Dl25MockTestScreen from '../../app/dl25-mock-test-screen';
+import { emptyDl25Faults } from '../dl25Items';
+import { clearMockDraft, getMockDraft, saveMockDraft, setLiveRecording } from '../recordingSession';
 
-beforeEach(() => { mockPush.mockReset(); mockReplace.mockReset(); mockParams = { studentId: 'stu-1' }; mockAdd.mockReset().mockResolvedValue({}); });
+beforeEach(() => { mockPush.mockReset(); mockReplace.mockReset(); mockBack.mockReset(); setLiveRecording(null); clearMockDraft('route-9'); mockParams = { studentId: 'stu-1' }; mockAdd.mockReset().mockResolvedValue({}); });
 
 describe('DL25 mock test screen', () => {
   it('shows the car items in form order and none of the ones that do not apply', async () => {
@@ -75,5 +79,76 @@ describe('DL25 mock test screen', () => {
     await fireEvent.press(screen.getByTestId('btn-finish-test'));
     await waitFor(() => expect(mockAdd).toHaveBeenCalledTimes(1));
     expect(mockAdd.mock.calls[0][0].passed).toBe(true);
+  });
+});
+
+describe('DL25 mock test run from the Route Recorder', () => {
+  beforeEach(() => { mockParams = { studentId: 'stu-1', from: 'recorder', routeId: 'route-9' }; });
+
+  it('saves the marks as they are entered', async () => {
+    await render(<Dl25MockTestScreen />);
+    await fireEvent.press(screen.getByTestId('dl25_21_right-driving-add'));
+    await fireEvent.press(screen.getByTestId('dl25_21_right-driving-add'));
+    expect(getMockDraft('route-9')!.dl25_21_right.driving).toBe(2);
+  });
+
+  it('opens with the marks kept from before, when the instructor returns to the test', async () => {
+    const kept = emptyDl25Faults();
+    kept.dl25_21_right.driving = 2;
+    saveMockDraft('route-9', kept);
+    await render(<Dl25MockTestScreen />);
+    expect(screen.getByTestId('summary-driving')).toHaveTextContent(/^2/);
+    expect(screen.getByTestId('dl25_21_right-driving-val')).toHaveTextContent('2');
+  });
+
+  it('goes back without asking, because nothing is lost', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await render(<Dl25MockTestScreen />);
+    await fireEvent.press(screen.getByTestId('dl25_21_right-driving-add'));
+    await fireEvent.press(screen.getByTestId('btn-back'));
+    expect(alert).not.toHaveBeenCalled();
+    expect(mockBack).toHaveBeenCalled();
+    alert.mockRestore();
+  });
+
+  it('forgets the marks once the test is finished, so a Retake starts clean', async () => {
+    saveMockDraft('route-9', { ...emptyDl25Faults() });
+    await render(<Dl25MockTestScreen />);
+    await fireEvent.press(screen.getByTestId('dl25_21_right-driving-add'));
+    await fireEvent.press(screen.getByTestId('btn-finish-test'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalled());
+    expect(getMockDraft('route-9')).toBeUndefined();
+  });
+
+  it('shows that the recording is still running, with its timer', async () => {
+    setLiveRecording({ routeId: 'route-9', bankedMs: 65_000, runStartedAt: null });
+    await render(<Dl25MockTestScreen />);
+    expect(screen.getByTestId('mock-recording-bar')).toBeTruthy();
+    expect(screen.getByText(/Recording paused · 1m 05s/)).toBeTruthy();
+  });
+
+  it('shows no recording bar for a test run on its own', async () => {
+    mockParams = { studentId: 'stu-1' };
+    setLiveRecording({ routeId: 'route-9', bankedMs: 1000, runStartedAt: null });
+    await render(<Dl25MockTestScreen />);
+    expect(screen.queryByTestId('mock-recording-bar')).toBeNull();
+  });
+});
+
+describe('DL25 mock test run on its own', () => {
+  it('asks before leaving with marks entered, and leaves only when told to', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await render(<Dl25MockTestScreen />);
+    await fireEvent.press(screen.getByTestId('btn-back'));
+    expect(alert).not.toHaveBeenCalled(); // nothing marked yet: just goes back
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    await fireEvent.press(screen.getByTestId('dl25_21_right-driving-add'));
+    await fireEvent.press(screen.getByTestId('btn-back'));
+    expect(alert).toHaveBeenCalledWith('Leave the mock test?', expect.any(String), expect.any(Array));
+    expect(mockBack).toHaveBeenCalledTimes(1); // still here
+    const leave = (alert.mock.calls[0][2] as any[]).find((b) => b.text === 'Leave');
+    leave.onPress();
+    expect(mockBack).toHaveBeenCalledTimes(2);
+    alert.mockRestore();
   });
 });

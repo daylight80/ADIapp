@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Check, X, ArrowLeft, RotateCcw, Home, History, MapPin } from 'lucide-react-native';
 import { listRoutes } from '../src/routeRecorder';
+import { verdictSub } from '../src/dl25Verdict';
 import { theme } from '../src/theme';
 import { faultedRows } from '../src/dl25Items';
 import { Card, Badge } from '../src/ui';
@@ -83,10 +84,8 @@ export default function Dl25ReportScreen() {
             {passed ? <Check size={48} color="#fff" /> : <X size={48} color="#fff" />}
           </View>
           <Text style={styles.resultTitle} testID="result-title">{passed ? 'PASS' : 'FAIL'}</Text>
-          <Text style={styles.resultSub}>
-            {passed
-              ? 'Well done! You have met DVSA test standards.'
-              : 'Not quite there yet. Review the faults below and keep practising.'}
+          <Text style={styles.resultSub} testID="result-sub">
+            {verdictSub({ passed, driving, serious, dangerous, instructor: !!instructorStudentId })}
           </Text>
         </View>
 
@@ -147,7 +146,9 @@ export default function Dl25ReportScreen() {
             {attemptsLoading ? (
               <ActivityIndicator color={theme.colors.textMuted} />
             ) : pastAttempts.length === 0 ? (
-              <Text style={styles.empty}>This is your first recorded attempt.</Text>
+              <Text style={styles.empty}>
+                {instructorStudentId ? `No earlier mock tests for ${instructorStudent?.name?.split(' ')[0] || 'this pupil'}.` : 'This is your first recorded attempt.'}
+              </Text>
             ) : (
               pastAttempts.map((a) => (
                 <View key={a.id} style={styles.historyRow} testID={`history-${a.id}`}>

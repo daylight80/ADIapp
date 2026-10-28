@@ -48,4 +48,15 @@ describe('DL25 report: link to the recording', () => {
     expect(mockListRoutes).not.toHaveBeenCalled();
     expect(screen.queryByTestId('btn-view-recording')).toBeNull();
   });
+
+  it('tells an instructor what a real test would do, not a pupil-style message', async () => {
+    await render(<Dl25ReportScreen />);
+    expect(screen.getByText(/Would pass a real test/)).toBeTruthy();
+  });
+
+  it('keeps the pupil-style message when a pupil opens their own report', async () => {
+    mockParams = { d: '3', s: '0', x: '0', passed: '1', breakdown: '{}' };
+    await render(<Dl25ReportScreen />);
+    expect(screen.getByText(/Well done!/)).toBeTruthy();
+  });
 });

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, RotateCcw, Flag } from 'lucide-react-native';
@@ -10,8 +11,12 @@ import { useAuth } from '../src/AuthContext';
 import { useStudentByAuthId, useStudentByEmail, useStudent } from '../src/useSupabaseData';
 import { addMockTestAttempt } from '../src/supabaseDb';
 import { awardMockPassBadge } from '../src/useSupabaseData';
+import { activeSeconds, fmtDuration } from '../src/routeRecorder';
+import { clearMockDraft, getLiveRecording, getMockDraft, saveMockDraft } from '../src/recordingSession';
 
 type FaultType = 'driving' | 'serious' | 'dangerous';
+// The buttons are 36 dp so three controls still fit a row; the extra touch area brings the target up to about 44 dp high.
+const HIT_SLOP = { top: 8, bottom: 8, left: 3, right: 3 };
 type Faults = Dl25Faults;
 
 const initialFaults = (): Faults => emptyDl25Faults();
@@ -37,10 +42,23 @@ export default function Dl25MockTestScreen() {
     !instructorStudentId && !sbStudentByAuth ? user?.email : undefined,
   );
   const supabaseStudent = instructorStudentId ? instructorStudent : (sbStudentByAuth || sbStudentByEmail);
-  const [faults, setFaults] = useState<Faults>(initialFaults());
+  // Run from the Route Recorder, the marks so far are kept if the instructor goes back to the recorder and returns.
+  const [faults, setFaults] = useState<Faults>(() => (routeId && getMockDraft(routeId)) || initialFaults());
   const [finishing, setFinishing] = useState(false);
+  useEffect(() => { if (routeId) saveMockDraft(routeId, faults); }, [routeId, faults]);
+
+  // The recording carries on underneath: show its timer so that is clear.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!routeId) return undefined;
+    const id = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [routeId]);
+  const live = routeId ? getLiveRecording() : null;
 
   const addFault = (key: string, type: FaultType) => {
+    // A light tick for a driving fault, a firmer one for serious and dangerous, so it can be felt without looking.
+    (type === 'driving' ? Haptics.selectionAsync() : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)).catch(() => {});
     setFaults((prev) => ({
       ...prev,
       [key]: { ...prev[key], [type]: prev[key][type] + 1 },
@@ -48,6 +66,7 @@ export default function Dl25MockTestScreen() {
   };
 
   const removeFault = (key: string, type: FaultType) => {
+    Haptics.selectionAsync().catch(() => {});
     setFaults((prev) => ({
       ...prev,
       [key]: { ...prev[key], [type]: Math.max(0, prev[key][type] - 1) },
@@ -91,6 +110,7 @@ export default function Dl25MockTestScreen() {
     // No supabaseStudent (offline/demo) — nothing to persist against; the
     // report screen still works from the route params below.
 
+    if (routeId) clearMockDraft(routeId); // finished: a Retake starts clean
     // Run from the Route Recorder: replace this screen, so closing the report lands back on the recording.
     (fromRecorder ? router.replace : router.push)({
       pathname: '/dl25-report-screen',
@@ -116,10 +136,21 @@ export default function Dl25MockTestScreen() {
     ]);
   };
 
+  const marked = totals.driving + totals.serious + totals.dangerous;
+  const handleBack = () => {
+    // From the recorder the marks are kept for when the instructor returns. Otherwise leaving loses them, so ask first
+    // (a dialog does nothing in a browser, so there it just goes back).
+    if (routeId || marked === 0 || Platform.OS === 'web') { router.back(); return; }
+    Alert.alert('Leave the mock test?', 'The faults you have marked will be lost.', [
+      { text: 'Stay', style: 'cancel' },
+      { text: 'Leave', style: 'destructive', onPress: () => router.back() },
+    ]);
+  };
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="btn-back">
+        <TouchableOpacity onPress={handleBack} style={styles.iconBtn} testID="btn-back">
           <ArrowLeft size={22} color={theme.colors.text} />
         </TouchableOpacity>
         <Text style={styles.title} numberOfLines={1}>
@@ -129,6 +160,15 @@ export default function Dl25MockTestScreen() {
           <RotateCcw size={20} color={theme.colors.textMuted} />
         </TouchableOpacity>
       </View>
+
+      {live && (
+        <View style={styles.recBar} testID="mock-recording-bar">
+          <View style={[styles.recDot, live.runStartedAt == null && styles.recDotPaused]} />
+          <Text style={styles.recText}>
+            {live.runStartedAt == null ? 'Recording paused' : 'Recording'} · {fmtDuration(activeSeconds(live.bankedMs, live.runStartedAt, Date.now()))} · your marks are kept if you go back
+          </Text>
+        </View>
+      )}
 
       {/* Summary header */}
       <View style={styles.summaryRow} testID="fault-summary">
@@ -235,6 +275,7 @@ function FaultControl({
       <View style={styles.ctrlRow}>
         <TouchableOpacity
           style={[styles.ctrlBtn, { backgroundColor: theme.colors.background, borderColor: colour }]}
+          hitSlop={HIT_SLOP}
           onPress={onSub}
           testID={`${testIDPrefix}-sub`}
         >
@@ -243,6 +284,7 @@ function FaultControl({
         <Text style={[styles.ctrlValue, { color: colour }]} testID={`${testIDPrefix}-val`}>{value}</Text>
         <TouchableOpacity
           style={[styles.ctrlBtn, { backgroundColor: colour }]}
+          hitSlop={HIT_SLOP}
           onPress={onAdd}
           testID={`${testIDPrefix}-add`}
         >
@@ -278,10 +320,14 @@ const styles = StyleSheet.create({
   catRow: { flexDirection: 'row', gap: 8 },
   ctrl: { flex: 1, alignItems: 'center', gap: 6 },
   ctrlLabel: { fontSize: 11, color: theme.colors.textMuted, fontWeight: '600' },
-  ctrlRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  ctrlBtn: { width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
-  ctrlSign: { fontSize: 18, fontWeight: '700' },
-  ctrlValue: { fontSize: 18, fontWeight: '700', minWidth: 22, textAlign: 'center' },
+  ctrlRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  ctrlBtn: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
+  ctrlSign: { fontSize: 20, fontWeight: '700' },
+  ctrlValue: { fontSize: 18, fontWeight: '700', minWidth: 20, textAlign: 'center' },
+  recBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 10, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, backgroundColor: theme.colors.primaryLight },
+  recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: theme.colors.danger },
+  recDotPaused: { backgroundColor: theme.colors.textMuted },
+  recText: { flex: 1, fontSize: 13, fontWeight: '700', color: theme.colors.primary },
   footer: { position: 'absolute', bottom: 84, left: 16, right: 16 },
   // No BottomNav in the instructor flow, so the floating footer sits just
   // above the safe area instead of leaving an 84px gap for a nav bar that

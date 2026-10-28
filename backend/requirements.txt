@@ -34,4 +34,4 @@ anthropic>=1.15.0,<2
 # Testing (used by backend/tests/ — harmless in production, but only
 # actually needed for `pytest` to run; kept for parity with local dev)
 pytest~=9.1
-requests~=2.33
+requests~=2.34

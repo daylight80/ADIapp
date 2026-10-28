@@ -7,7 +7,8 @@ import random
 import time
 import logging
 from pathlib import Path
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+import uuid
 from typing import Optional, Literal, List, Tuple
 from datetime import datetime, timedelta, timezone
 import stripe
@@ -1214,7 +1215,15 @@ class GapBroadcastRequest(BaseModel):
     # non-empty list, it takes over entirely and target above is
     # ignored: notify exactly these specific students.id values, the
     # instructor's own explicit choice, rather than any computed subset.
-    student_ids: Optional[List[str]] = None
+    student_ids: Optional[List[str]] = Field(default=None, max_length=100)
+
+    @field_validator("student_ids")
+    @classmethod
+    def _ids_are_uuids(cls, ids):
+        # They are joined into a database filter, so only real ids get through.
+        for s in ids or []:
+            uuid.UUID(s)
+        return ids
 
 
 class GapBroadcastResponse(BaseModel):
@@ -1265,10 +1274,13 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
     #    who is not the owner has no school of their own).
     school = sb_user.get("school") or await sb_get_school_by_auth_user(sb_user["auth_user_id"])
     owns_school = bool(school and school["id"] == lesson_school_id)
+    # A teacher who is not the owner may only reach their own pupils; the owner may reach the whole school.
+    own_pupils_only: dict = {}
     if not owns_school:
         teacher = await sb_get_instructor_by_auth_user(sb_user["auth_user_id"])
         if not teacher or teacher["id"] != lesson.get("instructor_id"):
             raise HTTPException(status_code=403, detail="Not your lesson")
+        own_pupils_only = {"instructor_id": f"eq.{teacher['id']}"}
 
     # 3. Two ways to decide who gets notified: an explicit, instructor-
     #    chosen list of students.id values (Phase 3's Select Students
@@ -1287,6 +1299,7 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
                 params={
                     "id": f"in.({','.join(req.student_ids)})",
                     "school_id": f"eq.{lesson_school_id}",
+                    **own_pupils_only,
                     "select": "id,auth_user_id,full_name",
                 },
                 headers=_sb_headers(),
@@ -1333,6 +1346,7 @@ async def broadcast_gap(req: GapBroadcastRequest, sb_user: dict = Depends(get_cu
                         params={
                             "school_id": f"eq.{lesson_school_id}",
                             "status": "eq.Active",
+                            **own_pupils_only,
                             "select": "id,auth_user_id,full_name",
                         },
                         headers=_sb_headers(),

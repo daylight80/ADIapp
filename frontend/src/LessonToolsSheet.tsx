@@ -604,6 +604,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
                     lesson={lesson}
                     suggestions={suggestTopics(sbCompetencies, lesson.plan_topics ?? [])}
                     label={`Lesson plan: ${student.name}`}
+                    defaultBrief={lesson.status === 'Scheduled' ? lastFocus?.goal : null}
                     onSaved={onChanged}
                   />
                 )}

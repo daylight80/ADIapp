@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Polyline } from 'react-native-svg';
 import { theme } from './theme';
-import { listRoutesForStudent, fmtDistance, fmtDuration, type SavedRoute, type RoutePoint } from './routeRecorder';
+import { listRoutesForStudent, fmtDistance, fmtDuration, type SavedRoute } from './routeRecorder';
+import { sketchLines } from './routeSketch';
 
 type LessonLite = { id: string; date: string; start_time?: string | null; status: string };
 
@@ -13,27 +14,7 @@ export function lastCompletedLesson<T extends LessonLite>(lessons: T[]): T | nul
   return done[0] ?? null;
 }
 
-/** Scale GPS points into a size x size box, one line per run (a pause starts a new line). Needs 2+ points. */
-export function sketchLines(points: RoutePoint[], size: number, pad = 6): string[] {
-  if (points.length < 2) return [];
-  const lats = points.map((p) => p.lat);
-  const lngs = points.map((p) => p.lng);
-  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-  // Longitude degrees are shorter than latitude degrees away from the equator.
-  const k = Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180);
-  const w = Math.max((maxLng - minLng) * k, 1e-9);
-  const h = Math.max(maxLat - minLat, 1e-9);
-  const scale = (size - 2 * pad) / Math.max(w, h);
-  const lines: string[][] = [];
-  points.forEach((p, i) => {
-    if (i === 0 || p.brk) lines.push([]);
-    const x = pad + (p.lng - minLng) * k * scale + ((size - 2 * pad) - w * scale) / 2;
-    const y = pad + (maxLat - p.lat) * scale + ((size - 2 * pad) - h * scale) / 2;
-    lines[lines.length - 1].push(`${x.toFixed(1)},${y.toFixed(1)}`);
-  });
-  return lines.filter((l) => l.length > 1).map((l) => l.join(' '));
-}
+export { sketchLines };
 
 const SIZE = 120;
 

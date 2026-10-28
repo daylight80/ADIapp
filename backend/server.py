@@ -1869,6 +1869,17 @@ async def v2_reassign_students(
                 errors.append(f"Update failed for {sid[:8]}…: {up.text[:120]}")
             else:
                 moved += 1
+                # Lessons are visible only to the instructor named on them, so the pupil's booked lessons move
+                # too. Past and cancelled lessons stay with whoever taught them.
+                now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+                lp = await client_http.patch(
+                    f"{_sb_rest_base}/lessons",
+                    params={"student_id": f"eq.{sid}", "status": "eq.Scheduled", "start_time": f"gte.{now_iso}"},
+                    headers={**_sb_headers(), "Content-Type": "application/json", "Prefer": "return=minimal"},
+                    json={"instructor_id": iid},
+                )
+                if lp.status_code >= 400:
+                    errors.append(f"Moved {sid[:8]}…, but their booked lessons could not be moved: {lp.text[:120]}")
 
     return ReassignStudentsResponse(moved=moved, skipped=skipped, errors=errors[:10])
 

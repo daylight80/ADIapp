@@ -3,9 +3,11 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react-nativ
 
 jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }));
 const mockPush = jest.fn();
+const mockReplace = jest.fn();
+let mockParams: Record<string, string> = { studentId: 'stu-1' };
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: (...a: unknown[]) => mockPush(...a), back: jest.fn() }),
-  useLocalSearchParams: () => ({ studentId: 'stu-1' }),
+  useRouter: () => ({ push: (...a: unknown[]) => mockPush(...a), replace: (...a: unknown[]) => mockReplace(...a), back: jest.fn() }),
+  useLocalSearchParams: () => mockParams,
 }));
 jest.mock('react-native-safe-area-context', () => ({ SafeAreaView: ({ children }: any) => children }));
 jest.mock('../BottomNav', () => ({ BottomNav: () => null }));
@@ -21,7 +23,7 @@ jest.mock('../supabaseDb', () => ({ addMockTestAttempt: (...a: unknown[]) => moc
 
 import Dl25MockTestScreen from '../../app/dl25-mock-test-screen';
 
-beforeEach(() => { mockPush.mockReset(); mockAdd.mockReset().mockResolvedValue({}); });
+beforeEach(() => { mockPush.mockReset(); mockReplace.mockReset(); mockParams = { studentId: 'stu-1' }; mockAdd.mockReset().mockResolvedValue({}); });
 
 describe('DL25 mock test screen', () => {
   it('shows the car items in form order and none of the ones that do not apply', async () => {
@@ -55,6 +57,15 @@ describe('DL25 mock test screen', () => {
     expect(saved.category_breakdown.dl25_21_right).toEqual({ driving: 2, serious: 0, dangerous: 0, label: '21 Junctions – turning right' });
     expect(Object.keys(saved.category_breakdown).length).toBeGreaterThan(40);
     await waitFor(() => expect(mockPush).toHaveBeenCalled());
+  });
+
+  it('run from the Route Recorder: saves a copy, then replaces itself with the report so back lands on the recording', async () => {
+    mockParams = { studentId: 'stu-1', from: 'recorder' };
+    await render(<Dl25MockTestScreen />);
+    await fireEvent.press(screen.getByTestId('btn-finish-test'));
+    await waitFor(() => expect(mockAdd).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(expect.objectContaining({ pathname: '/dl25-report-screen', params: expect.objectContaining({ from: 'recorder', studentId: 'stu-1' }) })));
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   it('passes with up to 15 driving faults and nothing serious', async () => {

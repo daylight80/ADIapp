@@ -20,6 +20,7 @@ export default function Dl25ReportScreen() {
   // the instructor-run ?studentId= override, 26 Sept 2026), so the history
   // shown here lines up with whatever attempt was just saved.
   const instructorStudentId = (params.studentId as string) || '';
+  const fromRecorder = !!instructorStudentId && params.from === 'recorder';
   const { student: instructorStudent } = useStudent(instructorStudentId || undefined);
   const { student: sbStudentByAuth } = useStudentByAuthId(instructorStudentId ? undefined : user?.id);
   const { student: sbStudentByEmail } = useStudentByEmail(
@@ -165,7 +166,7 @@ export default function Dl25ReportScreen() {
             style={styles.btnPrimary}
             onPress={() => router.replace(
               instructorStudentId
-                ? { pathname: '/dl25-mock-test-screen', params: { studentId: instructorStudentId } }
+                ? { pathname: '/dl25-mock-test-screen', params: { studentId: instructorStudentId, ...(fromRecorder ? { from: 'recorder' } : {}) } }
                 : '/dl25-mock-test-screen',
             )}
             testID="btn-retake"
@@ -175,7 +176,7 @@ export default function Dl25ReportScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.btnPrimary, { backgroundColor: theme.colors.primary }]}
-            onPress={() => router.replace(
+            onPress={() => fromRecorder ? router.back() : router.replace(
               instructorStudentId
                 ? { pathname: '/student-lifecycle-screen', params: { id: instructorStudentId } }
                 : '/student-home-screen',
@@ -183,7 +184,7 @@ export default function Dl25ReportScreen() {
             testID="btn-back-home"
           >
             <Home size={18} color="#fff" />
-            <Text style={styles.btnText}>{instructorStudentId ? `Back to ${instructorStudent?.name?.split(' ')[0] || 'student'}` : 'Back to My Learning'}</Text>
+            <Text style={styles.btnText}>{fromRecorder ? 'Back to the recording' : instructorStudentId ? `Back to ${instructorStudent?.name?.split(' ')[0] || 'student'}` : 'Back to My Learning'}</Text>
           </TouchableOpacity>
         </View>
 

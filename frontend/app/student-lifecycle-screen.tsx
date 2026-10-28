@@ -1,12 +1,13 @@
 import { StudentRoutesCard, RouteRows, useStudentRoutes } from '../src/StudentRoutesCard';
+import { LessonRowLinks } from '../src/LessonRowLinks';
 import { matchRoutesToLessons } from '../src/lessonRoutes';
 import { PickupPlacesCard } from '../src/PickupPlacesCard';
 import { GuardianCard } from '../src/GuardianCard';
 import { validateGuardian } from '../src/guardianDetails';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, TextInput, Modal, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Lock, FileText, Download, X, Flag } from 'lucide-react-native';
 import { PaywallModal } from '../src/PaywallModal';
 import { useAuth } from '../src/AuthContext';
@@ -225,11 +226,14 @@ export default function StudentProfileV2Screen() {
   useEffect(() => {
     if (!student?.id) return;
     getPendingDeletionRequestForStudent(student.id).then(setPendingGdprRequest).catch(() => {});
-    listLessonNotesForStudent(student.id).then(setLessonNotesHistory).catch(() => {});
     if (user?.instructor_id) {
       listMyLessonNoteQuestions(user.instructor_id).then(setLessonNoteQuestions).catch(() => {});
     }
   }, [student?.id, user?.instructor_id]);
+  // Reloaded on every return to this screen, so notes just added or edited on the notes screen show at once.
+  useFocusEffect(useCallback(() => {
+    if (student?.id) listLessonNotesForStudent(student.id).then(setLessonNotesHistory).catch(() => {});
+  }, [student?.id]));
   const questionTextById = useMemo(
     () => Object.fromEntries(lessonNoteQuestions.map((q) => [q.id, q.question_text])),
     [lessonNoteQuestions],
@@ -1029,6 +1033,17 @@ export default function StudentProfileV2Screen() {
                         <Text style={s.lessonMeta}>Recorded route</Text>
                         <RouteRows routes={routeMatch.byLesson[l.id]} />
                       </View>
+                    )}
+                    {l.status === 'Completed' && (
+                      <LessonRowLinks
+                        lessonId={l.id}
+                        studentId={student.id}
+                        studentName={student.name}
+                        routes={routeMatch.byLesson[l.id] || []}
+                        attempts={mockAttempts}
+                        note={lessonNotesHistory.find((n) => n.lesson_id === l.id)}
+                        questionText={questionTextById}
+                      />
                     )}
                   </View>
                 ))}

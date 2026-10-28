@@ -91,6 +91,7 @@ function Heading({ children, right }: { children: React.ReactNode; right?: React
 export default function InstructorHomeV2Screen() {
   const pendingSyncCount = usePendingSyncCount();
   const router = useRouter();
+  const openPupils = (filter: string) => router.push({ pathname: '/student-crm-screen', params: { filter } } as any);
   const { user } = useAuth();
   const [selId, setSelId] = useState<string | null>(null);
   const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
@@ -547,22 +548,23 @@ export default function InstructorHomeV2Screen() {
             <View style={{ marginHorizontal: 20, marginTop: 20 }}>
               <Heading>Pupils</Heading>
               <View style={s.pupilGrid}>
-                <View style={s.pupilTile}>
+                {/* Each tile opens the Students list on the matching filter chip. */}
+                <TouchableOpacity style={s.pupilTile} onPress={() => openPupils('Active')} accessibilityRole="button" testID="v2-pupils-active">
                   <Text style={s.pupilValue}>{kpis.active}</Text>
                   <Text style={s.pupilLabel}>Active</Text>
-                </View>
-                <View style={s.pupilTile}>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.pupilTile} onPress={() => openPupils('Test Ready')} accessibilityRole="button" testID="v2-pupils-testready">
                   <Text style={s.pupilValue}>{kpis.testReady}</Text>
                   <Text style={s.pupilLabel}>Test ready</Text>
-                </View>
-                <View style={s.pupilTile}>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.pupilTile} onPress={() => openPupils('Waitlist')} accessibilityRole="button" testID="v2-pupils-waitlist">
                   <Text style={s.pupilValue}>{kpis.waitlist}</Text>
                   <Text style={s.pupilLabel}>Waiting list</Text>
-                </View>
-                <View style={s.pupilTile}>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.pupilTile} onPress={() => openPupils('Passed')} accessibilityRole="button" testID="v2-pupils-passed">
                   <Text style={[s.pupilValue, { color: C.success }]}>{testKpis.passRatePct}%</Text>
                   <Text style={s.pupilLabel}>Pass rate · {testKpis.total} tests</Text>
-                </View>
+                </TouchableOpacity>
               </View>
             </View>
           )}

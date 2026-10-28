@@ -20,7 +20,7 @@ import {
   fmtDistance, fmtDuration, msToMph, activeSeconds, nextPoint, shouldAutostart,
   type SavedRoute, type RoutePoint,
 } from '../src/routeRecorder';
-import { openRouteInMaps, shareRouteGpx } from '../src/routeShare';
+import { openRouteInMaps, shareRouteGpx, shareAllRoutesGpx } from '../src/routeShare';
 import { useKeyboardHeight } from '../src/useKeyboardHeight';
 import { listMockTestAttemptsForRoute, type MockTestAttempt } from '../src/supabaseDb';
 import { InLessonTopicsCard } from '../src/InLessonTopicsCard';
@@ -486,6 +486,18 @@ export default function RouteRecorderScreen() {
             </Text>
           )}
         </View>
+
+        {saved.length > 0 && (
+          <View style={{ gap: 8, marginBottom: 8 }}>
+            <Text style={styles.helperText} testID="routes-not-backed-up">
+              Routes are kept on this phone only and are not backed up. Save a copy now and then.
+            </Text>
+            <TouchableOpacity style={styles.actionBtn} onPress={() => shareAllRoutesGpx(saved)} testID="btn-share-all-routes">
+              <Share2 size={18} color={theme.colors.primary} />
+              <Text style={styles.actionText}>Save a copy of all routes (GPX)</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {loadingList ? (
           <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 24 }} />

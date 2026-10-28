@@ -7,7 +7,7 @@ import lesson_reminders as lr
 
 BASE = dict(
     student_name="Sam Pupil", instructor_name="Grant Robery", kind="h25", weekday="Thursday",
-    date_text="22 October", time_text="09:00", instructor_phone="07806 750559",
+    date_text="22 October", time_text="09:00", instructor_phone="07700 900123",
 )
 
 

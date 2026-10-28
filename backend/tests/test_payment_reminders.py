@@ -40,11 +40,11 @@ def test_push_has_no_amount_and_names_the_instructor():
 
 def test_email_says_the_amount_who_to_call_and_escapes_names():
     subject, html_body, text_body = email_service.render_payment_reminder_email(
-        student_name="Sam <b>Pupil</b>", instructor_name='Grant "Robery"', amount_text="£46.00", instructor_phone="07806 750559",
+        student_name="Sam <b>Pupil</b>", instructor_name='Grant "Robery"', amount_text="£46.00", instructor_phone="07700 900123",
     )
     assert subject == "A payment reminder from Grant Robery"
     assert "£46.00" in text_body and "£46.00" in html_body
-    assert "07806 750559" in text_body
+    assert "07700 900123" in text_body
     assert "<b>" not in html_body
     assert "Hi Sam," in text_body
     assert "pay at your next lesson" in text_body

@@ -70,6 +70,18 @@ describe('LessonPlanSection', () => {
     await waitFor(() => expect(mockPatch).toHaveBeenCalledWith('l1', { plan_brief: 'Sutton roundabouts' }, expect.any(String)));
   });
 
+  it('starts a never-written briefing from last lesson\'s goal and saves it', async () => {
+    await render(<LessonPlanSection lesson={{ ...lesson, plan_brief: undefined }} suggestions={[]} label="x" defaultBrief="  Work on roundabouts  " />);
+    expect(screen.getByTestId('plan-brief').props.value).toBe('Work on roundabouts');
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledWith('l1', { plan_brief: 'Work on roundabouts' }, 'x'));
+  });
+
+  it('leaves a briefing that already exists, even an emptied one, alone', async () => {
+    await render(<LessonPlanSection lesson={{ ...lesson, plan_brief: '' }} suggestions={[]} label="x" defaultBrief="Work on roundabouts" />);
+    expect(screen.getByTestId('plan-brief').props.value).toBe('');
+    expect(mockPatch).not.toHaveBeenCalled();
+  });
+
   it('shows an error when saving fails', async () => {
     mockPatch.mockRejectedValue(new Error('permission denied'));
     await view();

@@ -10,11 +10,13 @@ type Props = {
   /** Weak topics not yet planned, offered as one-tap suggestions. */
   suggestions: string[];
   label: string;
+  /** Last lesson's goal: fills a briefing that was never written. */
+  defaultBrief?: string | null;
   onSaved?: () => void;
 };
 
 /** Plan for a lesson (paid plans): pick syllabus topics, write a short briefing, tick topics off during the lesson. */
-export function LessonPlanSection({ lesson, suggestions, label, onSaved }: Props) {
+export function LessonPlanSection({ lesson, suggestions, label, defaultBrief, onSaved }: Props) {
   const [plan, setPlan] = useState<Plan>({ topics: lesson.plan_topics ?? [], covered: lesson.plan_covered ?? [] });
   const [brief, setBrief] = useState(lesson.plan_brief ?? '');
   const [adding, setAdding] = useState(false);
@@ -24,6 +26,15 @@ export function LessonPlanSection({ lesson, suggestions, label, onSaved }: Props
     setPlan({ topics: lesson.plan_topics ?? [], covered: lesson.plan_covered ?? [] });
     setBrief(lesson.plan_brief ?? '');
   }, [lesson.id, lesson.plan_topics, lesson.plan_covered, lesson.plan_brief]);
+
+  // Never-touched briefing (null in the database): start it from last lesson's goal. Clearing it later saves '' so it stays empty.
+  useEffect(() => {
+    if (!defaultBrief || lesson.plan_brief !== undefined) return;
+    const text = defaultBrief.trim().slice(0, MAX_PLAN_BRIEF);
+    setBrief(text);
+    save({ plan_brief: text });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lesson.id, lesson.plan_brief, defaultBrief]);
 
   const save = async (patch: { plan_topics?: string[]; plan_covered?: string[]; plan_brief?: string | null }) => {
     setError(null);
@@ -88,7 +99,7 @@ export function LessonPlanSection({ lesson, suggestions, label, onSaved }: Props
         style={s.input}
         value={brief}
         onChangeText={setBrief}
-        onEndEditing={() => { if (brief.trim() !== (lesson.plan_brief ?? '').trim()) save({ plan_brief: brief.trim() || null }); }}
+        onEndEditing={() => { if (brief.trim() !== (lesson.plan_brief ?? '').trim()) save({ plan_brief: brief.trim() }); }}
         multiline
         maxLength={MAX_PLAN_BRIEF}
         placeholder="e.g. Residential roads, then the Sutton roundabouts"

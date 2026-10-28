@@ -98,6 +98,15 @@ describe('Instructor Home', () => {
     expect(mockToday.refresh).toHaveBeenCalled();
   });
 
+  it('opens the Students list on the matching filter from each pupil tile', async () => {
+    await render(<HomeScreen />);
+    for (const [id, filter] of [['active', 'Active'], ['testready', 'Test Ready'], ['waitlist', 'Waitlist'], ['passed', 'Passed']]) {
+      mockPush.mockReset();
+      await fireEvent.press(screen.getByTestId(`v2-pupils-${id}`));
+      expect(mockPush).toHaveBeenCalledWith({ pathname: '/student-crm-screen', params: { filter } });
+    }
+  });
+
   it('keeps earnings hidden until Reveal is pressed', async () => {
     await render(<HomeScreen />);
     expect(screen.getAllByText('£•••').length).toBeGreaterThan(0);

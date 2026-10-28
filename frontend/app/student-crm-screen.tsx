@@ -216,6 +216,8 @@ export default function StudentsV2Screen() {
 
   useEffect(() => {
     if (params?.filter === 'arrears') setArrearsActive(true);
+    // Deep link from the Home pupil tiles, e.g. ?filter=Test Ready.
+    else if (FILTERS.includes(params?.filter as FilterChip)) setFilter(params.filter as FilterChip);
   }, [params?.filter]);
 
   useEffect(() => {

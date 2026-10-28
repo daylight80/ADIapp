@@ -218,19 +218,16 @@ export async function updateRouteNotes(id: string, notes: string): Promise<void>
 // GPX export — GPX 1.1 spec
 // ---------------------------------------------------------------------------
 
-export function routeToGPX(r: SavedRoute): string {
-  const xmlEsc = (s: string) =>
-    s.replace(/[&<>"']/g, (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c] as string),
-    );
+const xmlEsc = (s: string) =>
+  s.replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c] as string),
+  );
+
+const gpxOpen = '<gpx version="1.1" creator="DualControl" xmlns="http://www.topografix.com/GPX/1/1">';
+
+/** One route as a <trk> block. Only the track itself: the instructor's private notes never go in. */
+function gpxTrack(r: SavedRoute): string[] {
   const lines: string[] = [];
-  lines.push('<?xml version="1.0" encoding="UTF-8"?>');
-  lines.push('<gpx version="1.1" creator="DualControl" xmlns="http://www.topografix.com/GPX/1/1">');
-  lines.push('  <metadata>');
-  lines.push(`    <name>${xmlEsc(r.name)}</name>`);
-  lines.push(`    <time>${r.startedAt}</time>`);
-  lines.push(`    <desc>Recorded with DualControl · ${fmtDistance(r.distanceMeters)} · ${fmtDuration(r.durationSec)}</desc>`);
-  lines.push('  </metadata>');
   lines.push('  <trk>');
   lines.push(`    <name>${xmlEsc(r.name)}</name>`);
   lines.push('    <trkseg>');
@@ -245,6 +242,33 @@ export function routeToGPX(r: SavedRoute): string {
   }
   lines.push('    </trkseg>');
   lines.push('  </trk>');
+  return lines;
+}
+
+export function routeToGPX(r: SavedRoute): string {
+  const lines: string[] = [];
+  lines.push('<?xml version="1.0" encoding="UTF-8"?>');
+  lines.push(gpxOpen);
+  lines.push('  <metadata>');
+  lines.push(`    <name>${xmlEsc(r.name)}</name>`);
+  lines.push(`    <time>${r.startedAt}</time>`);
+  lines.push(`    <desc>Recorded with DualControl · ${fmtDistance(r.distanceMeters)} · ${fmtDuration(r.durationSec)}</desc>`);
+  lines.push('  </metadata>');
+  lines.push(...gpxTrack(r));
+  lines.push('</gpx>');
+  return lines.join('\n');
+}
+
+/** Every route in one GPX file, one track each: a copy to keep, since routes live only on this phone. */
+export function routesToGPX(routes: SavedRoute[]): string {
+  const lines: string[] = [];
+  lines.push('<?xml version="1.0" encoding="UTF-8"?>');
+  lines.push(gpxOpen);
+  lines.push('  <metadata>');
+  lines.push('    <name>DualControl routes</name>');
+  lines.push(`    <desc>${routes.length} recorded ${routes.length === 1 ? 'route' : 'routes'}</desc>`);
+  lines.push('  </metadata>');
+  for (const r of routes) lines.push(...gpxTrack(r));
   lines.push('</gpx>');
   return lines.join('\n');
 }

@@ -129,6 +129,19 @@ describe('routeRecorder — pausing and pupil routes', () => {
     expect(gpx.match(/<trkseg>/g)).toHaveLength(2);
   });
 
+  it('writes every route into one GPX file, one track each, with no private notes', () => {
+    const { routesToGPX } = require('../routeRecorder');
+    const a = { ...makeRoute('a', 'First & best'), points: [pt(51, -0.2), pt(51.001, -0.2)], notes: 'secret note', positives: 'secret good' };
+    const b = { ...makeRoute('b', 'Second'), points: [pt(52, -0.1), pt(52.001, -0.1)], negatives: 'secret bad' };
+    const gpx = routesToGPX([a, b]);
+    expect(gpx.match(/<gpx /g)).toHaveLength(1);
+    expect(gpx.match(/<trk>/g)).toHaveLength(2);
+    expect(gpx).toContain('<name>First &amp; best</name>');
+    expect(gpx).toContain('2 recorded routes');
+    expect(gpx).not.toMatch(/secret/);
+    expect(routesToGPX([])).toContain('0 recorded routes');
+  });
+
   it('lists only the routes saved against one pupil', async () => {
     await AsyncStorage.clear();
     await saveRoute({ ...makeRoute('a', 'A'), studentId: 's1' });

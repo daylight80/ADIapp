@@ -395,7 +395,7 @@ export default function InstructorHomeV2Screen() {
             )}
           </View>
 
-          {/* Needs me today (paid: renewal deadlines and the ranked action list), then the road briefing */}
+          {/* Needs attention (paid: renewal deadlines and the ranked action list), then the road briefing */}
           <ActionCentreCard />
           <RoadBriefingCard lessons={todayLessons} students={students} />
           <DeadlinesBanner enabled={paid} />

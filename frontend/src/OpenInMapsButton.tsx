@@ -17,6 +17,8 @@ type Props = {
    * actions) instead of always rendering its own compact pill shape. */
   style?: any;
   textStyle?: any;
+  /** Icon colour for the pill when the surrounding style changes its background. */
+  iconColor?: string;
 };
 
 /**
@@ -30,7 +32,7 @@ type Props = {
  *
  * Zero API keys required — opens the user's native Maps app via deep-link.
  */
-export function OpenInMapsButton({ address, variant = 'pill', label = 'Open in Maps', testID, navApp, style, textStyle }: Props) {
+export function OpenInMapsButton({ address, variant = 'pill', label = 'Open in Maps', testID, navApp, style, textStyle, iconColor }: Props) {
   const { profile } = useInstructorProfile();
   const preferred = (navApp || profile?.preferred_nav_app || 'google') as 'google' | 'waze' | 'apple';
 
@@ -70,7 +72,7 @@ export function OpenInMapsButton({ address, variant = 'pill', label = 'Open in M
       accessibilityRole="button"
       accessibilityLabel={`${label}: ${trimmed || 'no address'}`}
     >
-      <NavIcon size={13} color={disabled ? theme.colors.textMuted : theme.colors.primary} />
+      <NavIcon size={iconColor ? 20 : 13} color={disabled ? theme.colors.textMuted : iconColor || theme.colors.primary} />
       <Text style={[styles.pillText, disabled && styles.disabledText, textStyle]} numberOfLines={1}>{label}</Text>
     </TouchableOpacity>
   );

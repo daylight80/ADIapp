@@ -10,7 +10,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import {
-  ArrowLeft, Play, Pause, Square, MapPin, Navigation as NavIcon, Share2, Trash2, Route as RouteIcon, Clock, Gauge,
+  ArrowLeft, Flag, Play, Pause, Square, MapPin, Navigation as NavIcon, Share2, Trash2, Route as RouteIcon, Clock, Gauge,
 } from 'lucide-react-native';
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
@@ -393,6 +393,17 @@ export default function RouteRecorderScreen() {
                 <Square size={20} color="#fff" />
                 <Text style={styles.stopBtnText}>Stop & Save</Text>
               </TouchableOpacity>
+              {/* Opens over this screen, which stays mounted underneath, so the recording carries on. */}
+              {!!linkedStudentId && (
+                <TouchableOpacity
+                  style={styles.mockBtn}
+                  onPress={() => router.push({ pathname: '/dl25-mock-test-screen', params: { studentId: linkedStudentId, from: 'recorder' } } as any)}
+                  testID="btn-start-mock-test"
+                >
+                  <Flag size={20} color="#fff" />
+                  <Text style={styles.stopBtnText}>Start Mock Test</Text>
+                </TouchableOpacity>
+              )}
               {!!linkedLessonId && !!linkedStudentId && (
                 <InLessonTopicsCard lessonId={linkedLessonId} studentId={linkedStudentId} studentName={linkedStudentName} />
               )}
@@ -673,6 +684,11 @@ const styles = StyleSheet.create({
   stopBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     backgroundColor: theme.colors.danger, paddingHorizontal: 28, paddingVertical: 14,
+    borderRadius: 999, marginTop: 4, alignSelf: 'stretch',
+  },
+  mockBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: theme.colors.accent, paddingHorizontal: 28, paddingVertical: 14,
     borderRadius: 999, marginTop: 4, alignSelf: 'stretch',
   },
   stopBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },

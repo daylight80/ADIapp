@@ -29,6 +29,7 @@ export default function Dl25MockTestScreen() {
   // the learner row via auth uid → email → mockDb fallback (offline/demo),
   // same as theory-test-screen.
   const instructorStudentId = (params.studentId as string) || '';
+  const fromRecorder = !!instructorStudentId && params.from === 'recorder';
   const { student: instructorStudent } = useStudent(instructorStudentId || undefined);
   const { student: sbStudentByAuth } = useStudentByAuthId(instructorStudentId ? undefined : user?.id);
   const { student: sbStudentByEmail } = useStudentByEmail(
@@ -88,7 +89,8 @@ export default function Dl25MockTestScreen() {
     // No supabaseStudent (offline/demo) — nothing to persist against; the
     // report screen still works from the route params below.
 
-    router.push({
+    // Run from the Route Recorder: replace this screen, so closing the report lands back on the recording.
+    (fromRecorder ? router.replace : router.push)({
       pathname: '/dl25-report-screen',
       params: {
         d: totals.driving.toString(),
@@ -99,8 +101,9 @@ export default function Dl25MockTestScreen() {
         // Carried through so the report screen keeps resolving the same
         // student (and its Retake button comes back here with it too).
         ...(instructorStudentId ? { studentId: instructorStudentId } : {}),
+        ...(fromRecorder ? { from: 'recorder' } : {}),
       },
-    });
+    } as any);
   };
 
   const handleReset = () => {

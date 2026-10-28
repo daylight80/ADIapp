@@ -11,6 +11,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 import uuid
 from typing import Optional, Literal, List, Tuple
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import stripe
 from lesson_reminders import start_lesson_reminder_scheduler, stop_lesson_reminder_scheduler, close_http_client as close_lesson_reminder_http_client
 import email_service
@@ -2015,15 +2016,26 @@ class TodayLessonRow(BaseModel):
     pickup_address: Optional[str] = None
 
 
+UK_TZ = ZoneInfo("Europe/London")
+
+
+def uk_day_bounds_utc(now: Optional[datetime] = None) -> Tuple[str, str]:
+    """Start and end of today in UK time, as the UTC timestamps lessons are stored in (GMT in winter, BST in summer,
+    so a UK day starts at 23:00 UTC the evening before while the clocks are forward)."""
+    uk_now = (now or datetime.now(timezone.utc)).astimezone(UK_TZ)
+    start = uk_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = (start + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    fmt = "%Y-%m-%dT%H:%M:%S"
+    return start.astimezone(timezone.utc).strftime(fmt), end.astimezone(timezone.utc).strftime(fmt)
+
+
 @api_router.get("/v2/school/today", response_model=List[TodayLessonRow])
 async def v2_school_today(sb_user: dict = Depends(get_current_supabase_user)):
-    """Owner-only. Every lesson scheduled across the school for today (UTC)."""
+    """Owner-only. Every lesson scheduled across the school for today (UK time)."""
     if not await _is_school_owner(sb_user):
         raise HTTPException(status_code=403, detail="Only the school owner can view the live diary")
     school_id = sb_user["school"]["id"]
-    today = datetime.now(timezone.utc).date()
-    tomorrow = (today + timedelta(days=1)).isoformat()
-    today_iso = today.isoformat()
+    day_start, day_end = uk_day_bounds_utc()
 
     async with httpx.AsyncClient(timeout=10.0) as client_http:
         r = await client_http.get(
@@ -2033,8 +2045,8 @@ async def v2_school_today(sb_user: dict = Depends(get_current_supabase_user)):
                     "id,instructor_id,student_id,start_time,end_time,status,topic,pickup_address,"
                     "instructors(id,full_name,school_id),students(id,full_name)"
                 ),
-                "start_time": f"gte.{today_iso}T00:00:00",
-                "and": f"(start_time.lt.{tomorrow}T00:00:00)",
+                "start_time": f"gte.{day_start}",
+                "and": f"(start_time.lt.{day_end})",
                 "order": "start_time.asc",
             },
             headers=_sb_headers(),
@@ -2520,6 +2532,8 @@ import re as _re
 
 # Model-backed endpoints cost real money per call. One daily allowance per user across receipt scans and the two
 # debriefs (the summary and weather endpoints have their own). 60 is far above real use (about 15 receipts a week).
+# shortcut: the counts live in this process's memory, so a deploy or restart resets them and a second instance would
+# count separately. Fine for one instance and normal use; move the count to a database table if the AI bill ever matters.
 _ai_limiter = address_search.UserLimiter(60, 86400)
 # A receipt photo bigger than this is refused: the model takes images up to about 5 MB, and the server must not hold
 # an unbounded upload in memory. 7,000,000 base64 characters is about 5.2 MB.

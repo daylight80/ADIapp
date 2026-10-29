@@ -592,7 +592,7 @@ async def billing_v2_sync_seats(sb_user: dict = Depends(get_current_supabase_use
     target_seat_qty = max(0, seat_count - 1)
 
     # Find the subscription item using the seat price
-    sub = await asyncio.to_thread(stripe.Subscription.retrieve, sub_id, expand=["items.data.price"])
+    sub = billing_helpers.plain(await asyncio.to_thread(stripe.Subscription.retrieve, sub_id, expand=["items.data.price"]))
     seat_item = None
     for item in sub["items"]["data"]:
         if item["price"]["id"] == STRIPE_PRICE_FRANCHISE_SEAT:
@@ -796,7 +796,7 @@ async def stripe_webhook(request: FastAPIRequest):
         raise HTTPException(status_code=400, detail=f"Invalid Stripe signature: {e}")
 
     etype = event["type"]
-    data = event["data"]["object"]
+    data = billing_helpers.plain(event["data"]["object"])
 
     try:
         if etype == "checkout.session.completed":
@@ -807,7 +807,7 @@ async def stripe_webhook(request: FastAPIRequest):
                 if school and school.get("is_comp_account"):
                     logger.info("Skipping webhook tier update for comp account school %s", school_id)
                 else:
-                    sub = await asyncio.to_thread(stripe.Subscription.retrieve, sub_id, expand=["items.data.price"])
+                    sub = billing_helpers.plain(await asyncio.to_thread(stripe.Subscription.retrieve, sub_id, expand=["items.data.price"]))
                     patch = {
                         "tier": _tier_from_subscription(sub) or "pro",
                         "subscription_status": "active",
@@ -832,7 +832,7 @@ async def stripe_webhook(request: FastAPIRequest):
                 elif school:
                     # Stripe does not promise delivery order, so this event body may be older than what the school
                     # has now. Read the subscription's current state instead of trusting the body.
-                    data = await asyncio.to_thread(stripe.Subscription.retrieve, data["id"], expand=["items.data.price"])
+                    data = billing_helpers.plain(await asyncio.to_thread(stripe.Subscription.retrieve, data["id"], expand=["items.data.price"]))
                     if data.get("status") == "canceled":
                         await _cancel_school(school, data.get("id"))
                         return {"received": True, "handled": True, "type": etype}

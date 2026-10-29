@@ -7,6 +7,16 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 
+def plain(obj: Any) -> Any:
+    """A Stripe object as plain dicts and lists. stripe-python 15 objects are no longer dicts (no .get() or .items()),
+    while 13 ones are, so reading them through this works the same on both. Anything already plain comes back as is."""
+    for name in ("to_dict", "to_dict_recursive"):
+        fn = getattr(obj, name, None)
+        if callable(fn):
+            return fn()
+    return obj
+
+
 def _get(obj: Any, key: str) -> Any:
     try:
         return obj.get(key)

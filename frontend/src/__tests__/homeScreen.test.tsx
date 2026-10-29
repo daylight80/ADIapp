@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react-native';
+import { render, screen, fireEvent, within } from '@testing-library/react-native';
 
 jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }));
 const mockPush = jest.fn();
@@ -27,6 +27,12 @@ jest.mock('../supabaseDb', () => ({
   computeTestKpis: () => ({ passRatePct: 71, total: 7 }),
   getMySchoolProfile: jest.fn().mockResolvedValue(null),
 }));
+const mockEnquiries = [
+  { id: 'q1', stage: 'Waiting', converted_at: null, closed_at: null },
+  { id: 'q2', stage: 'Waiting', converted_at: null, closed_at: null },
+  { id: 'q3', stage: 'Contacted', converted_at: null, closed_at: null },
+];
+jest.mock('../useEnquiries', () => ({ useEnquiries: () => ({ enquiries: mockEnquiries }) }));
 jest.mock('../offlineSync', () => ({ usePendingSyncCount: () => 0 }));
 const mockSms = jest.fn();
 jest.mock('../tools', () => ({ openSmsComposer: (...a: any[]) => mockSms(...a) }));
@@ -104,6 +110,19 @@ describe('Instructor Home', () => {
       mockPush.mockReset();
       await fireEvent.press(screen.getByTestId(`v2-pupils-${id}`));
       expect(mockPush).toHaveBeenCalledWith({ pathname: '/student-crm-screen', params: { filter } });
+    }
+  });
+
+  it('shows the waiting and contacted enquiry counts, and opens Enquiries on that stage', async () => {
+    await render(<HomeScreen />);
+    expect(screen.getByText('Enquiries waiting')).toBeTruthy();
+    expect(screen.getByText('Enquiries contacted')).toBeTruthy();
+    expect(within(screen.getByTestId('v2-enquiries-waiting')).getByText('2')).toBeTruthy();
+    expect(within(screen.getByTestId('v2-enquiries-contacted')).getByText('1')).toBeTruthy();
+    for (const stage of ['Waiting', 'Contacted']) {
+      mockPush.mockReset();
+      await fireEvent.press(screen.getByTestId(`v2-enquiries-${stage.toLowerCase()}`));
+      expect(mockPush).toHaveBeenCalledWith({ pathname: '/enquiries-screen', params: { stage } });
     }
   });
 

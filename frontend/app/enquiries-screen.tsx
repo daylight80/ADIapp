@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Linking, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
 import { BottomSheet } from '../src/BottomSheet';
 import { useAuth } from '../src/AuthContext';
@@ -62,7 +62,9 @@ function EnquiriesContent() {
   const { students } = useStudents();
   const { enquiries, loading, error, refresh } = useEnquiries();
 
-  const [stage, setStage] = useState<WaitlistStage>('Waiting');
+  // The Home tiles open this screen on the stage they show.
+  const params = useLocalSearchParams<{ stage?: string }>();
+  const [stage, setStage] = useState<WaitlistStage>(WAITLIST_STAGES.find((st) => st === params.stage) ?? 'Waiting');
   const [openId, setOpenId] = useState<string | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [formError, setFormError] = useState<string | null>(null);

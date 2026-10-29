@@ -45,10 +45,11 @@ def test_the_sdk_sends_the_model_and_effort(monkeypatch):
 
 
 def test_the_requirements_pin_allows_the_sdk_version_that_supports_effort():
-    """The `effort` setting needs SDK 1.8 or newer, so the pin must stay at that or above (and below 2)."""
+    """The `effort` setting needs SDK 1.8 or newer, so the pin must stay at that or above, and stop before the next major."""
     import re
 
     reqs = open("requirements.txt", encoding="utf-8").read()
-    m = re.search(r"^anthropic>=(\d+)\.(\d+)(?:\.\d+)?,<2\s*$", reqs, re.MULTILINE)
-    assert m, "requirements.txt should pin anthropic as >=X.Y,<2"
+    m = re.search(r"^anthropic>=(\d+)\.(\d+)(?:\.\d+)?,<(\d+)\s*$", reqs, re.MULTILINE)
+    assert m, "requirements.txt should pin anthropic as >=X.Y,<next major"
     assert (int(m.group(1)), int(m.group(2))) >= (1, 8)
+    assert int(m.group(3)) == int(m.group(1)) + 1

@@ -24,6 +24,7 @@ import { exportMyDataJson } from '../src/gdprExport';
 import { CalendarFeedCard } from '../src/CalendarFeedCard';
 import { BankHolidayRegionCard } from '../src/BankHolidayRegionCard';
 import { TravelBufferCard } from '../src/TravelBufferCard';
+import { WorkingHoursCard, LessonTypesCard } from '../src/DiaryPrefsCards';
 import { ReminderBalanceCard } from '../src/ReminderBalanceCard';
 import { ContactsImportSheet } from '../src/ContactsImportSheet';
 import { OpenInMapsButton } from '../src/OpenInMapsButton';
@@ -301,6 +302,10 @@ export default function ProfileScreen() {
         return <NavRow icon={<Calendar size={18} color={theme.colors.danger} />} label="Unavailabilities (time off)" onPress={() => router.push('/unavailabilities-screen' as any)} testID="link-unavailabilities" />;
       case 'travelBuffer':
         return <TravelBufferCard />;
+      case 'workingHours':
+        return <WorkingHoursCard />;
+      case 'lessonTypes':
+        return <LessonTypesCard />;
       case 'reminderBalance':
         return <ReminderBalanceCard />;
       case 'bankHolidays':

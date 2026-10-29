@@ -10,14 +10,15 @@ import { supabase } from '../supabaseClient';
 import { createLesson, patchLesson, patchStudent, useStudentPlaces } from '../useSupabaseData';
 import { AddressSearch } from '../AddressSearch';
 import { combineAddress } from '../addressLookup';
-import { overlapsAnyBlock, getMyDefaultTravelMinutes, type AvailabilityBlock, type Lesson, type Student } from '../supabaseDb';
+import { overlapsAnyBlock, getMyDefaultTravelMinutes, getMyDiaryPrefs, getInstructorHourlyRate, listLessonsBetween, listAvailabilityBlocks, type AvailabilityBlock, type Lesson, type Student } from '../supabaseDb';
 import { cleanBufferMinutes, lessonBuffer, findTightTurnarounds, describeTightTurnaround } from './buffer';
 import { getTravelTime, lessonAddress } from '../maps';
 import { scheduleLessonReminders } from '../notifications';
 import { styles } from './diaryStyles';
 import { isPracticalTest, testDateIso, defaultTestTimes, shiftTestTimes, testTimesProblem, testStartIso } from './testBooking';
-import { LESSON_LENGTHS, lengthLabel, endTimeFor, matchingLength, endAfterStartChange } from './lessonLength';
-import { LESSON_TYPES } from './lessonTypes';
+import { lengthLabel, endTimeFor, lengthBetween, endAfterStartChange } from './lessonLength';
+import { lengthOptions, typesOffered, workHours, suggestedPrice, type DiaryPrefs } from './diaryPrefs';
+import { findNextSlots, type Slot } from './nextSlots';
 
 export type AddLessonCreatedInfo = {
   /** YYYY-MM-DD of the first created lesson */
@@ -95,7 +96,14 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
   const [rate, setRate] = useState('');
   const rateManuallyEdited = useRef(false);
   const [lessonType, setLessonType] = useState<string>('Standard');
-  const [travelMinutes, setTravelMinutes] = useState('15');
+  // Empty until the instructor's own default (Profile > Travel time) arrives, so a stale "15" never flashes.
+  const [travelMinutes, setTravelMinutes] = useState('');
+  // The instructor's own lengths, lesson types and working hours, their default hourly rate, and the next four
+  // weeks of lessons and time off, which "Next available" searches.
+  const [prefs, setPrefs] = useState<DiaryPrefs>({});
+  const [defaultRate, setDefaultRate] = useState<number | null>(null);
+  const [slotLessons, setSlotLessons] = useState<Lesson[]>([]);
+  const [slotBlocks, setSlotBlocks] = useState<AvailabilityBlock[]>([]);
 
   // Recurrence — bulk-create across `repeatWeeks` consecutive weeks at the
   // same weekday & time. We stamp a shared `series_id` so the bulk-cancel UX
@@ -162,16 +170,53 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
   // instructor hasn't typed their own figure; once they do, this stops
   // touching the field so it never overwrites a deliberate override (e.g.
   // a promotional lesson, a block-booking discount).
+  // The price comes from the instructor's price for that length (Pricing & packages), or the pupil's own hourly
+  // rate, or the default hourly rate, times the length.
+  const lengthMin = lengthBetween(startTime, endTime);
+  const suggestion = suggestedPrice(lengthMin, prefs, studentId ? getStudent(studentId)?.hourly_rate : null, defaultRate);
+  const suggestedValue = suggestion ? suggestion.price.toFixed(2) : null;
   useEffect(() => {
-    if (!visible || !studentId || rateManuallyEdited.current) return;
-    const s = getStudent(studentId);
-    if (!s?.hourly_rate) return;
-    const [sh, sm] = startTime.split(':').map(Number);
-    const [eh, em] = endTime.split(':').map(Number);
-    const hours = Math.max(0, (eh + em / 60) - (sh + sm / 60));
-    if (hours <= 0) return;
-    setRate((s.hourly_rate * hours).toFixed(2));
-  }, [visible, studentId, startTime, endTime]);
+    if (!visible || !studentId || rateManuallyEdited.current || !suggestedValue) return;
+    setRate(suggestedValue);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, studentId, suggestedValue]);
+
+  // The instructor's own choices, and the next four weeks of lessons and time off for "Next available".
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    getMyDiaryPrefs().then((p) => { if (!cancelled) setPrefs(p); }).catch(() => {});
+    getInstructorHourlyRate().then((r) => { if (!cancelled) setDefaultRate(r); }).catch(() => {});
+    const from = new Date(); from.setHours(0, 0, 0, 0);
+    const to = new Date(from); to.setDate(to.getDate() + 29);
+    listLessonsBetween(from.toISOString(), to.toISOString()).then((l) => { if (!cancelled) setSlotLessons(l); }).catch(() => {});
+    listAvailabilityBlocks(from.toISOString(), to.toISOString()).then((b) => { if (!cancelled) setSlotBlocks(b); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [visible]);
+
+  // Once the instructor's own choices arrive, start from one they actually offer (the form opens at 2 hours,
+  // and "Standard" may not be one of their types).
+  useEffect(() => {
+    if (!visible) return;
+    const opts = lengthOptions(prefs);
+    if (prefs.lesson_lengths?.length && !opts.some((o) => o.minutes === lengthBetween(startTime, endTime))) {
+      setEndTime(endTimeFor(startTime, opts[0].minutes));
+    }
+    const offered = typesOffered(prefs);
+    if (!offered.some((t) => t.value === lessonType)) setLessonType(offered[0].value);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, prefs]);
+
+  const nextSlots: Slot[] = useMemo(() => {
+    if (!visible || lengthMin <= 0) return [];
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const wh = workHours(prefs);
+    return findNextSlots({
+      lessons: slotLessons, blocks: slotBlocks, today, nowMin: now.getHours() * 60 + now.getMinutes(),
+      length: lengthMin, travel: cleanBufferMinutes(travelMinutes), workStart: wh.start, workEnd: wh.end,
+    });
+  }, [visible, lengthMin, slotLessons, slotBlocks, prefs, travelMinutes]);
 
   // Pre-fill the Date field with whichever day the sheet was opened from.
   // Runs on the visible:false->true transition (not on every initialDate
@@ -594,6 +639,29 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
         ))}
       </ScrollView>
 
+      {nextSlots.length > 0 && (
+        <View testID="next-slots" style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>Next available</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {nextSlots.map((sl) => {
+              const active = date === sl.date && startTime === sl.start && endTime === sl.end;
+              return (
+                <TouchableOpacity
+                  key={`${sl.date}-${sl.start}`}
+                  style={[styles.chip, active && styles.chipActive]}
+                  onPress={() => { setDate(sl.date); setStartTime(sl.start); setEndTime(sl.end); }}
+                  testID={`next-slot-${sl.date}-${sl.start}`}
+                >
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    {new Date(`${sl.date}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · {sl.start}-{sl.end}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+
       {places.length > 0 && (
         <>
           <Text style={styles.label}>Pickup from</Text>
@@ -644,8 +712,8 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
 
       <Text style={styles.label}>Length</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
-        {LESSON_LENGTHS.map((m) => {
-          const active = matchingLength(startTime, endTime) === m;
+        {lengthOptions(prefs).map(({ minutes: m }) => {
+          const active = lengthMin === m;
           return (
             <TouchableOpacity
               key={m}
@@ -671,7 +739,7 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
 
       <Text style={styles.label}>Lesson type</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
-        {LESSON_TYPES.map((t) => {
+        {typesOffered(prefs, lessonType).map((t) => {
           const active = lessonType === t.value;
           return (
             <TouchableOpacity
@@ -724,14 +792,17 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
         style={styles.input}
         value={rate}
         onChangeText={(v) => { rateManuallyEdited.current = true; setRate(v); }}
-        placeholder="e.g. 36.00"
+        placeholder={suggestedValue ? `e.g. ${suggestedValue}` : 'e.g. 36.00'}
         placeholderTextColor={theme.colors.textMuted}
         keyboardType="decimal-pad"
         testID="input-lesson-rate"
       />
-      {!!studentId && !!getStudent(studentId)?.hourly_rate && (
-        <Text style={styles.hint}>
-          Suggested from {getStudent(studentId)?.name}&apos;s usual hourly rate times the lesson length — feel free to change it.
+      {!!studentId && !!suggestion && (
+        <Text style={styles.hint} testID="price-hint">
+          {suggestion.source === 'length' && `Your price for a ${lengthLabel(lengthMin)} lesson (Pricing & packages)`}
+          {suggestion.source === 'pupil' && `Suggested from ${getStudent(studentId)?.name}'s usual hourly rate times the lesson length`}
+          {suggestion.source === 'default' && 'Suggested from your default hourly rate times the lesson length'}
+          {' — feel free to change it.'}
         </Text>
       )}
 

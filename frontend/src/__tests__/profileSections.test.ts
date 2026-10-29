@@ -4,7 +4,7 @@ const ALL_ROWS: ProfileRowKey[] = [
   'details', 'school', 'packages', 'vouchers', 'income', 'subscription',
   'syllabuses', 'vehicles', 'noteQuestions',
   'standards', 'deadlines',
-  'navApp', 'unavailabilities', 'travelBuffer', 'reminderBalance', 'bankHolidays', 'calendarFeed', 'importContacts',
+  'navApp', 'unavailabilities', 'travelBuffer', 'workingHours', 'lessonTypes', 'reminderBalance', 'bankHolidays', 'calendarFeed', 'importContacts',
   'fingerprint', 'privacy',
 ];
 

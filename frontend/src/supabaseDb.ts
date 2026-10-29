@@ -2850,6 +2850,8 @@ export type MockTestAttempt = {
   ai_debrief_generated_at?: string | null;
   /** The Route Recorder recording this test was run during (migration 093); recordings live on the instructor's phone. */
   route_id?: string | null;
+  /** When each fault was marked in a live test (migration 094), as { key, type, t } entries; null for older tests. */
+  fault_events?: { key: string; type: 'driving' | 'serious' | 'dangerous'; t: number }[] | null;
 };
 
 function isMissingMockTestAttemptsTable(msg: string): boolean {
@@ -2864,6 +2866,7 @@ export async function addMockTestAttempt(input: {
   passed: boolean;
   category_breakdown: MockTestCategoryBreakdown;
   route_id?: string;
+  fault_events?: { key: string; type: 'driving' | 'serious' | 'dangerous'; t: number }[];
 }): Promise<MockTestAttempt> {
   const { data, error } = await supabase
     .from('mock_test_attempts')

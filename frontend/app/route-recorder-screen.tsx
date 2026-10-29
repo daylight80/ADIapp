@@ -25,6 +25,8 @@ import { useKeyboardHeight } from '../src/useKeyboardHeight';
 import { listMockTestAttemptsForRoute, type MockTestAttempt } from '../src/supabaseDb';
 import { setLiveRecording, clearMockDraft } from '../src/recordingSession';
 import { mockReportRoute, mockTestLabel } from '../src/mockTestLink';
+import { FaultRouteMap } from '../src/FaultRouteMap';
+import { parseFaultEvents } from '../src/faultEvents';
 import { InLessonTopicsCard } from '../src/InLessonTopicsCard';
 import { useAuth } from '../src/AuthContext';
 import { isPaidTier } from '../src/tiers';
@@ -618,6 +620,7 @@ function RouteDetail({
     listMockTestAttemptsForRoute(route.id).then((a) => { if (alive) setMockTests(a); }).catch(() => {});
     return () => { alive = false; };
   }, [route.id]);
+  const faultEvents = React.useMemo(() => mockTests.flatMap((m) => parseFaultEvents(m.fault_events)), [mockTests]);
   const saveFeedback = (p: string, n: string) => {
     if (p.trim() !== (route.positives || '') || n.trim() !== (route.negatives || '')) onFeedbackSaved({ positives: p, negatives: n });
   };
@@ -699,6 +702,8 @@ function RouteDetail({
           <Text style={styles.actionText}>{mockTestLabel(m)}</Text>
         </TouchableOpacity>
       ))}
+
+      <FaultRouteMap route={route} events={faultEvents} testID="route-fault-map" />
 
       <View style={{ height: 1, backgroundColor: theme.colors.border, marginVertical: 4 }} />
 

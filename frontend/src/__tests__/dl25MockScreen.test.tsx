@@ -89,13 +89,14 @@ describe('DL25 mock test run from the Route Recorder', () => {
     await render(<Dl25MockTestScreen />);
     await fireEvent.press(screen.getByTestId('dl25_21_right-driving-add'));
     await fireEvent.press(screen.getByTestId('dl25_21_right-driving-add'));
-    expect(getMockDraft('route-9')!.dl25_21_right.driving).toBe(2);
+    expect(getMockDraft('route-9')!.faults.dl25_21_right.driving).toBe(2);
+    expect(getMockDraft('route-9')!.events).toHaveLength(2);
   });
 
   it('opens with the marks kept from before, when the instructor returns to the test', async () => {
     const kept = emptyDl25Faults();
     kept.dl25_21_right.driving = 2;
-    saveMockDraft('route-9', kept);
+    saveMockDraft('route-9', { faults: kept, events: [] });
     await render(<Dl25MockTestScreen />);
     expect(screen.getByTestId('summary-driving')).toHaveTextContent(/^2/);
     expect(screen.getByTestId('dl25_21_right-driving-val')).toHaveTextContent('2');
@@ -112,7 +113,7 @@ describe('DL25 mock test run from the Route Recorder', () => {
   });
 
   it('forgets the marks once the test is finished, so a Retake starts clean', async () => {
-    saveMockDraft('route-9', { ...emptyDl25Faults() });
+    saveMockDraft('route-9', { faults: { ...emptyDl25Faults() }, events: [] });
     await render(<Dl25MockTestScreen />);
     await fireEvent.press(screen.getByTestId('dl25_21_right-driving-add'));
     await fireEvent.press(screen.getByTestId('btn-finish-test'));
@@ -150,5 +151,60 @@ describe('DL25 mock test run on its own', () => {
     leave.onPress();
     expect(mockBack).toHaveBeenCalledTimes(2);
     alert.mockRestore();
+  });
+});
+
+describe('DL25 mock test: when each fault was marked', () => {
+  beforeEach(() => { mockParams = { studentId: 'stu-1', from: 'recorder', routeId: 'route-9' }; });
+
+  it('notes the line, the kind and the time of each fault', async () => {
+    await render(<Dl25MockTestScreen />);
+    const before = Date.now();
+    await fireEvent.press(screen.getByTestId('dl25_21_right-driving-add'));
+    await fireEvent.press(screen.getByTestId('dl25_13_safety-serious-add'));
+    const ev = getMockDraft('route-9')!.events;
+    expect(ev.map((e) => [e.key, e.type])).toEqual([['dl25_21_right', 'driving'], ['dl25_13_safety', 'serious']]);
+    expect(ev[0].t).toBeGreaterThanOrEqual(before);
+  });
+
+  it('takes off the latest matching event when a fault is removed, and ignores minus at zero', async () => {
+    await render(<Dl25MockTestScreen />);
+    await fireEvent.press(screen.getByTestId('dl25_21_right-driving-sub')); // nothing to remove
+    expect(getMockDraft('route-9')!.events).toHaveLength(0);
+    await fireEvent.press(screen.getByTestId('dl25_21_right-driving-add'));
+    await fireEvent.press(screen.getByTestId('dl25_21_right-driving-add'));
+    await fireEvent.press(screen.getByTestId('dl25_21_right-driving-sub'));
+    expect(getMockDraft('route-9')!.events).toHaveLength(1);
+  });
+
+  it('saves them with the attempt and hands them to the report', async () => {
+    await render(<Dl25MockTestScreen />);
+    await fireEvent.press(screen.getByTestId('dl25_21_right-driving-add'));
+    await fireEvent.press(screen.getByTestId('btn-finish-test'));
+    await waitFor(() => expect(mockAdd).toHaveBeenCalledTimes(1));
+    const saved = mockAdd.mock.calls[0][0];
+    expect(saved.fault_events).toEqual([expect.objectContaining({ key: 'dl25_21_right', type: 'driving' })]);
+    await waitFor(() => expect(mockReplace).toHaveBeenCalled());
+    const params = mockReplace.mock.calls[0][0].params;
+    expect(JSON.parse(params.events)).toEqual(saved.fault_events);
+  });
+
+  it('clears them on Reset', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await render(<Dl25MockTestScreen />);
+    await fireEvent.press(screen.getByTestId('dl25_21_right-driving-add'));
+    await fireEvent.press(screen.getByTestId('btn-reset'));
+    (alert.mock.calls[0][2] as any[]).find((b) => b.text === 'Reset').onPress();
+    await waitFor(() => expect(getMockDraft('route-9')!.events).toHaveLength(0));
+    alert.mockRestore();
+  });
+
+  it('keeps no times for a test run on its own', async () => {
+    mockParams = { studentId: 'stu-1' };
+    await render(<Dl25MockTestScreen />);
+    await fireEvent.press(screen.getByTestId('dl25_21_right-driving-add'));
+    await fireEvent.press(screen.getByTestId('btn-finish-test'));
+    await waitFor(() => expect(mockAdd).toHaveBeenCalledTimes(1));
+    expect(mockAdd.mock.calls[0][0].fault_events).toBeUndefined();
   });
 });

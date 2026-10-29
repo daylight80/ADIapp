@@ -3,7 +3,9 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Check, X, ArrowLeft, RotateCcw, Home, History, MapPin } from 'lucide-react-native';
-import { listRoutes } from '../src/routeRecorder';
+import { listRoutes, type SavedRoute } from '../src/routeRecorder';
+import { FaultRouteMap } from '../src/FaultRouteMap';
+import { parseFaultEvents } from '../src/faultEvents';
 import { verdictSub } from '../src/dl25Verdict';
 import { theme } from '../src/theme';
 import { faultedRows } from '../src/dl25Items';
@@ -25,11 +27,12 @@ export default function Dl25ReportScreen() {
   const fromRecorder = !!instructorStudentId && params.from === 'recorder';
   // The recording this test was run during. Recordings live on one phone, so the link only shows where it is found.
   const routeId = typeof params.routeId === 'string' ? params.routeId : '';
-  const [hasRoute, setHasRoute] = useState(false);
+  const [route, setRoute] = useState<SavedRoute | null>(null);
+  const hasRoute = !!route;
   useEffect(() => {
-    if (!routeId) { setHasRoute(false); return; }
+    if (!routeId) { setRoute(null); return; }
     let alive = true;
-    listRoutes().then((all) => { if (alive) setHasRoute(all.some((r) => r.id === routeId)); }).catch(() => {});
+    listRoutes().then((all) => { if (alive) setRoute(all.find((r) => r.id === routeId) ?? null); }).catch(() => {});
     return () => { alive = false; };
   }, [routeId]);
   const { student: instructorStudent } = useStudent(instructorStudentId || undefined);
@@ -49,6 +52,7 @@ export default function Dl25ReportScreen() {
   const dangerous = parseInt((params.x as string) || '0', 10);
   const passed = params.passed === '1';
 
+  const faultEvents = useMemo(() => parseFaultEvents(params.events), [params.events]);
   const breakdown = useMemo(() => {
     try {
       return params.breakdown ? JSON.parse(params.breakdown as string) : {};
@@ -126,6 +130,9 @@ export default function Dl25ReportScreen() {
             })
           )}
         </Card>
+
+        {/* Where each fault was marked on the recorded route (only on the phone that holds the route). */}
+        {!!route && <FaultRouteMap route={route} events={faultEvents} />}
 
         {/* AI debrief, for the instructor who has just scored the test with this pupil. */}
         {!!instructorStudentId && !!attempts[0] && (

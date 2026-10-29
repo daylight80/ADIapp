@@ -18,6 +18,7 @@ jest.mock('../useSupabaseData', () => ({
 }));
 jest.mock('../MockDebriefCard', () => ({ MockDebriefCard: () => null }));
 const mockListRoutes = jest.fn();
+jest.mock('../FaultRouteMap', () => ({ FaultRouteMap: (p: any) => { const { Text } = require('react-native'); return <Text testID="fault-map">{`map:${p.route.id}:${p.events.length}`}</Text>; } }));
 jest.mock('../routeRecorder', () => ({ listRoutes: () => mockListRoutes() }));
 
 import Dl25ReportScreen from '../../app/dl25-report-screen';
@@ -58,5 +59,19 @@ describe('DL25 report: link to the recording', () => {
     mockParams = { d: '3', s: '0', x: '0', passed: '1', breakdown: '{}' };
     await render(<Dl25ReportScreen />);
     expect(screen.getByText(/Well done!/)).toBeTruthy();
+  });
+
+  it('shows where the faults were when the recording is on this phone and the test carries times', async () => {
+    mockParams = { ...mockParams, events: JSON.stringify([{ key: 'dl25_21_right', type: 'driving', t: 1000 }, { bad: true }]) };
+    await render(<Dl25ReportScreen />);
+    expect(await screen.findByText('map:route-9:1')).toBeTruthy(); // the malformed entry is dropped
+  });
+
+  it('shows no map when the recording is not on this phone', async () => {
+    mockListRoutes.mockResolvedValue([{ id: 'someone-else' }]);
+    mockParams = { ...mockParams, events: JSON.stringify([{ key: 'dl25_21_right', type: 'driving', t: 1000 }]) };
+    await render(<Dl25ReportScreen />);
+    await waitFor(() => expect(mockListRoutes).toHaveBeenCalled());
+    expect(screen.queryByTestId('fault-map')).toBeNull();
   });
 });

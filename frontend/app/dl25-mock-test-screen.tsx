@@ -13,6 +13,7 @@ import { addMockTestAttempt } from '../src/supabaseDb';
 import { awardMockPassBadge } from '../src/useSupabaseData';
 import { activeSeconds, fmtDuration } from '../src/routeRecorder';
 import { clearMockDraft, getLiveRecording, getMockDraft, saveMockDraft } from '../src/recordingSession';
+import { addFaultEvent, removeLatestFaultEvent, type FaultEvent } from '../src/faultEvents';
 
 type FaultType = 'driving' | 'serious' | 'dangerous';
 // The buttons are 36 dp so three controls still fit a row; the extra touch area brings the target up to about 44 dp high.
@@ -43,9 +44,11 @@ export default function Dl25MockTestScreen() {
   );
   const supabaseStudent = instructorStudentId ? instructorStudent : (sbStudentByAuth || sbStudentByEmail);
   // Run from the Route Recorder, the marks so far are kept if the instructor goes back to the recorder and returns.
-  const [faults, setFaults] = useState<Faults>(() => (routeId && getMockDraft(routeId)) || initialFaults());
+  const [faults, setFaults] = useState<Faults>(() => (routeId && getMockDraft(routeId)?.faults) || initialFaults());
+  // When each fault was marked, so a test run during a recording can show where on the route they happened.
+  const [events, setEvents] = useState<FaultEvent[]>(() => (routeId && getMockDraft(routeId)?.events) || []);
   const [finishing, setFinishing] = useState(false);
-  useEffect(() => { if (routeId) saveMockDraft(routeId, faults); }, [routeId, faults]);
+  useEffect(() => { if (routeId) saveMockDraft(routeId, { faults, events }); }, [routeId, faults, events]);
 
   // The recording carries on underneath: show its timer so that is clear.
   const [, setTick] = useState(0);
@@ -59,6 +62,7 @@ export default function Dl25MockTestScreen() {
   const addFault = (key: string, type: FaultType) => {
     // A light tick for a driving fault, a firmer one for serious and dangerous, so it can be felt without looking.
     (type === 'driving' ? Haptics.selectionAsync() : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)).catch(() => {});
+    setEvents((prev) => addFaultEvent(prev, { key, type, t: Date.now() }));
     setFaults((prev) => ({
       ...prev,
       [key]: { ...prev[key], [type]: prev[key][type] + 1 },
@@ -67,6 +71,7 @@ export default function Dl25MockTestScreen() {
 
   const removeFault = (key: string, type: FaultType) => {
     Haptics.selectionAsync().catch(() => {});
+    if ((faults[key]?.[type] ?? 0) > 0) setEvents((prev) => removeLatestFaultEvent(prev, key, type));
     setFaults((prev) => ({
       ...prev,
       [key]: { ...prev[key], [type]: Math.max(0, prev[key][type] - 1) },
@@ -97,6 +102,7 @@ export default function Dl25MockTestScreen() {
           passed,
           category_breakdown: faults,
           ...(routeId ? { route_id: routeId } : {}),
+          ...(routeId && events.length ? { fault_events: events } : {}),
         });
         if (passed) void awardMockPassBadge(supabaseStudent.id);
       } catch (e: any) {
@@ -125,6 +131,7 @@ export default function Dl25MockTestScreen() {
         ...(instructorStudentId ? { studentId: instructorStudentId } : {}),
         ...(fromRecorder ? { from: 'recorder' } : {}),
         ...(routeId ? { routeId } : {}),
+        ...(routeId && events.length ? { events: JSON.stringify(events) } : {}),
       },
     } as any);
   };
@@ -132,7 +139,7 @@ export default function Dl25MockTestScreen() {
   const handleReset = () => {
     Alert.alert('Reset mock test?', 'All recorded faults will be cleared.', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Reset', style: 'destructive', onPress: () => setFaults(initialFaults()) },
+      { text: 'Reset', style: 'destructive', onPress: () => { setFaults(initialFaults()); setEvents([]); } },
     ]);
   };
 

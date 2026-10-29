@@ -11,5 +11,6 @@ export const mockReportRoute = (m: MockTestAttempt, studentId?: string | null) =
     d: String(m.driving_faults), s: String(m.serious_faults), x: String(m.dangerous_faults),
     passed: m.passed ? '1' : '0', breakdown: JSON.stringify(m.category_breakdown),
     routeId: m.route_id as string, ...(studentId ? { studentId } : {}),
+    ...(m.fault_events && m.fault_events.length ? { events: JSON.stringify(m.fault_events) } : {}),
   },
 });

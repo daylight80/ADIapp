@@ -116,6 +116,18 @@ describe('after completing a lesson', () => {
     await fireEvent.press(screen.getByTestId('btn-save-complete'));
   };
 
+  it('says on the form, not in an alert, that a grade is needed, and clears the message once one is picked', async () => {
+    mockPatch.mockResolvedValue({});
+    await open(jest.fn(), { onBookNext: jest.fn() });
+    await fireEvent.press(screen.getByTestId('btn-open-complete'));
+    await fireEvent.press(await screen.findByTestId('btn-save-complete'));
+    expect(await screen.findByTestId('complete-error')).toHaveTextContent('Choose a grade from 1 to 5 before completing the lesson.');
+    expect(mockPatch).not.toHaveBeenCalled();
+    expect(alertSpy).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('grade-3'));
+    expect(screen.queryByTestId('complete-error')).toBeNull();
+  });
+
   it('offers the summary first, with no Book next button yet', async () => {
     mockPatch.mockResolvedValue({});
     const onBookNext = jest.fn();

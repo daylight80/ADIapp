@@ -132,6 +132,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
   const [paymentMethod, setPaymentMethod] = useState<'bank_transfer' | 'card' | 'cash' | null>(null);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [completeError, setCompleteError] = useState<string | null>(null);
 
   // ---- Series state (Migration 016) --------------------------------------
   // Number of remaining (Scheduled) occurrences in this lesson's series,
@@ -423,15 +424,17 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
   // value moment to get right, since it's the thing an instructor most
   // needs to do immediately after a lesson, often before signal returns.
   const saveCompletion = async () => {
+    // Shown on the form itself: Alert buttons and messages do nothing on the web, so the save looked broken.
     if (grade == null) {
-      Alert.alert('Pick a grade', 'Choose a grade from 1 to 5 before completing the lesson.');
+      setCompleteError('Choose a grade from 1 to 5 before completing the lesson.');
       return;
     }
     const amount = amountPaid.trim() ? parseFloat(amountPaid.trim()) : undefined;
     if (amountPaid.trim() && (!Number.isFinite(amount) || (amount ?? 0) < 0)) {
-      Alert.alert('Invalid amount', 'Amount paid must be a positive number, in pounds.');
+      setCompleteError('Amount paid must be a positive number, in pounds.');
       return;
     }
+    setCompleteError(null);
     const payload = {
       driving_faults: drivingFaults,
       serious_faults: seriousFaults,
@@ -975,7 +978,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
 
       <CompleteLessonModal
         visible={completeOpen}
-        onClose={() => setCompleteOpen(false)}
+        onClose={() => { setCompleteOpen(false); setCompleteError(null); }}
         studentName={student.name}
         drivingFaults={drivingFaults}
         setDrivingFaults={setDrivingFaults}
@@ -984,9 +987,10 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
         dangerousFaults={dangerousFaults}
         setDangerousFaults={setDangerousFaults}
         grade={grade}
-        setGrade={setGrade}
+        setGrade={(n) => { setGrade(n); setCompleteError(null); }}
         amountPaid={amountPaid}
-        setAmountPaid={setAmountPaid}
+        setAmountPaid={(s) => { setAmountPaid(s); setCompleteError(null); }}
+        error={completeError}
         paymentMethod={paymentMethod}
         setPaymentMethod={setPaymentMethod}
         notes={notes}
@@ -1303,6 +1307,7 @@ type CompleteProps = {
   setPaymentMethod: (m: 'bank_transfer' | 'card' | 'cash' | null) => void;
   notes: string;             setNotes: (s: string) => void;
   saving: boolean;
+  error: string | null;
   onSave: () => void;
 };
 
@@ -1390,6 +1395,7 @@ function CompleteLessonModal(p: CompleteProps) {
             />
           </ScrollView>
 
+          {!!p.error && <Text style={styles.completeError} testID="complete-error">{p.error}</Text>}
           <TouchableOpacity
             style={[styles.confirmBtn, p.saving && styles.btnDisabled]}
             onPress={p.onSave}
@@ -1407,6 +1413,7 @@ function CompleteLessonModal(p: CompleteProps) {
 }
 
 const styles = StyleSheet.create({
+  completeError: { color: theme.colors.danger, fontSize: 14, fontWeight: '600', marginBottom: 8 },
   testInput: {
     height: 44, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, paddingHorizontal: 12,
     fontSize: 15, color: theme.colors.text, backgroundColor: theme.colors.background,

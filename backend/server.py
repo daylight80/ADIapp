@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 import stripe
 from lesson_reminders import start_lesson_reminder_scheduler, stop_lesson_reminder_scheduler, close_http_client as close_lesson_reminder_http_client
 import email_service
-from referral_rules import referral_eligible, referral_eligible_from, referral_item, referral_reward_due
+from referral_rules import referral_eligible, referral_eligible_from, referral_item, referral_reward_due, tier_may_refer
 import payment_reminders
 import ai_debriefs
 import address_search
@@ -707,6 +707,13 @@ async def _apply_referral_reward_if_due(school: dict) -> None:
 
     now_iso = datetime.now(timezone.utc).isoformat()
 
+    # Only a DC Pro school earns a reward. A code issued while the referrer was on Pro stops paying out if they have
+    # since moved to another plan.
+    if not tier_may_refer(referrer_school):
+        await sb_update_school(school["id"], {"referral_reward_status": "capped", "referral_resolved_at": now_iso})
+        logger.info("Referral for school %s not rewarded: referrer school %s is on the %s plan, not DC Pro", school["id"], referrer_school.get("id"), referrer_school.get("tier"))
+        return
+
     # Cap check — rewarded referrals by this same referrer in the last 12 months.
     one_year_ago = (datetime.now(timezone.utc) - timedelta(days=365)).isoformat()
     async with httpx.AsyncClient(timeout=10.0) as client_http:
@@ -917,11 +924,11 @@ async def _get_own_instructor(sb_user: dict) -> dict:
     return rows[0]
 
 
-async def _require_referral_eligible(instructor: dict) -> None:
-    """Referring opens once the school has been a paying subscriber for a month (referral_rules.py)."""
+async def _require_referral_eligible(instructor: dict, sb_user: dict) -> None:
+    """Referring is for a DC Pro school's owner, once the school has been a paying subscriber for a month (referral_rules.py)."""
     school = await sb_get_school_by_id(instructor["school_id"]) if instructor.get("school_id") else None
-    if not referral_eligible(school):
-        raise HTTPException(status_code=403, detail="Referrals open once you've been subscribed for a month.")
+    if not referral_eligible(school, auth_user_id=sb_user["auth_user_id"]):
+        raise HTTPException(status_code=403, detail="Referrals are for DC Pro subscribers, once you've been subscribed for a month.")
 
 
 @api_router.get("/referrals/my-code", response_model=ReferralCodeResponse)
@@ -929,7 +936,7 @@ async def get_my_referral_code(sb_user: dict = Depends(get_current_supabase_user
     """Lazily generates the caller's referral code on first request, rather
     than backfilling one onto every existing instructor row up front."""
     instructor = await _get_own_instructor(sb_user)
-    await _require_referral_eligible(instructor)
+    await _require_referral_eligible(instructor, sb_user)
     code = instructor.get("referral_code")
     if not code:
         # Retry on the rare collision rather than trusting a single
@@ -959,8 +966,8 @@ async def get_referral_status(sb_user: dict = Depends(get_current_supabase_user)
     "Referrals unlock on ..." instead of the banner."""
     instructor = await _get_own_instructor(sb_user)
     school = await sb_get_school_by_id(instructor["school_id"]) if instructor.get("school_id") else None
-    start = referral_eligible_from(school)
-    return ReferralStatusResponse(eligible=referral_eligible(school), eligible_from=start.isoformat() if start else None)
+    start = referral_eligible_from(school, sb_user["auth_user_id"])
+    return ReferralStatusResponse(eligible=referral_eligible(school, auth_user_id=sb_user["auth_user_id"]), eligible_from=start.isoformat() if start else None)
 
 
 async def _read_referred_schools(instructor_id: str) -> list:

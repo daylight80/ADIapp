@@ -103,3 +103,15 @@ def test_the_credit_carries_an_idempotency_key(world):
     asyncio.run(server._apply_referral_reward_if_due(stale_school()))
     assert world.credits[0][1]["idempotency_key"] == "referral-reward-new-school"
     assert world.credits[0][1]["amount"] == -3000
+
+
+@pytest.mark.parametrize("tier", ["franchise", "starter"])
+def test_a_referrer_who_is_not_on_dc_pro_earns_nothing(world, monkeypatch, tier):
+    """Grant, 29 Oct 2026: only DC Pro can refer. A code issued while on Pro stops paying if they moved plan."""
+    async def referrer(_id):
+        return {"id": "referrer-school", "tier": tier, "stripe_customer_id": "cus_ref", "business_name": "Ref"}
+
+    monkeypatch.setattr(server, "sb_get_school_by_id", referrer)
+    asyncio.run(server._apply_referral_reward_if_due(stale_school()))
+    assert world.credits == []
+    assert world.status == "capped" and world.resolved_at

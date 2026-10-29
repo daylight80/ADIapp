@@ -77,6 +77,14 @@ describe('Enquiries screen', () => {
     expect(screen.getByTestId('enquiry-e2')).toBeTruthy();
   });
 
+  it('shows the postcode on the card only when there is one', async () => {
+    mockState.enquiries = [enq('e1', { postcode: 'CR4 1AA' }), enq('e3')];
+    await render(<EnquiriesScreen />);
+    expect(screen.getByTestId('enquiry-postcode-e1')).toBeTruthy();
+    expect(screen.getByText('CR4 1AA')).toBeTruthy();
+    expect(screen.queryByTestId('enquiry-postcode-e3')).toBeNull();
+  });
+
   it('has a friendly empty state', async () => {
     mockState.enquiries = [];
     await render(<EnquiriesScreen />);

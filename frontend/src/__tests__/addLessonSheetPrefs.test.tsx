@@ -80,4 +80,20 @@ describe('Add Lesson uses the instructor\'s own settings', () => {
     await waitFor(() => expect(screen.getByText(start)).toBeTruthy());
     expect(screen.queryByText('09:00')).toBeNull();
   });
+
+  it('booking the next lesson after an earlier opening uses fresh slots, not the ones from last time', async () => {
+    mockPrefs.mockResolvedValue({ lesson_lengths: [{ minutes: 60, price: null }], work_start: '13:00', work_end: '16:00' });
+    const { rerender } = await render(<AddLessonSheet {...props} />);
+    await screen.findAllByTestId(/^next-slot-/);
+    await rerender(<AddLessonSheet {...props} visible={false} />);
+    // between openings the instructor's hours change, so the first free slot starts later
+    mockPrefs.mockResolvedValue({ lesson_lengths: [{ minutes: 60, price: null }], work_start: '14:00', work_end: '16:00' });
+    await rerender(<AddLessonSheet {...props} initialStudentId="st1" />);
+    await waitFor(async () => {
+      const chips = await screen.findAllByTestId(/^next-slot-\d{4}-\d{2}-\d{2}-14:00$/);
+      expect(chips.length).toBeGreaterThan(0);
+    });
+    await waitFor(() => expect(screen.getByText('14:00')).toBeTruthy());
+    expect(screen.queryByText('13:00')).toBeNull();
+  });
 });

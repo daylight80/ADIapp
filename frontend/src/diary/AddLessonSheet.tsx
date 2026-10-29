@@ -246,6 +246,8 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
   // Reset form on close so re-opens start fresh.
   useEffect(() => {
     if (!visible) {
+      // The next opening must wait for fresh slots, not reuse the ones found last time.
+      setSlotsReady(false);
       setTestCentre('');
       setTestTime('');
       setTravelInfo(null);

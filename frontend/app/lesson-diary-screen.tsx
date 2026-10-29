@@ -19,7 +19,7 @@ import { useAuth } from '../src/AuthContext';
 import { isPaidTier } from '../src/tiers';
 import { useBankHolidays } from '../src/useBankHolidays';
 import { holidayBanner, holidayOn, shortLabel } from '../src/bankHolidays';
-import { lessonBlockColor, isCompletedLesson, COMPLETED_NOTE } from '../src/diary/lessonLook';
+import { lessonBlockColor, isCompletedLesson, isCancelledLesson, COMPLETED_NOTE } from '../src/diary/lessonLook';
 
 /**
  * Lesson Diary — redesigned visual direction from the Claude Design
@@ -234,9 +234,13 @@ export default function LessonDiaryV2Screen() {
   };
   const todayKey = localDateKey(new Date());
 
+  // Cancelled lessons stay out of the diary, its totals, its gaps and its overlap columns. The Day view can show
+  // them again, greyed out, with the "Show cancelled" chip.
+  const [showCancelled, setShowCancelled] = useState(false);
   const lessonsByDay = useMemo(() => {
     const map: Lesson[][] = [[], [], [], [], [], [], []];
     for (const l of lessons) {
+      if (isCancelledLesson(l.status)) continue;
       const d = new Date(`${l.date}T00:00:00`);
       const idx = Math.round((d.getTime() - weekStart.getTime()) / 86400000);
       if (idx >= 0 && idx < 7) map[idx].push(l);
@@ -246,6 +250,13 @@ export default function LessonDiaryV2Screen() {
   }, [lessons, weekStart]);
 
   const dayList = lessonsByDay[selectedDayIdx] || [];
+  const dayKey = localDateKey(selectedDate);
+  const cancelledToday = useMemo(
+    () => lessons.filter((l) => isCancelledLesson(l.status) && l.date === dayKey)
+      .sort((a, b) => toMinutesOfDay(a.start_time) - toMinutesOfDay(b.start_time)),
+    [lessons, dayKey],
+  );
+  const liveMonthLessons = useMemo(() => monthLessons.filter((l) => !isCancelledLesson(l.status)), [monthLessons]);
 
   // Column assignment for overlapping lessons (25 Aug 2026) — found via a
   // real screen recording: two lessons at the identical time slot were
@@ -446,9 +457,16 @@ export default function LessonDiaryV2Screen() {
             {viewMode === 'week'
               ? `${durLabel(weekMinutes)} booked`
               : viewMode === 'month'
-                ? `${monthLessons.length} lesson${monthLessons.length === 1 ? '' : 's'}`
+                ? `${liveMonthLessons.length} lesson${liveMonthLessons.length === 1 ? '' : 's'}`
                 : loadError ? "Couldn't load" : dayList.length ? `${dayList.length} lessons · ${durLabel(totalMinutesFor(selectedDayIdx))}` : 'Nothing booked'}
           </Text>
+          {viewMode === 'day' && cancelledToday.length > 0 && (
+            <TouchableOpacity style={[s.cancelledChip, showCancelled && s.cancelledChipOn]} onPress={() => setShowCancelled((v) => !v)} testID="v2-show-cancelled">
+              <Text style={[s.cancelledChipText, showCancelled && { color: '#fff' }]}>
+                {showCancelled ? 'Hide cancelled' : `Show cancelled (${cancelledToday.length})`}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {!!loadError && (
@@ -482,7 +500,7 @@ export default function LessonDiaryV2Screen() {
                     const cellKey = localDateKey(cellDate);
                     const inCurrentMonth = isSameMonth(cellDate, selectedDate);
                     const isToday = cellKey === todayKey;
-                    const dayLessons = monthLessons.filter((l) => l.date === cellKey);
+                    const dayLessons = liveMonthLessons.filter((l) => l.date === cellKey);
                     const visibleLessons = dayLessons.slice(0, 3);
                     const overflowCount = dayLessons.length - visibleLessons.length;
                     return (
@@ -646,6 +664,27 @@ export default function LessonDiaryV2Screen() {
                         <Text style={{ fontFamily: 'Barlow_700Bold', fontSize: 11.5, color: '#4A4438', textTransform: 'capitalize' }} numberOfLines={1}>
                           {b.category}{b.reason ? ` · ${b.reason}` : ''}
                         </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+
+                  {/* Cancelled lessons, when asked for: drawn first so live lessons sit on top, and outside the
+                      gap and overlap maths. */}
+                  {showCancelled && cancelledToday.map((l) => {
+                    const sMin = toMinutesOfDay(l.start_time);
+                    const eMin = toMinutesOfDay(l.end_time);
+                    return (
+                      <TouchableOpacity
+                        key={`cancelled-${l.id}`}
+                        style={[s.cancelledBlock, { top: (sMin - TOP_MIN) / 60 * HOUR_H, height: (eMin - sMin) / 60 * HOUR_H - 4 }]}
+                        onPress={() => setDetailLesson(l)}
+                        testID={`v2-cancelled-${l.id}`}
+                      >
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text style={[s.lessonBlockName, s.cancelledText]} numberOfLines={1}>{studentName(l.student_id)}</Text>
+                          <Text style={[s.lessonBlockMeta, s.cancelledText]} numberOfLines={1}>{hhmm(sMin)}–{hhmm(eMin)} · {l.topic || l.lesson_type}</Text>
+                        </View>
+                        <Text style={s.cancelledTag}>CANCELLED</Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -877,6 +916,12 @@ const s = StyleSheet.create({
   toggleText: { fontFamily: 'Barlow_700Bold', fontSize: 13.5, color: C.textMuted },
   toggleTextActive: { color: C.text },
   periodSummary: { flex: 1, textAlign: 'right', fontFamily: 'Barlow_600SemiBold', fontSize: 13, color: C.textMuted },
+  cancelledChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 11, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#F1F5F9' },
+  cancelledChipOn: { backgroundColor: '#64748B', borderColor: '#64748B' },
+  cancelledChipText: { fontFamily: 'Barlow_700Bold', fontSize: 12, color: '#475569' },
+  cancelledBlock: { position: 'absolute', left: 38, right: 0, borderRadius: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingHorizontal: 13, backgroundColor: '#E5E7EB', borderWidth: 1, borderColor: '#CBD5E1', opacity: 0.9 },
+  cancelledText: { color: '#6B7280', textDecorationLine: 'line-through' },
+  cancelledTag: { backgroundColor: '#9CA3AF', color: '#fff', fontFamily: 'Barlow_700Bold', fontSize: 9, letterSpacing: 0.4, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, overflow: 'hidden' },
   weekCol: { flex: 1, alignItems: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: 3, borderRadius: 13, borderWidth: 1, borderColor: 'transparent' },
   weekColActive: { backgroundColor: '#fff', borderColor: C.text, borderWidth: 1.5 },
   weekColDow: { fontFamily: 'Barlow_700Bold', fontSize: 10.5, letterSpacing: 1, textTransform: 'uppercase', color: C.textMuted },

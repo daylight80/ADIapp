@@ -7,7 +7,7 @@ const ctx = {
   instructor_name: 'Grant Robery',
   adi_number: '1234567',
   business_name: "Grant's Driving School",
-  contact_phone: '07806750559',
+  contact_phone: '07700900123',
   contact_email: 'hello@example.co.uk',
   address: '20 Waterloo Street \nSutton \nSM14LS',
   hourly_rate: 36,
@@ -30,7 +30,7 @@ describe('detailsSection (business contact details, price and duration)', () => 
     expect(heading).toBe('Your instructor and your lessons');
     expect(body).toContain('Instructor: Grant Robery (ADI number 1234567)');
     expect(body).toContain("Business: Grant's Driving School");
-    expect(body).toContain('Phone: 07806750559');
+    expect(body).toContain('Phone: 07700900123');
     expect(body).toContain('Email: hello@example.co.uk');
     expect(body).toContain('Address: 20 Waterloo Street, Sutton, SM14LS');
     expect(body).toContain('£36.00 per hour');

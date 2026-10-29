@@ -32,9 +32,9 @@ describe('runningLateMessage', () => {
 
 describe('smsUrl and telUrl', () => {
   it('separates the body with & on iOS and ? elsewhere, and drops spaces from the number', () => {
-    expect(smsUrl('07806 750559', 'Hi there', 'ios')).toBe('sms:07806750559&body=Hi%20there');
-    expect(smsUrl('07806 750559', 'Hi there', 'android')).toBe('sms:07806750559?body=Hi%20there');
-    expect(telUrl('07806 750 559')).toBe('tel:07806750559');
+    expect(smsUrl('07700 900123', 'Hi there', 'ios')).toBe('sms:07700900123&body=Hi%20there');
+    expect(smsUrl('07700 900123', 'Hi there', 'android')).toBe('sms:07700900123?body=Hi%20there');
+    expect(telUrl('07700 900 123')).toBe('tel:07700900123');
   });
 });
 

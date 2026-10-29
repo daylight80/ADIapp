@@ -11,7 +11,7 @@ import { DVSA_COMPLAINTS_URL } from '../agreementTerms';
 
 const grant = {
   instructor_name: 'Grant Robery', adi_number: '1234567', business_name: "Grant's Driving School",
-  contact_phone: '07806 750559', contact_email: 'hello@localedigital.co.uk',
+  contact_phone: '07700 900123', contact_email: 'hello@localedigital.co.uk',
   vehicle: { make_and_model: 'VW Golf', registration_plate: 'AD39 ADI', transmission: 'Automatic' },
 };
 
@@ -24,7 +24,7 @@ describe('pupil Instructor tab', () => {
     await render(<StudentInstructorCard instructor={grant} loadFailed={false} />);
     expect(screen.getByTestId('instructor-name')).toHaveTextContent('Grant Robery');
     expect(screen.getByText("Grant's Driving School")).toBeTruthy();
-    expect(screen.getByTestId('instructor-phone')).toHaveTextContent('07806 750559');
+    expect(screen.getByTestId('instructor-phone')).toHaveTextContent('07700 900123');
     expect(screen.getByTestId('instructor-email')).toHaveTextContent('hello@localedigital.co.uk');
     expect(screen.getByTestId('adi-value')).toHaveTextContent('1234567');
   });
@@ -49,9 +49,9 @@ describe('pupil Instructor tab', () => {
   it('calls, texts and emails, with spaces removed from the number', async () => {
     await render(<StudentInstructorCard instructor={grant} loadFailed={false} />);
     await fireEvent.press(screen.getByTestId('instructor-call'));
-    expect(open).toHaveBeenCalledWith('tel:07806750559');
+    expect(open).toHaveBeenCalledWith('tel:07700900123');
     await fireEvent.press(screen.getByTestId('instructor-text'));
-    expect(open).toHaveBeenLastCalledWith(expect.stringMatching(/^sms:07806750559[?&]body=$/));
+    expect(open).toHaveBeenLastCalledWith(expect.stringMatching(/^sms:07700900123[?&]body=$/));
     await fireEvent.press(screen.getByTestId('instructor-email'));
     expect(open).toHaveBeenLastCalledWith('mailto:hello@localedigital.co.uk');
   });
@@ -60,7 +60,7 @@ describe('pupil Instructor tab', () => {
     await render(<StudentInstructorCard instructor={grant} loadFailed={false} pupilName="Test Pupil" />);
     await fireEvent.press(screen.getByTestId('instructor-running-late'));
     const url = decodeURIComponent(open.mock.calls[open.mock.calls.length - 1][0] as string);
-    expect(url).toContain('sms:07806750559');
+    expect(url).toContain('sms:07700900123');
     expect(url).toContain("Hi Grant, it's Test. I'm running a few minutes late");
   });
 

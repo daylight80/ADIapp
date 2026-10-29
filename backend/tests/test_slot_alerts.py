@@ -218,13 +218,13 @@ def test_a_failed_email_is_not_recorded_as_sent(monkeypatch):
 
 
 def test_the_email_names_the_instructor_and_gives_their_number(monkeypatch):
-    lesson = {**LESSON, "instructors": {**LESSON["instructors"], "mobile_number": "07806 750559"}}
+    lesson = {**LESSON, "instructors": {**LESSON["instructors"], "mobile_number": "07700 900123"}}
     w = World(monkeypatch, lessons=[lesson], pupils=[pupil("A", name="Test Pupil")], tokens=())
     run()
     text = w.emails[0]["text"]
     assert "Hi Test," in text and "Grant Robery has a free lesson slot" in text
     assert "Thursday 15 October, 14:00 to 15:00" in text
-    assert "contact Grant Robery on 07806 750559" in text
+    assert "contact Grant Robery on 07700 900123" in text
     assert "turn off Slot alerts" in text
 
 
@@ -245,7 +245,7 @@ def test_does_nothing_when_supabase_is_not_configured(monkeypatch):
 
 def render(**over):
     args = dict(student_name="Test Pupil", instructor_name="Grant Robery", weekday="Thursday", date_text="15 October",
-                start_text="14:00", end_text="15:00", instructor_phone="07806 750559")
+                start_text="14:00", end_text="15:00", instructor_phone="07700 900123")
     args.update(over)
     return email_service.render_slot_alert_email(**args)
 

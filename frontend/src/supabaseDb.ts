@@ -10,6 +10,7 @@ import type { PaymentRow, PaymentMethod } from './payments';
 import type { SlotAlertStatus } from './slotAlertStatus';
 import type { DeadlineItem, EditableDeadlineKind } from './deadlines';
 import { pickFocus } from './lessonFocus';
+import { cleanPrefs, type DiaryPrefs } from './diary/diaryPrefs';
 
 // ---------------------------------------------------------------------------
 // Types — kept compatible with mockDb so we can swap screens incrementally
@@ -1623,6 +1624,20 @@ export async function setMyDefaultTravelMinutes(minutes: number): Promise<number
   const { data, error } = await supabase.rpc('set_my_default_travel_minutes', { p_minutes: minutes });
   if (error) throw error;
   return typeof data === 'number' ? data : minutes;
+}
+
+// The instructor's own Add Lesson choices: lesson lengths and prices, lesson types, working hours (migration 095).
+export async function getMyDiaryPrefs(): Promise<DiaryPrefs> {
+  const { data, error } = await supabase.rpc('get_my_diary_prefs');
+  if (error) throw error;
+  return cleanPrefs(data);
+}
+
+/** Saves only the keys given; the rest stay as they were. Returns everything as saved. */
+export async function setMyDiaryPrefs(patch: DiaryPrefs): Promise<DiaryPrefs> {
+  const { data, error } = await supabase.rpc('set_my_diary_prefs', { p: patch });
+  if (error) throw error;
+  return cleanPrefs(data);
 }
 
 // Whether the 24-hour lesson reminder mentions a pupil's unpaid balance (off by default; migration 075).

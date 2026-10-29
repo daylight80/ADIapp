@@ -9,6 +9,7 @@ import { ArrowLeft, Plus, Pencil, Trash2, PoundSterling } from 'lucide-react-nat
 import { theme } from '../src/theme';
 import { Card } from '../src/ui';
 import { BottomSheet } from '../src/BottomSheet';
+import { LessonLengthsCard } from '../src/DiaryPrefsCards';
 import {
   listLessonPackages, createLessonPackage, updateLessonPackage, deleteLessonPackage,
   LessonPackage,
@@ -298,6 +299,8 @@ export default function PackagesScreen() {
             <Text style={styles.cardSub}>{RATE_CHANGE_NOTE}</Text>
           </Card>
         )}
+
+        <LessonLengthsCard />
 
         {/* Packages */}
         <View style={styles.sectionHeader}>

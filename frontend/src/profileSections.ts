@@ -10,7 +10,7 @@ export type ProfileRowKey =
   | 'details' | 'school' | 'packages' | 'vouchers' | 'income' | 'subscription'
   | 'syllabuses' | 'vehicles' | 'noteQuestions'
   | 'standards' | 'deadlines'
-  | 'navApp' | 'unavailabilities' | 'travelBuffer' | 'reminderBalance' | 'bankHolidays' | 'calendarFeed' | 'importContacts'
+  | 'navApp' | 'unavailabilities' | 'travelBuffer' | 'workingHours' | 'lessonTypes' | 'reminderBalance' | 'bankHolidays' | 'calendarFeed' | 'importContacts'
   | 'fingerprint' | 'privacy';
 
 export type ProfileSection = { title: string; rows: ProfileRowKey[] };
@@ -19,7 +19,7 @@ export const INSTRUCTOR_PROFILE_SECTIONS: ProfileSection[] = [
   { title: 'My business', rows: ['details', 'school', 'packages', 'vouchers', 'income', 'subscription'] },
   { title: 'Teaching', rows: ['syllabuses', 'vehicles', 'noteQuestions'] },
   { title: 'Compliance', rows: ['standards', 'deadlines'] },
-  { title: 'Diary & students', rows: ['navApp', 'unavailabilities', 'travelBuffer', 'reminderBalance', 'bankHolidays', 'calendarFeed', 'importContacts'] },
+  { title: 'Diary & students', rows: ['navApp', 'unavailabilities', 'travelBuffer', 'workingHours', 'lessonTypes', 'reminderBalance', 'bankHolidays', 'calendarFeed', 'importContacts'] },
   { title: 'Account', rows: ['fingerprint', 'privacy'] },
 ];
 

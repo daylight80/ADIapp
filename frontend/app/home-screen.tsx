@@ -26,6 +26,8 @@ import { greetingFor, firstNameOf, fmtMinutes, gapsBetween, dayTotals } from '..
 import { Crown, ChevronRight, Users, CalendarDays, Receipt, Lock, Eye, EyeOff, LayoutDashboard, Car, Check } from 'lucide-react-native';
 import { usePendingSyncCount } from '../src/offlineSync';
 import { OfflineBanner } from '../src/OfflineBanner';
+import { useEnquiries } from '../src/useEnquiries';
+import { stageTotals } from '../src/enquiries';
 
 /**
  * Instructor Home. Layout follows the Claude Design "Dashboards" handoff (28 Oct 2026), light theme only: the next
@@ -92,6 +94,9 @@ export default function InstructorHomeV2Screen() {
   const pendingSyncCount = usePendingSyncCount();
   const router = useRouter();
   const openPupils = (filter: string) => router.push({ pathname: '/student-crm-screen', params: { filter } } as any);
+  const openEnquiries = (stage: string) => router.push({ pathname: '/enquiries-screen', params: { stage } } as any);
+  const { enquiries } = useEnquiries();
+  const enquiryTotals = useMemo(() => stageTotals(enquiries), [enquiries]);
   const { user } = useAuth();
   const [selId, setSelId] = useState<string | null>(null);
   const [detailLesson, setDetailLesson] = useState<Lesson | null>(null);
@@ -565,6 +570,15 @@ export default function InstructorHomeV2Screen() {
                   <Text style={[s.pupilValue, { color: C.success }]}>{testKpis.passRatePct}%</Text>
                   <Text style={s.pupilLabel}>Pass rate · {testKpis.total} tests</Text>
                 </TouchableOpacity>
+                {/* Open enquiries, by stage: each tile opens the Enquiries screen on that stage. */}
+                <TouchableOpacity style={[s.pupilTile, s.enquiryTileBlue]} onPress={() => openEnquiries('Waiting')} accessibilityRole="button" testID="v2-enquiries-waiting">
+                  <Text style={s.enquiryValue}>{enquiryTotals.Waiting}</Text>
+                  <Text style={s.enquiryLabel}>Enquiries waiting</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.pupilTile, s.enquiryTileOrange]} onPress={() => openEnquiries('Contacted')} accessibilityRole="button" testID="v2-enquiries-contacted">
+                  <Text style={s.enquiryValue}>{enquiryTotals.Contacted}</Text>
+                  <Text style={s.enquiryLabel}>Enquiries contacted</Text>
+                </TouchableOpacity>
               </View>
             </View>
           )}
@@ -715,6 +729,10 @@ const s = StyleSheet.create({
   pupilTile: { flexBasis: '47%', flexGrow: 1, minHeight: 84, padding: 14, borderRadius: 16, backgroundColor: C.card, borderWidth: 1, borderColor: C.border },
   pupilValue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 32, color: C.text },
   pupilLabel: { fontFamily: 'Barlow_600SemiBold', fontSize: 15, color: C.text, marginTop: 6 },
+  enquiryTileBlue: { backgroundColor: C.primary, borderColor: C.primary },
+  enquiryTileOrange: { backgroundColor: C.accent, borderColor: C.accent },
+  enquiryValue: { fontFamily: 'Archivo_800ExtraBold', fontSize: 32, color: '#FFFFFF' },
+  enquiryLabel: { fontFamily: 'Barlow_600SemiBold', fontSize: 15, color: '#FFFFFF', marginTop: 6 },
 
   helpRow: { paddingHorizontal: 8, paddingVertical: 8, gap: 6, minHeight: 52, justifyContent: 'center' },
   helpTopic: { flex: 1, fontFamily: 'Barlow_700Bold', fontSize: 16, color: C.text },

@@ -3,7 +3,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react-nativ
 
 jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }));
 const mockPush = jest.fn();
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, back: jest.fn() }), useFocusEffect: () => {} }));
+let mockParams: Record<string, string> = {};
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, back: jest.fn() }), useFocusEffect: () => {}, useLocalSearchParams: () => mockParams }));
 jest.mock('react-native-safe-area-context', () => {
   const { View } = require('react-native');
   return { SafeAreaView: View };
@@ -83,6 +84,14 @@ describe('Enquiries screen', () => {
     expect(screen.getByTestId('enquiry-postcode-e1')).toBeTruthy();
     expect(screen.getByText('CR4 1AA')).toBeTruthy();
     expect(screen.queryByTestId('enquiry-postcode-e3')).toBeNull();
+  });
+
+  it('opens on the stage the Home tile asked for, and on Waiting for anything else', async () => {
+    mockParams = { stage: 'Contacted' };
+    await render(<EnquiriesScreen />);
+    expect(screen.getByTestId('enquiry-e2')).toBeTruthy();
+    expect(screen.queryByTestId('enquiry-e1')).toBeNull();
+    mockParams = {};
   });
 
   it('has a friendly empty state', async () => {

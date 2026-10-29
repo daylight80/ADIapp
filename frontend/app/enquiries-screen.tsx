@@ -183,7 +183,12 @@ function EnquiriesContent() {
                   {!!e.source && <Text style={s.source}>{e.source}</Text>}
                 </View>
                 <Text style={s.meta}>{askedLine(e, now)} · {contactLine(e, now)}{waited !== null && waited >= 1 ? ` · ${e.stage} ${waited} days` : ''}</Text>
-                {!!e.phone && <Text style={s.meta}>{e.phone}</Text>}
+                {(!!e.phone || !!e.postcode) && (
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: 8 }}>
+                    <Text style={s.meta}>{e.phone}</Text>
+                    {!!e.postcode && <Text style={s.postcode} testID={`enquiry-postcode-${e.id}`}>{e.postcode}</Text>}
+                  </View>
+                )}
               </TouchableOpacity>
 
               <View style={s.reachRow}>
@@ -306,6 +311,7 @@ const s = StyleSheet.create({
   name: { flex: 1, fontSize: 16, fontWeight: '800', color: C.text },
   source: { fontSize: 11.5, fontWeight: '700', color: C.muted },
   meta: { fontSize: 12.5, color: C.muted, marginTop: 3 },
+  postcode: { fontSize: 14, fontWeight: '800', color: C.text },
   reachRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
   reachBtn: { flex: 1, minHeight: 42, borderRadius: 11, borderWidth: 1.5, borderColor: C.primary, alignItems: 'center', justifyContent: 'center' },
   reachText: { fontWeight: '700', color: C.primary, fontSize: 14 },

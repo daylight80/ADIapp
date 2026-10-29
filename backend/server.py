@@ -629,6 +629,9 @@ def _tier_from_price_id(price_id: str) -> Optional[str]:
     return None
 
 
+STRIPE_STATUS_TO_DB = {"unpaid": "past_due", "paused": "past_due"}
+
+
 def _tier_from_subscription(sub: dict) -> Optional[str]:
     """Inspect a Stripe Subscription object and return our internal tier name."""
     items = (sub.get("items") or {}).get("data") or []
@@ -840,12 +843,16 @@ async def stripe_webhook(request: FastAPIRequest):
                     # Stripe does not promise delivery order, so this event body may be older than what the school
                     # has now. Read the subscription's current state instead of trusting the body.
                     data = billing_helpers.plain(await asyncio.to_thread(stripe.Subscription.retrieve, data["id"], expand=["items.data.price"]))
-                    if data.get("status") == "canceled":
+                    if data.get("status") in ("canceled", "incomplete_expired"):
                         await _cancel_school(school, data.get("id"))
+                        return {"received": True, "handled": True, "type": etype}
+                    if data.get("status") == "incomplete":
+                        # First payment not made yet: no plan to grant. The update that follows payment applies it.
                         return {"received": True, "handled": True, "type": etype}
                     patch = {
                         "tier": _tier_from_subscription(data) or school.get("tier") or "pro",
-                        "subscription_status": data.get("status") or "active",
+                        # The database only accepts free/active/past_due/cancelled/trialing; Stripe's unpaid and paused mean "not paying".
+                        "subscription_status": STRIPE_STATUS_TO_DB.get(data.get("status"), data.get("status") or "active"),
                         "stripe_subscription_id": data.get("id"),
                         "seat_count": _seat_qty_from_subscription(data),
                         "current_period_end": billing_helpers.period_end_iso(data),

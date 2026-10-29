@@ -65,6 +65,25 @@ def test_a_stale_update_does_not_reactivate_a_subscription_that_is_now_cancelled
     assert stripe_world["updates"][0]["subscription_status"] == "cancelled"
 
 
+@pytest.mark.parametrize("stripe_status", ["unpaid", "paused"])
+def test_stripe_statuses_the_database_refuses_are_saved_as_past_due(stripe_world, stripe_status):
+    stripe_world["live"] = {"id": "sub_new", "status": stripe_status}
+    send(stripe_world, "customer.subscription.updated", {"id": "sub_new", "customer": "cus_1"})
+    assert stripe_world["updates"][0]["subscription_status"] == "past_due"
+
+
+def test_an_unpaid_first_payment_changes_nothing(stripe_world):
+    stripe_world["live"] = {"id": "sub_new", "status": "incomplete"}
+    out = send(stripe_world, "customer.subscription.created", {"id": "sub_new", "customer": "cus_1"})
+    assert out["handled"] is True and stripe_world["updates"] == []
+
+
+def test_an_expired_first_payment_is_treated_as_cancelled(stripe_world):
+    stripe_world["live"] = {"id": "sub_new", "status": "incomplete_expired"}
+    send(stripe_world, "customer.subscription.updated", {"id": "sub_new", "customer": "cus_1"})
+    assert stripe_world["updates"][0]["subscription_status"] == "cancelled"
+
+
 def test_an_update_applies_the_current_state_not_the_state_in_the_event(stripe_world):
     stripe_world["live"] = {"id": "sub_new", "status": "past_due"}
     send(stripe_world, "customer.subscription.updated", {"id": "sub_new", "customer": "cus_1", "status": "active"})

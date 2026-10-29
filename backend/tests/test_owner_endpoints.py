@@ -92,6 +92,14 @@ def test_today_is_the_uk_day_in_utc_both_in_summer_and_winter():
     assert server.uk_day_bounds_utc(datetime(2026, 10, 25, 12, 0, tzinfo=timezone.utc)) == ("2026-10-24T23:00:00", "2026-10-26T00:00:00")
 
 
+def test_this_month_is_the_uk_month_in_utc():
+    from datetime import datetime, timezone
+    # 00:30 BST on 1 July is still 30 June in UTC, but it is already July for the school; July starts at 23:00 UTC.
+    assert server.uk_month_bounds_utc(datetime(2026, 6, 30, 23, 30, tzinfo=timezone.utc)) == ("2026-07", "2026-05-31T23:00:00", "2026-06-30T23:00:00")
+    # GMT: months line up with UTC, and January looks back into December.
+    assert server.uk_month_bounds_utc(datetime(2027, 1, 15, 12, 0, tzinfo=timezone.utc)) == ("2027-01", "2026-12-01T00:00:00", "2027-01-01T00:00:00")
+
+
 def test_the_live_diary_asks_for_the_uk_day(db, monkeypatch):
     monkeypatch.setattr(server, "uk_day_bounds_utc", lambda: ("2026-06-30T23:00:00", "2026-07-01T23:00:00"))
     run(server.v2_school_today(OWNER))

@@ -1609,13 +1609,8 @@ async def v2_school_leaderboard(sb_user: dict = Depends(get_current_supabase_use
     school = sb_user["school"]
     school_id = school["id"]
 
-    today = datetime.now(timezone.utc).date()
-    month_start = today.replace(day=1).isoformat()
-    month_iso = today.strftime("%Y-%m")
-    # Previous calendar month's boundaries, for an honest lessons/revenue trend.
-    prev_month_end_excl = today.replace(day=1)
-    prev_month_start = (prev_month_end_excl - timedelta(days=1)).replace(day=1).isoformat()
-    prev_month_end_excl = prev_month_end_excl.isoformat()
+    # UK calendar months (previous one too, for an honest lessons/revenue trend), as UTC timestamps.
+    month_iso, prev_month_start, month_start = uk_month_bounds_utc()
 
     async with httpx.AsyncClient(timeout=15.0) as client_http:
         # 1. All instructors in this school
@@ -1641,7 +1636,7 @@ async def v2_school_leaderboard(sb_user: dict = Depends(get_current_supabase_use
             f"{_sb_rest_base}/lessons",
             params={
                 "select": "id,instructor_id,status,amount_paid,start_time",
-                "start_time": f"gte.{month_start}T00:00:00",
+                "start_time": f"gte.{month_start}",
                 "instructor_id": f"in.({','.join(i['id'] for i in instructors) or 'null'})",
             },
             headers=_sb_headers(),
@@ -1653,8 +1648,8 @@ async def v2_school_leaderboard(sb_user: dict = Depends(get_current_supabase_use
             f"{_sb_rest_base}/lessons",
             params={
                 "select": "id,instructor_id,status,amount_paid,start_time",
-                "start_time": f"gte.{prev_month_start}T00:00:00",
-                "and": f"(start_time.lt.{prev_month_end_excl}T00:00:00)",
+                "start_time": f"gte.{prev_month_start}",
+                "and": f"(start_time.lt.{month_start})",
                 "instructor_id": f"in.({','.join(i['id'] for i in instructors) or 'null'})",
             },
             headers=_sb_headers(),
@@ -2027,6 +2022,16 @@ def uk_day_bounds_utc(now: Optional[datetime] = None) -> Tuple[str, str]:
     end = (start + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     fmt = "%Y-%m-%dT%H:%M:%S"
     return start.astimezone(timezone.utc).strftime(fmt), end.astimezone(timezone.utc).strftime(fmt)
+
+
+def uk_month_bounds_utc(now: Optional[datetime] = None) -> Tuple[str, str, str]:
+    """(YYYY-MM, start of last month, start of this month) in UK time, as the UTC timestamps lessons are stored in.
+    A lesson at 00:30 BST on the 1st is 23:30 UTC on the last day of the month before, so UTC dates put it in the wrong month."""
+    uk_now = (now or datetime.now(timezone.utc)).astimezone(UK_TZ)
+    this_first = uk_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    prev_first = (this_first - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    fmt = "%Y-%m-%dT%H:%M:%S"
+    return this_first.strftime("%Y-%m"), prev_first.astimezone(timezone.utc).strftime(fmt), this_first.astimezone(timezone.utc).strftime(fmt)
 
 
 @api_router.get("/v2/school/today", response_model=List[TodayLessonRow])

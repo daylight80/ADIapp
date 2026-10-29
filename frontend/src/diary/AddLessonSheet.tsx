@@ -104,6 +104,9 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
   const [defaultRate, setDefaultRate] = useState<number | null>(null);
   const [slotLessons, setSlotLessons] = useState<Lesson[]>([]);
   const [slotBlocks, setSlotBlocks] = useState<AvailabilityBlock[]>([]);
+  // "Book the next lesson" opens the sheet for a pupil and starts it on the first free slot, once that search has data.
+  const [slotsReady, setSlotsReady] = useState(false);
+  const bookNextPending = useRef(false);
 
   // Recurrence — bulk-create across `repeatWeeks` consecutive weeks at the
   // same weekday & time. We stamp a shared `series_id` so the bulk-cancel UX
@@ -185,12 +188,15 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
-    getMyDiaryPrefs().then((p) => { if (!cancelled) setPrefs(p); }).catch(() => {});
-    getInstructorHourlyRate().then((r) => { if (!cancelled) setDefaultRate(r); }).catch(() => {});
+    let left = 4;
+    const done = () => { left -= 1; if (!cancelled && left === 0) setSlotsReady(true); };
+    setSlotsReady(false);
+    getMyDiaryPrefs().then((p) => { if (!cancelled) setPrefs(p); }).catch(() => {}).finally(done);
+    getInstructorHourlyRate().then((r) => { if (!cancelled) setDefaultRate(r); }).catch(() => {}).finally(done);
     const from = new Date(); from.setHours(0, 0, 0, 0);
     const to = new Date(from); to.setDate(to.getDate() + 29);
-    listLessonsBetween(from.toISOString(), to.toISOString()).then((l) => { if (!cancelled) setSlotLessons(l); }).catch(() => {});
-    listAvailabilityBlocks(from.toISOString(), to.toISOString()).then((b) => { if (!cancelled) setSlotBlocks(b); }).catch(() => {});
+    listLessonsBetween(from.toISOString(), to.toISOString()).then((l) => { if (!cancelled) setSlotLessons(l); }).catch(() => {}).finally(done);
+    listAvailabilityBlocks(from.toISOString(), to.toISOString()).then((b) => { if (!cancelled) setSlotBlocks(b); }).catch(() => {}).finally(done);
     return () => { cancelled = true; };
   }, [visible]);
 
@@ -224,9 +230,18 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
   // never has it silently overwritten under them.
   useEffect(() => {
     if (visible && initialDate) setDate(initialDate);
-    if (visible && initialStudentId) setStudentId(initialStudentId);
+    if (visible && initialStudentId) { setStudentId(initialStudentId); bookNextPending.current = true; }
+    if (!visible) bookNextPending.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
+
+  // Start a "book the next lesson" on the first free slot, not on whatever date and time the last booking left behind.
+  useEffect(() => {
+    if (!bookNextPending.current || !slotsReady) return;
+    bookNextPending.current = false;
+    const first = nextSlots[0];
+    if (first) { setDate(first.date); setStartTime(first.start); setEndTime(first.end); }
+  }, [slotsReady, nextSlots]);
 
   // Reset form on close so re-opens start fresh.
   useEffect(() => {

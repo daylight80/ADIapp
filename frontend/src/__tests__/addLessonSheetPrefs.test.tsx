@@ -71,4 +71,13 @@ describe('Add Lesson uses the instructor\'s own settings', () => {
     expect(screen.getByText('09:00')).toBeTruthy();
     expect(screen.getByText('10:00')).toBeTruthy();
   });
+
+  it('booking the next lesson for a pupil starts on the first free slot, not the default time', async () => {
+    mockPrefs.mockResolvedValue({ lesson_lengths: [{ minutes: 60, price: null }], work_start: '13:00', work_end: '16:00' });
+    await render(<AddLessonSheet {...props} initialStudentId="st1" />);
+    const chips = await screen.findAllByTestId(/^next-slot-\d{4}-\d{2}-\d{2}-\d{2}:\d{2}$/);
+    const start = String(chips[0].props.testID).slice(-5);
+    await waitFor(() => expect(screen.getByText(start)).toBeTruthy());
+    expect(screen.queryByText('09:00')).toBeNull();
+  });
 });

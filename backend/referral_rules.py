@@ -5,6 +5,14 @@ from typing import Optional
 # Grant, 14 Oct 2026: the referral banner only appears once the school has been subscribed for a month.
 REFERRAL_MIN_SUBSCRIBED_DAYS = 30
 
+# Grant, 29 Oct 2026: for now only DC Pro subscribers can refer. Franchise schools, and the instructors linked to a
+# school, cannot get a code or earn a reward. The one place to widen this later (to be discussed with the Franchise tier).
+REFERRER_TIERS = {"pro"}
+
+
+def tier_may_refer(school: Optional[dict]) -> bool:
+    return bool(school) and str(school.get("tier") or "").lower() in REFERRER_TIERS
+
 
 def _parse(value) -> Optional[datetime]:
     if not value:
@@ -16,9 +24,14 @@ def _parse(value) -> Optional[datetime]:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-def referral_eligible_from(school: Optional[dict]) -> Optional[datetime]:
-    """The moment this school may start referring, or None if it never can (no paid plan)."""
+def referral_eligible_from(school: Optional[dict], auth_user_id: Optional[str] = None) -> Optional[datetime]:
+    """The moment this school may start referring, or None if it never can (not a paying DC Pro school).
+    With auth_user_id, only the school's owner counts: an instructor linked to someone else's school never can."""
     if not school or school.get("is_comp_account") or school.get("subscription_status") != "active":
+        return None
+    if not tier_may_refer(school):
+        return None
+    if auth_user_id is not None and school.get("owner_auth_id") != auth_user_id:
         return None
     since = _parse(school.get("subscribed_since"))
     if since is None:
@@ -26,8 +39,8 @@ def referral_eligible_from(school: Optional[dict]) -> Optional[datetime]:
     return since + timedelta(days=REFERRAL_MIN_SUBSCRIBED_DAYS)
 
 
-def referral_eligible(school: Optional[dict], now: Optional[datetime] = None) -> bool:
-    start = referral_eligible_from(school)
+def referral_eligible(school: Optional[dict], now: Optional[datetime] = None, auth_user_id: Optional[str] = None) -> bool:
+    start = referral_eligible_from(school, auth_user_id)
     return start is not None and (now or datetime.now(timezone.utc)) >= start
 
 

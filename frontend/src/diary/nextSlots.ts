@@ -30,6 +30,8 @@ export function findNextSlots(o: {
   days?: number;
   /** Start times are offered on this many-minute grid. */
   step?: number;
+  /** Bank holidays, YYYY-MM-DD to name: no slots are offered on these days. */
+  holidays?: Record<string, string>;
 }): Slot[] {
   const { lessons, blocks, length, workStart, workEnd } = o;
   const count = o.count ?? 3;
@@ -48,6 +50,7 @@ export function findNextSlots(o: {
 
   for (let i = 0; i < days && found.length < count; i += 1) {
     const date = ymd(addDays(first, i));
+    if (o.holidays?.[date]) continue;
     const day = lessons
       .filter((l) => l.date === date && l.status !== 'Cancelled')
       .map((l) => ({ start: toMin(l.start_time), end: toMin(l.end_time), buffer: cleanBufferMinutes(l.travel_minutes) }));

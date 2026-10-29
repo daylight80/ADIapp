@@ -58,6 +58,12 @@ describe('findNextSlots', () => {
     expect(findNextSlots({ ...base, lessons: [], length: 12 * 60 })).toEqual([]);
   });
 
+  it('offers nothing on a bank holiday', () => {
+    // five 2-hour slots fit on the 4th, none on the 5th, then the 6th carries on
+    const s = findNextSlots({ ...base, lessons: [], count: 6, holidays: { '2030-03-05': 'Bank holiday' }, days: 3 });
+    expect(s.map((x) => x.date)).toEqual(['2030-03-04', '2030-03-04', '2030-03-04', '2030-03-04', '2030-03-04', '2030-03-06']);
+  });
+
   it('does not offer a slot that would run past the end of working hours', () => {
     expect(findNextSlots({ ...base, lessons: [], workStart: '16:00', workEnd: '17:30', length: 120, days: 3 })).toEqual([]);
   });

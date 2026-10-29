@@ -214,9 +214,9 @@ export function AddLessonSheet({ visible, onClose, students, lessons, availBlock
     const wh = workHours(prefs);
     return findNextSlots({
       lessons: slotLessons, blocks: slotBlocks, today, nowMin: now.getHours() * 60 + now.getMinutes(),
-      length: lengthMin, travel: cleanBufferMinutes(travelMinutes), workStart: wh.start, workEnd: wh.end,
+      length: lengthMin, travel: cleanBufferMinutes(travelMinutes), workStart: wh.start, workEnd: wh.end, holidays,
     });
-  }, [visible, lengthMin, slotLessons, slotBlocks, prefs, travelMinutes]);
+  }, [visible, lengthMin, slotLessons, slotBlocks, prefs, travelMinutes, holidays]);
 
   // Pre-fill the Date field with whichever day the sheet was opened from.
   // Runs on the visible:false->true transition (not on every initialDate

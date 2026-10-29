@@ -564,7 +564,7 @@ export default function InstructorHomeV2Screen() {
                 </TouchableOpacity>
                 <TouchableOpacity style={s.pupilTile} onPress={() => openPupils('Waitlist')} accessibilityRole="button" testID="v2-pupils-waitlist">
                   <Text style={s.pupilValue}>{kpis.waitlist}</Text>
-                  <Text style={s.pupilLabel}>Waiting list</Text>
+                  <Text style={s.pupilLabel}>Pupils waiting</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.pupilTile} onPress={() => openPupils('Passed')} accessibilityRole="button" testID="v2-pupils-passed">
                   <Text style={[s.pupilValue, { color: C.success }]}>{testKpis.passRatePct}%</Text>
@@ -573,7 +573,7 @@ export default function InstructorHomeV2Screen() {
                 {/* Open enquiries, by stage: each tile opens the Enquiries screen on that stage. */}
                 <TouchableOpacity style={[s.pupilTile, s.enquiryTileBlue]} onPress={() => openEnquiries('Waiting')} accessibilityRole="button" testID="v2-enquiries-waiting">
                   <Text style={s.enquiryValue}>{enquiryTotals.Waiting}</Text>
-                  <Text style={s.enquiryLabel}>Enquiries waiting</Text>
+                  <Text style={s.enquiryLabel}>Enquiries to contact</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[s.pupilTile, s.enquiryTileOrange]} onPress={() => openEnquiries('Contacted')} accessibilityRole="button" testID="v2-enquiries-contacted">
                   <Text style={s.enquiryValue}>{enquiryTotals.Contacted}</Text>

@@ -115,7 +115,7 @@ describe('Instructor Home', () => {
 
   it('shows the waiting and contacted enquiry counts, and opens Enquiries on that stage', async () => {
     await render(<HomeScreen />);
-    expect(screen.getByText('Enquiries waiting')).toBeTruthy();
+    expect(screen.getByText('Enquiries to contact')).toBeTruthy();
     expect(screen.getByText('Enquiries contacted')).toBeTruthy();
     expect(within(screen.getByTestId('v2-enquiries-waiting')).getByText('2')).toBeTruthy();
     expect(within(screen.getByTestId('v2-enquiries-contacted')).getByText('1')).toBeTruthy();

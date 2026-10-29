@@ -9,6 +9,11 @@ export function isCompletedLesson(status: string | null | undefined): boolean {
   return status === 'Completed';
 }
 
+/** A cancelled lesson is kept in the data but left out of the diary, its totals and its gaps unless asked for. */
+export function isCancelledLesson(status: string | null | undefined): boolean {
+  return status === 'Cancelled';
+}
+
 /** The block's colour: green when completed, otherwise by lesson type. */
 export function lessonBlockColor(status: string | null | undefined, lessonType: string | null | undefined): string {
   return isCompletedLesson(status) ? COMPLETED_GREEN : colorForLessonType(lessonType);

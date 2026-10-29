@@ -33,9 +33,15 @@ jest.mock('../useSupabaseData', () => ({
   countUpcomingInSeries: jest.fn(async () => 0),
   cancelSeriesFromDate: jest.fn(),
 }));
-jest.mock('../AuthContext', () => ({ useAuth: () => ({ user: { tier: 'pro', instructor_id: 'i1' } }) }));
+let mockTier = 'pro';
+jest.mock('../AuthContext', () => ({ useAuth: () => ({ user: { tier: mockTier, instructor_id: 'i1' } }) }));
 jest.mock('../PaywallModal', () => ({ PaywallModal: () => null }));
-jest.mock('../LessonSummarySheet', () => ({ LessonSummarySheet: () => null }));
+jest.mock('../LessonSummarySheet', () => ({
+  LessonSummarySheet: ({ visible, onClose }: any) => {
+    const { TouchableOpacity } = require('react-native');
+    return visible ? <TouchableOpacity testID="mock-summary-close" onPress={onClose} /> : null;
+  },
+}));
 jest.mock('../SlotAlertLine', () => ({ SlotAlertLine: () => null }));
 jest.mock('../AddressSearch', () => ({ AddressSearch: () => null }));
 jest.mock('../DateTimeFields', () => ({ TimeField: () => null }));
@@ -54,6 +60,7 @@ const lesson: any = {
 let alertSpy: jest.SpyInstance;
 beforeEach(() => {
   [mockPatchAware, mockQueue, mockPatch, mockPush].forEach((m) => m.mockReset());
+  mockTier = 'pro';
   alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 });
 afterEach(() => alertSpy.mockRestore());
@@ -109,26 +116,70 @@ describe('after completing a lesson', () => {
     await fireEvent.press(screen.getByTestId('btn-save-complete'));
   };
 
-  it('offers Book next lesson, which closes the sheet and hands over the pupil', async () => {
+  it('offers the summary first, with no Book next button yet', async () => {
+    mockPatch.mockResolvedValue({});
+    const onBookNext = jest.fn();
+    await open(jest.fn(), { onBookNext });
+    await complete();
+    expect(await screen.findByTestId('btn-saved-write-summary')).toBeTruthy();
+    expect(screen.getByTestId('btn-saved-not-now')).toBeTruthy();
+    expect(screen.queryByTestId('btn-book-next-lesson')).toBeNull();
+    expect(onBookNext).not.toHaveBeenCalled();
+  });
+
+  it('Not now goes straight on to booking the next lesson', async () => {
     mockPatch.mockResolvedValue({});
     const onClose = jest.fn();
     const onBookNext = jest.fn();
     await render(<LessonToolsSheet visible lesson={lesson} onClose={onClose} onChanged={jest.fn()} onBookNext={onBookNext} />);
     await complete();
-    await fireEvent.press(await screen.findByTestId('btn-book-next-lesson'));
+    await fireEvent.press(await screen.findByTestId('btn-saved-not-now'));
     expect(onBookNext).toHaveBeenCalledWith('st1');
     expect(onClose).toHaveBeenCalled();
     expect(screen.queryByTestId('lesson-saved-dialog')).toBeNull();
   });
 
-  it('Not now just closes the dialog and books nothing', async () => {
+  it('writing the summary comes first, and closing it (sent or not) then goes on to booking', async () => {
     mockPatch.mockResolvedValue({});
     const onBookNext = jest.fn();
     await open(jest.fn(), { onBookNext });
     await complete();
-    await fireEvent.press(await screen.findByTestId('btn-saved-not-now'));
+    await fireEvent.press(await screen.findByTestId('btn-saved-write-summary'));
     expect(onBookNext).not.toHaveBeenCalled();
+    await fireEvent.press(await screen.findByTestId('mock-summary-close'));
+    expect(onBookNext).toHaveBeenCalledTimes(1);
+    expect(onBookNext).toHaveBeenCalledWith('st1');
+  });
+
+  it('a summary opened from Lesson Tools on its own does not start booking', async () => {
+    const onBookNext = jest.fn();
+    await open(jest.fn(), { onBookNext });
+    await fireEvent.press(screen.getByTestId('btn-write-summary-open'));
+    await fireEvent.press(await screen.findByTestId('mock-summary-close'));
+    expect(onBookNext).not.toHaveBeenCalled();
+  });
+
+  it('a plan without summaries skips that step and goes straight to booking', async () => {
+    mockTier = 'starter';
+    mockPatch.mockResolvedValue({});
+    const onBookNext = jest.fn();
+    await open(jest.fn(), { onBookNext });
+    await complete();
+    await waitFor(() => expect(onBookNext).toHaveBeenCalledWith('st1'));
     expect(screen.queryByTestId('lesson-saved-dialog')).toBeNull();
+  });
+
+  it('correcting a lesson that was already completed just saves, with no prompts', async () => {
+    mockPatch.mockResolvedValue({});
+    const onBookNext = jest.fn();
+    const onChanged = jest.fn();
+    await render(<LessonToolsSheet visible lesson={{ ...lesson, status: 'Completed', grade: 3 }} onClose={jest.fn()} onChanged={onChanged} onBookNext={onBookNext} />);
+    await fireEvent.press(screen.getByTestId('btn-open-complete'));
+    await fireEvent.press(await screen.findByTestId('grade-4'));
+    await fireEvent.press(screen.getByTestId('btn-save-complete'));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(screen.queryByTestId('lesson-saved-dialog')).toBeNull();
+    expect(onBookNext).not.toHaveBeenCalled();
   });
 
   it('a failed save shows no dialog', async () => {

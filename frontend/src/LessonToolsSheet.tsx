@@ -101,6 +101,8 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
   );
   // Dictated summary for the pupil (paid plans): its sheet, and the upgrade prompt for everyone else.
   const [summaryOpen, setSummaryOpen] = useState(false);
+  // True when the summary was opened from the "Lesson saved" prompt, so closing it carries on to Book next lesson.
+  const [summaryFromSave, setSummaryFromSave] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
   const [summaryPaywallOpen, setSummaryPaywallOpen] = useState(false);
   // Practical Test bookings: editing the test centre and test time after booking.
@@ -409,6 +411,13 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
     setBroadcastOpen(true);
   };
 
+  // The last step of finishing a lesson: close this sheet and open Add Lesson for the same pupil.
+  const bookNext = () => {
+    setSavedOpen(false);
+    onClose();
+    if (lesson && onBookNext) onBookNext(lesson.student_id);
+  };
+
   // Mark Complete: persists faults / grade / amount / notes + status.
   // First slice of offline-first sync (25 Aug 2026) — this is the highest-
   // value moment to get right, since it's the thing an instructor most
@@ -443,9 +452,15 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
         await queueLessonWrite(lesson.id, payload as any, `Mark complete — ${student.name}`);
         Alert.alert('Saved offline', `${student.name.split(' ')[0]}'s lesson saved on this device. It'll sync automatically once you're back online.`);
       } else {
+        const firstCompletion = lesson.status !== 'Completed';
         await patchLesson(lesson.id, payload as any);
-        // One in-app dialog (Alert buttons do nothing on the web): book the next lesson, and on a paid plan write the summary.
-        setSavedOpen(true);
+        // Finishing a lesson runs as one sequence: offer the pupil summary (paid plans), then open Add Lesson for the
+        // next one. Correcting a lesson already completed just saves, so a small edit never re-asks everything.
+        // The prompt is an in-app dialog because Alert buttons do nothing on the web.
+        if (firstCompletion && onBookNext) {
+          if (paid) setSavedOpen(true);
+          else { setCompleteOpen(false); bookNext(); onChanged?.(); return; }
+        }
       }
     } catch (e: any) {
       // A refusal (expired sign-in, database error) will never succeed later, so say so. Only a dropped connection
@@ -944,25 +959,14 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
           <View style={cancelModalStyles.card} testID="lesson-saved-dialog">
             <Text style={cancelModalStyles.title}>Lesson saved</Text>
             <Text style={cancelModalStyles.body}>{student.name.split(' ')[0]}&apos;s lesson is recorded. Faults and grade are synced.</Text>
-            {!!onBookNext && (
-              <TouchableOpacity
-                style={[cancelModalStyles.btn, cancelModalStyles.btnPartial]}
-                onPress={() => { setSavedOpen(false); onClose(); if (lesson) onBookNext(lesson.student_id); }}
-                testID="btn-book-next-lesson"
-              >
-                <Text style={cancelModalStyles.btnText}>Book next lesson</Text>
-              </TouchableOpacity>
-            )}
-            {paid && (
-              <TouchableOpacity
-                style={[cancelModalStyles.btn, cancelModalStyles.btnPartial]}
-                onPress={() => { setSavedOpen(false); setSummaryOpen(true); }}
-                testID="btn-saved-write-summary"
-              >
-                <Text style={cancelModalStyles.btnText}>Write a summary for {student.name.split(' ')[0]}</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity style={cancelModalStyles.btnGhost} onPress={() => setSavedOpen(false)} testID="btn-saved-not-now">
+            <TouchableOpacity
+              style={[cancelModalStyles.btn, cancelModalStyles.btnPartial]}
+              onPress={() => { setSavedOpen(false); setSummaryFromSave(true); setSummaryOpen(true); }}
+              testID="btn-saved-write-summary"
+            >
+              <Text style={cancelModalStyles.btnText}>Write a summary for {student.name.split(' ')[0]}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={cancelModalStyles.btnGhost} onPress={bookNext} testID="btn-saved-not-now">
               <Text style={cancelModalStyles.btnGhostText}>Not now</Text>
             </TouchableOpacity>
           </View>
@@ -1004,7 +1008,8 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
     />
     <LessonSummarySheet
       visible={summaryOpen}
-      onClose={() => setSummaryOpen(false)}
+      // Closing it (sent, or just closed) carries on to booking when it was opened from the save prompt.
+      onClose={() => { setSummaryOpen(false); if (summaryFromSave) { setSummaryFromSave(false); bookNext(); } }}
       lessonId={lesson.id}
       studentName={student.name}
       instructorId={user?.instructor_id ?? undefined}

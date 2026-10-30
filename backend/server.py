@@ -3321,6 +3321,22 @@ async def _enquiry_school(client_http, key: str) -> Optional[dict]:
     return rows[0] if rows else None
 
 
+async def _login_email(auth_user_id: Optional[str]) -> str:
+    """The email a person signs in with, or "" if it cannot be found. Never raises."""
+    if not auth_user_id or not SUPABASE_URL:
+        return ""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client_http:
+            r = await client_http.get(
+                f"{SUPABASE_URL.rstrip('/')}/auth/v1/admin/users/{auth_user_id}",
+                headers={"apikey": SUPABASE_SERVICE_ROLE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}"},
+            )
+        return ((r.json() or {}).get("email") or "").strip() if r.status_code < 400 else ""
+    except Exception:
+        logger.exception("Could not look up the login email of %s", auth_user_id)
+        return ""
+
+
 async def _notify_new_enquiry(school: dict, owner: dict, enquiry: dict) -> None:
     """Tell the school owner (push and email) and thank the visitor. The enquiry is already saved, so each step is
     tried on its own and none can fail the request or undo the save. Runs after the visitor has been answered."""
@@ -3332,6 +3348,9 @@ async def _notify_new_enquiry(school: dict, owner: dict, enquiry: dict) -> None:
         logger.info("New-enquiry emails skipped for school %s: email is not configured", school.get("id"))
         return
     owner_email = (owner.get("email") or "").strip()
+    if not email_service.looks_like_email(owner_email):
+        # Not every owner filled in the email on their instructor record: use the one they sign in with.
+        owner_email = await _login_email(school.get("owner_auth_id"))
     if email_service.looks_like_email(owner_email):
         try:
             subject, html_body, text_body = email_service.render_new_enquiry_email(
@@ -3359,10 +3378,30 @@ async def _notify_new_enquiry(school: dict, owner: dict, enquiry: dict) -> None:
             logger.exception("Confirmation email to a website enquirer of school %s failed", school.get("id"))
 
 
+def _client_ip(request: Request) -> str:
+    # Render adds the real client address last; anything before it was sent by the caller and cannot be trusted.
+    return (request.headers.get("x-forwarded-for", "").split(",")[-1].strip()) or (request.client.host if request.client else "?")
+
+
+_enquiry_info_limiter = address_search.UserLimiter(60, 3600)
+
+
+@api_router.get("/public/enquiries/{form_key}")
+async def public_enquiry_info(form_key: str, request: Request):
+    """What the hosted form page needs to know: is this form live, and whose is it. A wrong, switched-off or Starter
+    key answers exactly the same, so keys cannot be tested for."""
+    if not _enquiry_info_limiter.allow(_client_ip(request)):
+        raise HTTPException(status_code=429, detail="Too many requests. Please try again later.")
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        school = await _enquiry_school(client_http, form_key) if _ENQUIRY_KEY.fullmatch(form_key) else None
+    if not school or not school.get("enquiry_form_enabled") or not lesson_summaries.is_paid_tier(school.get("tier")):
+        return {"available": False}
+    return {"available": True, "school_name": email_service.clean_display_name(school.get("business_name"), fallback="")}
+
+
 @api_router.post("/public/enquiries/{form_key}")
 async def public_enquiry(form_key: str, request: Request, background: BackgroundTasks):
-    # Render adds the real client address last; anything before it was sent by the caller and cannot be trusted.
-    ip = (request.headers.get("x-forwarded-for", "").split(",")[-1].strip()) or (request.client.host if request.client else "?")
+    ip = _client_ip(request)
     if not _enquiry_ip_limiter.allow(ip):
         raise HTTPException(status_code=429, detail="Too many enquiries from here. Please try again later.")
     try:
@@ -3436,6 +3475,62 @@ async def public_enquiry(form_key: str, request: Request, background: Background
     # Only a new enquiry is announced; a repeat was added as a note above and does not ping the owner again.
     background.add_task(_notify_new_enquiry, school, owner_rows[0], enquiry)
     return ENQUIRY_THANKS
+
+
+class EnquiryFormStatus(BaseModel):
+    available: bool                  # DC Pro and Franchise only
+    enabled: bool = False
+    key: Optional[str] = None
+    form_path: Optional[str] = None  # relative; the app adds this server's address
+
+
+class EnquiryFormToggle(BaseModel):
+    enabled: bool
+
+
+async def _enquiry_form_owner_school_id(sb_user: dict) -> str:
+    school = sb_user.get("school") or await sb_get_school_by_auth_user(sb_user["auth_user_id"])
+    if not school or school.get("owner_auth_id") != sb_user["auth_user_id"]:
+        raise HTTPException(status_code=403, detail="Only the school owner can manage the website form.")
+    return school["id"]
+
+
+async def _enquiry_form_status(school_id: str) -> EnquiryFormStatus:
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.get(
+            f"{_sb_rest_base}/driving_schools",
+            params={"id": f"eq.{school_id}", "select": "tier,enquiry_form_key,enquiry_form_enabled", "limit": "1"},
+            headers=_sb_headers(),
+        )
+    rows = r.json() if r.status_code < 400 else []
+    if not rows or not lesson_summaries.is_paid_tier(rows[0].get("tier")):
+        return EnquiryFormStatus(available=False)
+    key = rows[0].get("enquiry_form_key")
+    return EnquiryFormStatus(available=True, enabled=bool(rows[0].get("enquiry_form_enabled")), key=key, form_path=f"/api/public/enquiries/{key}")
+
+
+@api_router.get("/v2/enquiry-form", response_model=EnquiryFormStatus)
+async def get_enquiry_form(sb_user: dict = Depends(get_current_supabase_user)):
+    return await _enquiry_form_status(await _enquiry_form_owner_school_id(sb_user))
+
+
+@api_router.post("/v2/enquiry-form/regenerate", response_model=EnquiryFormStatus)
+async def regenerate_enquiry_form_key(sb_user: dict = Depends(get_current_supabase_user)):
+    """A new key; the old address stops working at once. For when the key has been shared where it should not be."""
+    school_id = await _enquiry_form_owner_school_id(sb_user)
+    if not (await _enquiry_form_status(school_id)).available:
+        raise HTTPException(status_code=403, detail="The website form is part of DC Pro and Franchise.")
+    await sb_update_school(school_id, {"enquiry_form_key": _secrets.token_hex(16)})
+    return await _enquiry_form_status(school_id)
+
+
+@api_router.post("/v2/enquiry-form/enabled", response_model=EnquiryFormStatus)
+async def set_enquiry_form_enabled(req: EnquiryFormToggle, sb_user: dict = Depends(get_current_supabase_user)):
+    school_id = await _enquiry_form_owner_school_id(sb_user)
+    if not (await _enquiry_form_status(school_id)).available:
+        raise HTTPException(status_code=403, detail="The website form is part of DC Pro and Franchise.")
+    await sb_update_school(school_id, {"enquiry_form_enabled": req.enabled})
+    return await _enquiry_form_status(school_id)
 
 
 app.include_router(api_router)

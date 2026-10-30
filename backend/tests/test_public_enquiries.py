@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import pytest
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
 import address_search
 import public_enquiries as pe
@@ -27,12 +27,14 @@ class Resp:
 class Db:
     def __init__(self):
         self.tables = {
-            "driving_schools": [{"id": "sc1", "tier": "pro", "owner_auth_id": OWNER_AUTH, "enquiry_form_key": KEY, "enquiry_form_enabled": True}],
-            "instructors": [{"id": "ins-owner", "school_id": "sc1", "auth_user_id": OWNER_AUTH}],
+            "driving_schools": [{"id": "sc1", "tier": "pro", "owner_auth_id": OWNER_AUTH, "enquiry_form_key": KEY, "enquiry_form_enabled": True,
+                                 "business_name": "Formula Jon Driving School"}],
+            "instructors": [{"id": "ins-owner", "school_id": "sc1", "auth_user_id": OWNER_AUTH, "email": "jon@formula.co"}],
             "enquiries": [],
             "enquiry_contacts": [],
         }
         self.fail_insert = False
+        self.pushes, self.emails = [], []  # what the notifications would have sent
 
     def __call__(self, **kw):
         return self
@@ -89,11 +91,29 @@ def db(monkeypatch):
     monkeypatch.setattr(server, "_sb_rest_base", "https://db.example/rest/v1")
     monkeypatch.setattr(server, "_enquiry_ip_limiter", address_search.UserLimiter(20, 3600))
     monkeypatch.setattr(server, "_enquiry_key_limiter", address_search.UserLimiter(30, 3600))
+
+    async def push(auth_user_id, message, kind):
+        d.pushes.append((auth_user_id, message, kind))
+        return True
+
+    async def send(payload, client=None):
+        if d.email_error:
+            raise server.email_service.EmailSendError("Resend rejected the email")
+        d.emails.append(payload)
+
+    d.email_error = False
+    monkeypatch.setattr(server, "_push_to_user", push)
+    monkeypatch.setattr(server.email_service, "send_email", send)
+    monkeypatch.setattr(server.email_service, "is_configured", lambda: True)
     return d
 
 
 def post(req, key=KEY):
-    return asyncio.run(server.public_enquiry(key, req))
+    """What the visitor gets back, then the notifications that follow it."""
+    background = BackgroundTasks()
+    out = asyncio.run(server.public_enquiry(key, req, background))
+    asyncio.run(background())
+    return out
 
 
 def json_req(**fields):
@@ -305,3 +325,131 @@ def test_the_route_is_public_and_works_over_real_http(db):
     assert r.status_code == 422 and "mobile number or an email" in r.json()["detail"]
     r = client.post(f"/api/public/enquiries/{KEY}", content=b"x" * 30000, headers={"content-type": "application/json"})
     assert r.status_code == 413
+
+
+# --- notifications: push + email to the owner, a thank-you to the visitor ---------------------------------------------
+def test_a_new_enquiry_pushes_the_owner_with_no_details(db):
+    post(json_req(**GOOD))
+    assert db.pushes == [(OWNER_AUTH, {"title": "New Enquiry", "body": "Check DualControl for more details"}, "new_enquiry")]
+
+
+def test_the_owner_is_emailed_the_details_and_replying_answers_the_visitor(db):
+    post(json_req(**GOOD))
+    to_owner = next(p for p in db.emails if p["to"] == ["jon@formula.co"])
+    assert to_owner["subject"] == "New website enquiry from Dayana Arachchige"
+    assert to_owner["from"] == server.email_service.system_sender_header()
+    assert to_owner["reply_to"] == "anusudhi75@gmail.com"
+    for needle in ("Dayana Arachchige", "07496496582", "anusudhi75@gmail.com", "SM5 1ES", "Availability: Weekdays", "Theory test: Y"):
+        assert needle in to_owner["text"] and needle in to_owner["html"]
+
+
+def test_the_visitor_gets_a_thank_you_from_the_school_that_echoes_nothing_they_wrote(db):
+    post(json_req(**GOOD))
+    to_visitor = next(p for p in db.emails if p["to"] == ["anusudhi75@gmail.com"])
+    assert to_visitor["from"] == '"Formula Jon Driving School via DualControl" <' + server.email_service.EMAIL_FROM_ADDRESS + ">"
+    assert to_visitor["reply_to"] == "jon@formula.co"
+    assert to_visitor["subject"] == "We've got your enquiry - Formula Jon Driving School"
+    assert "Hi Dayana," in to_visitor["text"]
+    # A stranger types this address in: nothing else they wrote is repeated back to it.
+    for echoed in ("07496496582", "SM5 1ES", "Previously had lessons", "Weekdays", "Arachchige"):
+        assert echoed not in to_visitor["text"] and echoed not in to_visitor["html"]
+    assert len(db.emails) == 2
+
+
+def test_what_a_stranger_types_cannot_inject_html_or_email_headers(db):
+    post(json_req(name="<script>alert(1)</script>", email="a@x.co", message="<img src=x onerror=alert(2)>\n<b>bold</b>"))
+    for payload in db.emails:
+        assert "<script>" not in payload["html"] and "<img" not in payload["html"] and "<b>bold" not in payload["html"]
+        assert "\n" not in payload["subject"] and "\r" not in payload["subject"]
+    assert "&lt;script&gt;" in next(p for p in db.emails if p["to"] == ["jon@formula.co"])["html"]
+    # Straight into the template, newlines and quotes in a name cannot reach the subject or the sender line.
+    subject, _, _ = server.email_service.render_new_enquiry_email(name="Sam\r\nBcc: evil@x.co", phone=None, email="a@x.co", postcode=None, notes=None)
+    assert "\n" not in subject and "\r" not in subject
+    subject, _, text = server.email_service.render_enquiry_confirmation_email(visitor_name='Sam"\r\nBcc: x', school_name='Evil" <a@b.c>\r\nX: y')
+    assert "\n" not in subject and "\r" not in subject and "<a@b.c>" not in subject
+
+
+def test_an_enquiry_with_only_a_phone_pushes_and_emails_the_owner_but_sends_no_thank_you(db):
+    post(json_req(name="Sam Lee", mobile="07700 900123"))
+    assert len(db.pushes) == 1
+    assert [p["to"] for p in db.emails] == [["jon@formula.co"]]
+    assert "reply_to" not in db.emails[0] and "ring or text them" in db.emails[0]["text"]
+
+
+def test_an_owner_with_no_email_is_pushed_and_the_visitor_still_thanked(db):
+    db.tables["instructors"][0]["email"] = None
+    post(json_req(**GOOD))
+    assert len(db.pushes) == 1
+    assert [p["to"] for p in db.emails] == [["anusudhi75@gmail.com"]]
+    assert "reply_to" not in db.emails[0]
+
+
+def test_when_email_is_not_set_up_the_owner_is_still_pushed(db, monkeypatch):
+    monkeypatch.setattr(server.email_service, "is_configured", lambda: False)
+    post(json_req(**GOOD))
+    assert len(db.pushes) == 1 and db.emails == [] and len(db.tables["enquiries"]) == 1
+
+
+def test_a_failing_email_never_loses_the_enquiry_or_the_visitor_their_thanks(db):
+    db.email_error = True
+    assert post(json_req(**GOOD))["ok"] is True
+    assert len(db.tables["enquiries"]) == 1 and len(db.pushes) == 1
+
+
+def test_a_failing_push_does_not_stop_the_emails(db, monkeypatch):
+    async def boom(*a):
+        raise RuntimeError("expo down")
+
+    monkeypatch.setattr(server, "_push_to_user", boom)
+    post(json_req(**GOOD))
+    assert len(db.emails) == 2 and len(db.tables["enquiries"]) == 1
+
+
+def test_one_failing_email_does_not_stop_the_other(db, monkeypatch):
+    calls = []
+
+    async def send(payload, client=None):
+        calls.append(payload["to"][0])
+        if payload["to"] == ["jon@formula.co"]:
+            raise server.email_service.EmailSendError("nope")
+
+    monkeypatch.setattr(server.email_service, "send_email", send)
+    post(json_req(**GOOD))
+    assert calls == ["jon@formula.co", "anusudhi75@gmail.com"]
+
+
+def test_a_repeat_enquiry_is_a_note_and_pings_nobody(db):
+    post(json_req(**GOOD))
+    db.pushes.clear(); db.emails.clear()
+    post(json_req(name="Dayana", mobile="07496 496582"))
+    assert len(db.tables["enquiries"]) == 1 and len(db.tables["enquiry_contacts"]) == 1
+    assert db.pushes == [] and db.emails == []  # no second thank-you to the same address either
+
+
+@pytest.mark.parametrize("setup", ["wrong key", "starter", "off", "honeypot", "bad form", "save fails"])
+def test_nothing_is_sent_when_nothing_was_saved(db, setup):
+    key, fields = KEY, dict(GOOD)
+    if setup == "wrong key":
+        key = "b" * 32
+    elif setup == "starter":
+        db.tables["driving_schools"][0]["tier"] = "starter"
+    elif setup == "off":
+        db.tables["driving_schools"][0]["enquiry_form_enabled"] = False
+    elif setup == "honeypot":
+        fields["company_website"] = "http://spam.example"
+    elif setup == "bad form":
+        fields.pop("name")
+    elif setup == "save fails":
+        db.fail_insert = True
+    try:
+        post(json_req(**fields), key)
+    except HTTPException:
+        pass
+    assert db.pushes == [] and db.emails == []
+
+
+def test_over_real_http_the_visitor_is_answered_and_the_notifications_follow(db):
+    from fastapi.testclient import TestClient
+    r = TestClient(server.app).post(f"/api/public/enquiries/{KEY}", json=GOOD)
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert len(db.pushes) == 1 and len(db.emails) == 2

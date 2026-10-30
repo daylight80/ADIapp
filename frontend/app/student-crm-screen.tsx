@@ -128,7 +128,13 @@ export default function StudentsV2Screen() {
     setMethodPickerOpen(false);
     setTimeout(() => setContactsImportOpen(true), 220);
   };
-  const copyInviteLink = () => { if (inviteLink) copyToClipboard(inviteLink); };
+  const [linkCopied, setLinkCopied] = useState(false);
+  const copyInviteLink = () => {
+    if (!inviteLink) return;
+    if (!copyToClipboard(inviteLink)) { Alert.alert('Invite link', inviteLink); return; }
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2400);
+  };
   const smsInviteLink = async () => {
     if (!inviteLink || !inviteRecipient) return;
     const body = `Hi ${inviteRecipient.name.split(' ')[0]}, your driving instructor has invited you to DualControl. Tap to sign up: ${inviteLink}`;
@@ -688,7 +694,7 @@ export default function StudentsV2Screen() {
             </View>
             <View style={{ flexDirection: 'row', gap: 9 }}>
               <TouchableOpacity style={[s.linkBtn, { backgroundColor: C.primary }]} onPress={copyInviteLink} testID="v2-btn-copy-invite">
-                <Text style={s.linkBtnText}>Copy link</Text>
+                <Text style={s.linkBtnText}>{linkCopied ? 'Copied ✓' : 'Copy link'}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[s.linkBtn, { backgroundColor: C.accent }]} onPress={smsInviteLink} testID="v2-btn-sms-invite">
                 <Text style={s.linkBtnText}>Send via SMS</Text>

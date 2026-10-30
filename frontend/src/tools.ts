@@ -1,4 +1,5 @@
 import { Platform, Linking, Alert } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 
 export type NavApp = 'google' | 'waze' | 'apple';
 
@@ -89,12 +90,9 @@ export async function openWhatsApp(phone: string, body: string): Promise<boolean
 
 export function copyToClipboard(text: string): boolean {
   try {
-    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(text);
-      return true;
-    }
-    // expo-clipboard would be ideal; fallback alert
-    return false;
+    // Fire and forget: callers only need to know it was handed over, and a rejection must not crash them.
+    Clipboard.setStringAsync(text).catch(() => {});
+    return true;
   } catch {
     return false;
   }

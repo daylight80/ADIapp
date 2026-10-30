@@ -1,4 +1,5 @@
 import React from 'react';
+import { Alert } from 'react-native';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 
 jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }));
@@ -33,6 +34,7 @@ const mockPost = jest.fn();
 jest.mock('../api', () => ({ api: { post: (...a: any[]) => mockPost(...a) } }));
 
 import StudentsScreen from '../../app/student-crm-screen';
+import { copyToClipboard } from '../tools';
 
 describe('Students list: send the invite again', () => {
   beforeEach(() => mockPost.mockReset());
@@ -66,5 +68,31 @@ describe('Students list: send the invite again', () => {
     await waitFor(() => expect(screen.getByTestId('v2-invite-email-fallback')).toBeTruthy());
     expect(screen.getByText('Supabase invite failed')).toBeTruthy();
     expect(screen.getByTestId('v2-invite-link-value')).toBeTruthy();
+  });
+
+  const openInviteSheet = async () => {
+    mockPost.mockResolvedValue({ data: { sent: true, detail: 'ok' } });
+    await render(<StudentsScreen />);
+    await fireEvent.press(screen.getByTestId('v2-student-toggle-s1'));
+    await fireEvent.press(screen.getByTestId('v2-resend-invite-s1'));
+    await waitFor(() => expect(screen.getByTestId('v2-btn-copy-invite')).toBeTruthy());
+  };
+
+  it('Copy link copies the link and says so', async () => {
+    (copyToClipboard as jest.Mock).mockReturnValue(true);
+    await openInviteSheet();
+    await fireEvent.press(screen.getByTestId('v2-btn-copy-invite'));
+    expect((copyToClipboard as jest.Mock).mock.calls[0][0]).toContain('?invite=');
+    expect(screen.getByText('Copied ✓')).toBeTruthy();
+  });
+
+  it('Copy link shows the link instead when copying is not possible', async () => {
+    (copyToClipboard as jest.Mock).mockReturnValue(false);
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await openInviteSheet();
+    await fireEvent.press(screen.getByTestId('v2-btn-copy-invite'));
+    expect(alertSpy).toHaveBeenCalledWith('Invite link', expect.stringContaining('?invite='));
+    expect(screen.queryByText('Copied ✓')).toBeNull();
+    alertSpy.mockRestore();
   });
 });

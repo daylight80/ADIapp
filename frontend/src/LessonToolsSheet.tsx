@@ -31,6 +31,7 @@ import { isPaidTier, tierById } from './tiers';
 import { PaywallModal } from './PaywallModal';
 import { LessonSummarySheet } from './LessonSummarySheet';
 import { pupilHasConfirmedPrecheck } from './precheckMemory';
+import { ChangeTimeSheet } from './diary/ChangeTimeSheet';
 import { LastLessonFocusCard, useLastLessonFocus } from './LastLessonFocusCard';
 import { LessonPlanSection } from './LessonPlanSection';
 import { suggestTopics } from './lessonPlan';
@@ -91,6 +92,8 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
   const router = useRouter();
   const isOnline = useIsOnline();
   const { user } = useAuth();
+  const [changeTimeOpen, setChangeTimeOpen] = useState(false);
+  const canChangeTime = user?.role !== 'student' && lesson?.status === 'Scheduled' && lesson?.lesson_type !== 'Practical Test';
   // Route recording is a Growth+ feature (31 Aug 2026, per Grant testing
   // Starter on Android) — was fully active on every tier with no gating.
   const paid = isPaidTier(user?.tier);
@@ -514,6 +517,13 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
               </Text>
               {lesson.lesson_type === 'Practical Test' && !!testSummary(lesson.test_time, lesson.test_centre) && (
                 <Text style={[styles.sub, { fontWeight: '700' }]} testID="test-summary">{testSummary(lesson.test_time, lesson.test_centre)}</Text>
+              )}
+              {/* Only the teacher moves a lesson (the database allows nobody else), and only a lesson still to be taught.
+                  A Practical Test has its own edit sheet for its centre and time. */}
+              {canChangeTime && (
+                <TouchableOpacity onPress={() => setChangeTimeOpen(true)} testID="btn-change-time" accessibilityLabel="Change date or time">
+                  <Text style={styles.changeTime}>Change date or time</Text>
+                </TouchableOpacity>
               )}
             </View>
             {/* Quick contact — SMS + Call (10 Sept 2026), per Grant directly,
@@ -1043,6 +1053,14 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
       studentName={student.name}
       instructorId={user?.instructor_id ?? undefined}
     />
+    <ChangeTimeSheet
+      visible={changeTimeOpen}
+      onClose={() => setChangeTimeOpen(false)}
+      lesson={lesson}
+      studentName={student.name}
+      // The lesson is now somewhere else in the diary, so close this sheet too and let the diary redraw.
+      onMoved={() => { setChangeTimeOpen(false); onChanged?.(); onClose(); }}
+    />
     </>
   );
 }
@@ -1451,6 +1469,7 @@ const styles = StyleSheet.create({
   paymentDot: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
   sub: { fontSize: 13, color: theme.colors.textMuted, marginTop: 2 },
+  changeTime: { fontSize: 13, fontWeight: '700', color: theme.colors.primary, marginTop: 4 },
   badgeRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 12 },
   section: { fontSize: 15, fontWeight: '700', color: theme.colors.text, marginTop: 8, marginBottom: 8 },
   precheckNote: { fontSize: 12.5, lineHeight: 17, color: theme.colors.textMuted, marginBottom: 8 },

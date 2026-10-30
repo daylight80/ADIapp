@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 from pydantic import BaseModel, EmailStr, Field, field_validator
 import uuid
-from typing import Optional, Literal, List, Tuple
+from typing import Optional, Literal, List, Tuple, Dict
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import stripe
@@ -1830,6 +1830,30 @@ class ReassignStudentsResponse(BaseModel):
     moved: int
     skipped: int
     errors: List[str]
+    notified: int = 0  # instructors who were sent a push; the app offers a text or WhatsApp for the rest
+
+
+# Grant, 30 Oct 2026: no names or details, because a lock screen can be read by anyone nearby. Tapping it opens the app.
+ALLOCATION_PUSH = {"title": "New Student Allocation", "body": "Check DualControl for more details"}
+
+
+async def _notify_instructor_of_allocation(auth_user_id: Optional[str]) -> bool:
+    """Push to the allocated instructor's phone(s) only. Never raises: the pupils are already moved."""
+    if not auth_user_id:
+        return False
+    try:
+        import lesson_reminders as lr_mod
+        tokens = await lr_mod._push_tokens_for_user(auth_user_id)
+        if not tokens:
+            return False
+        result = await lr_mod._send_push([
+            {"to": t, **ALLOCATION_PUSH, "sound": "default", "data": {"kind": "pupil_allocated"}}
+            for t in tokens
+        ])
+        return result["accepted"] > 0
+    except Exception:
+        logger.exception("Could not push the allocation to instructor %s", auth_user_id)
+        return False
 
 
 @api_router.post("/v2/students/reassign", response_model=ReassignStudentsResponse)
@@ -1852,10 +1876,11 @@ async def v2_reassign_students(
         # Pre-fetch valid instructor ids for this school
         ir = await client_http.get(
             f"{_sb_rest_base}/instructors",
-            params={"school_id": f"eq.{school_id}", "select": "id"},
+            params={"school_id": f"eq.{school_id}", "select": "id,auth_user_id"},
             headers=_sb_headers(),
         )
-        valid_instructors = {row["id"] for row in (ir.json() or [])}
+        valid_instructors = {row["id"]: row.get("auth_user_id") for row in (ir.json() or [])}
+        moved_to: set = set()
 
         for entry in req.assignments:
             sid = (entry.get("student_id") or "").strip()
@@ -1895,6 +1920,7 @@ async def v2_reassign_students(
                 errors.append(f"Update failed for {sid[:8]}…: {up.text[:120]}")
             else:
                 moved += 1
+                moved_to.add(iid)
                 # Lessons are visible only to the instructor named on them, so the pupil's booked lessons move
                 # too. Past and cancelled lessons stay with whoever taught them.
                 now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
@@ -1907,7 +1933,12 @@ async def v2_reassign_students(
                 if lp.status_code >= 400:
                     errors.append(f"Moved {sid[:8]}…, but their booked lessons could not be moved: {lp.text[:120]}")
 
-    return ReassignStudentsResponse(moved=moved, skipped=skipped, errors=errors[:10])
+    notified = 0
+    for iid in moved_to:
+        # The owner moving pupils to themselves needs no push.
+        if valid_instructors[iid] != sb_user["auth_user_id"] and await _notify_instructor_of_allocation(valid_instructors[iid]):
+            notified += 1
+    return ReassignStudentsResponse(moved=moved, skipped=skipped, errors=errors[:10], notified=notified)
 
 
 # ---------------------------------------------------------------------------

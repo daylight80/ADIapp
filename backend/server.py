@@ -1,5 +1,5 @@
 import asyncio
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request, BackgroundTasks
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 import os
@@ -1836,10 +1836,11 @@ class ReassignStudentsResponse(BaseModel):
 
 # Grant, 30 Oct 2026: no names or details, because a lock screen can be read by anyone nearby. Tapping it opens the app.
 ALLOCATION_PUSH = {"title": "New Student Allocation", "body": "Check DualControl for more details"}
+ENQUIRY_PUSH = {"title": "New Enquiry", "body": "Check DualControl for more details"}
 
 
-async def _notify_instructor_of_allocation(auth_user_id: Optional[str]) -> bool:
-    """Push to the allocated instructor's phone(s) only. Never raises: the pupils are already moved."""
+async def _push_to_user(auth_user_id: Optional[str], message: Dict[str, str], kind: str) -> bool:
+    """Push to every phone this login has. True if Expo accepted it. Never raises: whatever it follows is already done."""
     if not auth_user_id:
         return False
     try:
@@ -1848,13 +1849,17 @@ async def _notify_instructor_of_allocation(auth_user_id: Optional[str]) -> bool:
         if not tokens:
             return False
         result = await lr_mod._send_push([
-            {"to": t, **ALLOCATION_PUSH, "sound": "default", "data": {"kind": "pupil_allocated"}}
-            for t in tokens
+            {"to": t, **message, "sound": "default", "data": {"kind": kind}} for t in tokens
         ])
         return result["accepted"] > 0
     except Exception:
-        logger.exception("Could not push the allocation to instructor %s", auth_user_id)
+        logger.exception("Could not push %s to %s", kind, auth_user_id)
         return False
+
+
+async def _notify_instructor_of_allocation(auth_user_id: Optional[str]) -> bool:
+    """Push to the allocated instructor's phone(s) only."""
+    return await _push_to_user(auth_user_id, ALLOCATION_PUSH, "pupil_allocated")
 
 
 @api_router.post("/v2/students/reassign", response_model=ReassignStudentsResponse)
@@ -3309,15 +3314,53 @@ _ENQUIRY_KEY = _re.compile(r"[0-9a-f]{32}")
 async def _enquiry_school(client_http, key: str) -> Optional[dict]:
     r = await client_http.get(
         f"{_sb_rest_base}/driving_schools",
-        params={"enquiry_form_key": f"eq.{key}", "select": "id,tier,owner_auth_id,enquiry_form_enabled", "limit": "1"},
+        params={"enquiry_form_key": f"eq.{key}", "select": "id,tier,owner_auth_id,enquiry_form_enabled,business_name", "limit": "1"},
         headers=_sb_headers(),
     )
     rows = r.json() if r.status_code < 400 else []
     return rows[0] if rows else None
 
 
+async def _notify_new_enquiry(school: dict, owner: dict, enquiry: dict) -> None:
+    """Tell the school owner (push and email) and thank the visitor. The enquiry is already saved, so each step is
+    tried on its own and none can fail the request or undo the save. Runs after the visitor has been answered."""
+    try:
+        await _push_to_user(school.get("owner_auth_id"), ENQUIRY_PUSH, "new_enquiry")
+    except Exception:
+        logger.exception("New-enquiry push failed for school %s", school.get("id"))
+    if not email_service.is_configured():
+        logger.info("New-enquiry emails skipped for school %s: email is not configured", school.get("id"))
+        return
+    owner_email = (owner.get("email") or "").strip()
+    if email_service.looks_like_email(owner_email):
+        try:
+            subject, html_body, text_body = email_service.render_new_enquiry_email(
+                name=enquiry["name"], phone=enquiry["phone"], email=enquiry["email"], postcode=enquiry["postcode"], notes=enquiry["notes"],
+            )
+            await email_service.send_email(email_service.build_payload(
+                to=owner_email, subject=subject, html_body=html_body, text_body=text_body,
+                from_header=email_service.system_sender_header(),
+                reply_to=enquiry["email"],  # answering the email answers the visitor
+            ))
+        except Exception:
+            logger.exception("New-enquiry email to the owner of school %s failed", school.get("id"))
+    else:
+        logger.info("School %s owner has no usable email: the new enquiry was pushed only", school.get("id"))
+    if enquiry["email"]:
+        try:
+            subject, html_body, text_body = email_service.render_enquiry_confirmation_email(
+                visitor_name=enquiry["name"], school_name=school.get("business_name"),
+            )
+            await email_service.send_email(email_service.build_payload(
+                to=enquiry["email"], subject=subject, html_body=html_body, text_body=text_body,
+                from_display_name=school.get("business_name") or "", reply_to=owner_email if email_service.looks_like_email(owner_email) else None,
+            ))
+        except Exception:
+            logger.exception("Confirmation email to a website enquirer of school %s failed", school.get("id"))
+
+
 @api_router.post("/public/enquiries/{form_key}")
-async def public_enquiry(form_key: str, request: Request):
+async def public_enquiry(form_key: str, request: Request, background: BackgroundTasks):
     # Render adds the real client address last; anything before it was sent by the caller and cannot be trusted.
     ip = (request.headers.get("x-forwarded-for", "").split(",")[-1].strip()) or (request.client.host if request.client else "?")
     if not _enquiry_ip_limiter.allow(ip):
@@ -3352,7 +3395,7 @@ async def public_enquiry(form_key: str, request: Request):
         # The school owner is the one who gets it. Franchise owners allocate it to an instructor later.
         ir = await client_http.get(
             f"{_sb_rest_base}/instructors",
-            params={"school_id": f"eq.{school['id']}", "auth_user_id": f"eq.{school['owner_auth_id']}", "select": "id", "limit": "1"},
+            params={"school_id": f"eq.{school['id']}", "auth_user_id": f"eq.{school['owner_auth_id']}", "select": "id,email", "limit": "1"},
             headers=_sb_headers(),
         )
         owner_rows = ir.json() if ir.status_code < 400 else []
@@ -3390,6 +3433,8 @@ async def public_enquiry(form_key: str, request: Request):
         if sr.status_code >= 400:
             logger.error("Website enquiry for school %s could not be saved: %s %s", school["id"], sr.status_code, sr.text[:200])
             raise HTTPException(status_code=503, detail="We could not take your enquiry just now. Please phone instead.")
+    # Only a new enquiry is announced; a repeat was added as a note above and does not ping the owner again.
+    background.add_task(_notify_new_enquiry, school, owner_rows[0], enquiry)
     return ENQUIRY_THANKS
 
 

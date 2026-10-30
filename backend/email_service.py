@@ -394,6 +394,90 @@ def render_lesson_summary_email(
     return subject, body, text
 
 
+def _page(headline: str, paragraphs: list, footer: str) -> str:
+    """The shared look: DualControl label, a heading, paragraphs and a small footer. Every string is escaped here;
+    a paragraph with line breaks keeps them."""
+    esc = html.escape
+    body = "".join(
+        f'<p style="font-size:15px;line-height:1.55;margin:0 0 14px;">{"<br>".join(esc(line) for line in p.split(chr(10)))}</p>'
+        for p in paragraphs
+    )
+    return f"""\
+<!doctype html>
+<html lang="en-GB">
+<body style="margin:0;padding:24px;background:#f5f2ec;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;">
+    <tr><td style="padding:28px 28px 8px;">
+      <div style="font-size:13px;font-weight:bold;color:#00539f;letter-spacing:.5px;">DUALCONTROL</div>
+      <h1 style="font-size:20px;line-height:1.3;margin:10px 0 14px;">{esc(headline)}</h1>
+      {body}
+    </td></tr>
+    <tr><td style="padding:16px 28px 24px;border-top:1px solid #e4ded2;">
+      <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">{esc(footer)}</p>
+    </td></tr>
+  </table>
+</body>
+</html>
+"""
+
+
+def render_new_enquiry_email(
+    *,
+    name: str,
+    phone: Optional[str],
+    email: Optional[str],
+    postcode: Optional[str],
+    notes: Optional[str],
+) -> Tuple[str, str, str]:
+    """Return (subject, html_body, text_body) telling a school owner someone filled in their website form. The
+    details are whatever a stranger typed, so every string is escaped and the subject is made header-safe."""
+    who = _clean_line(name, 60) or "a visitor"  # the subject is a header: stricter
+
+    def one_line(value: str, limit: int) -> str:
+        # In the body the text is shown as typed (escaped when it becomes HTML); only line breaks are removed.
+        return re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f]", " ", value or "")).strip()[:limit]
+
+    lines = [f"Name: {one_line(name, 100)}"]
+    if phone:
+        lines.append(f"Mobile: {one_line(phone, 30)}")
+    if email:
+        lines.append(f"Email: {one_line(email, 200)}")
+    if postcode:
+        lines.append(f"Postcode: {one_line(postcode, 10)}")
+    details = "\n".join(lines)
+    extra = (notes or "").strip()[:1000]
+    lead = "Someone has filled in the enquiry form on your website. It is in DualControl under Enquiries to contact."
+    reply = "Reply to this email to answer them directly." if email else "They gave no email address, so ring or text them."
+    footer = f"You're receiving this because your DualControl school takes enquiries from its website. Questions: {LESSON_REMINDER_SUPPORT_ADDRESS}."
+    subject = f"New website enquiry from {who}"
+    parts = [lead, details] + ([extra] if extra else []) + [reply]
+    text = "\n\n".join(parts + [footer]) + "\n"
+    return subject, _page("New website enquiry", parts, footer), text
+
+
+def render_enquiry_confirmation_email(
+    *,
+    visitor_name: Optional[str],
+    school_name: Optional[str],
+) -> Tuple[str, str, str]:
+    """Return (subject, html_body, text_body) thanking someone who filled in a school's website form. It goes to
+    an address a stranger typed, so it carries only a first name and the school's name: none of what they wrote
+    is echoed back, and the school is not promised to reply by any time."""
+    first = clean_display_name(visitor_name, fallback="").split(" ")[0][:30]
+    school = clean_display_name(school_name, fallback="the driving school")
+    greeting = f"Hi {first}," if first else "Hi,"
+    lead = f"Thanks for getting in touch with {school}. We have your enquiry and will be in touch about lessons."
+    ask = "If you need to add anything, just reply to this email."
+    footer = (
+        f"You're receiving this because this email address was entered on {school}'s website enquiry form. "
+        "If that wasn't you, you can ignore this email and nothing more will be sent."
+    )
+    subject = f"We've got your enquiry - {school}"
+    parts = [greeting, lead, ask]
+    text = "\n\n".join(parts + [footer]) + "\n"
+    return subject, _page("Thanks for your enquiry", parts, footer), text
+
+
 def looks_like_email(value: Optional[str]) -> bool:
     """Cheap sanity check on an instructor-typed address before we spend a
     send on it. Deliberately loose — Resend does the real validation."""

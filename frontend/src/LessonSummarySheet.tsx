@@ -144,27 +144,43 @@ export function LessonSummarySheet({
 
       {stage === 'review' && (
         <>
-          <Text style={s.hint}>{existing ? `Already sent to ${first}. Edit it and update, or remove it.` : `Check it and change anything you like. ${first} sees it only when you send it.`}</Text>
-          <Text style={s.label}>Summary</Text>
-          <TextInput style={s.field} value={summary} onChangeText={(t) => { setSummary(t); setError(null); }} multiline maxLength={MAX_SUMMARY_CHARS} testID="input-summary" />
-          <Text style={s.label}>Suggested plan for next lesson</Text>
-          <TextInput style={s.field} value={plan} onChangeText={(t) => { setPlan(t); setError(null); }} multiline maxLength={MAX_PLAN_CHARS} placeholder="Optional" placeholderTextColor={theme.colors.textMuted} testID="input-next-plan" />
-          {!!error && <Text style={s.error} testID="summary-error">{error}</Text>}
-          <TouchableOpacity style={[s.primary, (!approvalReady(summary, plan) || busy) && s.disabled]} onPress={send} disabled={!approvalReady(summary, plan) || busy} testID="btn-approve-summary">
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryText}>{existing ? `Update ${first}'s summary` : `Approve & send to ${first}`}</Text>}
-          </TouchableOpacity>
-          <View style={s.row}>
-            {!existing && (
-              <TouchableOpacity onPress={() => { setStage('dictate'); setError(null); }} disabled={busy} testID="btn-redo-dictation">
-                <Text style={s.link}>Write it again</Text>
+          {existing ? (
+            // Read only: this is what the pupil was told. It can be removed, not rewritten.
+            <>
+              <Text style={s.hint}>Sent to {first}. This is what {first} can see.</Text>
+              <Text style={s.label}>Summary</Text>
+              <Text style={s.readOnly} testID="text-summary" selectable>{summary}</Text>
+              {!!plan.trim() && (
+                <>
+                  <Text style={s.label}>Suggested plan for next lesson</Text>
+                  <Text style={s.readOnly} testID="text-next-plan" selectable>{plan}</Text>
+                </>
+              )}
+              {!!error && <Text style={s.error} testID="summary-error">{error}</Text>}
+              <View style={s.row}>
+                <TouchableOpacity onPress={remove} disabled={busy} testID="btn-remove-summary">
+                  <Text style={[s.link, { color: theme.colors.danger }]}>Remove summary</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={s.hint}>{`Check it and change anything you like. ${first} sees it only when you send it.`}</Text>
+              <Text style={s.label}>Summary</Text>
+              <TextInput style={s.field} value={summary} onChangeText={(t) => { setSummary(t); setError(null); }} multiline maxLength={MAX_SUMMARY_CHARS} testID="input-summary" />
+              <Text style={s.label}>Suggested plan for next lesson</Text>
+              <TextInput style={s.field} value={plan} onChangeText={(t) => { setPlan(t); setError(null); }} multiline maxLength={MAX_PLAN_CHARS} placeholder="Optional" placeholderTextColor={theme.colors.textMuted} testID="input-next-plan" />
+              {!!error && <Text style={s.error} testID="summary-error">{error}</Text>}
+              <TouchableOpacity style={[s.primary, (!approvalReady(summary, plan) || busy) && s.disabled]} onPress={send} disabled={!approvalReady(summary, plan) || busy} testID="btn-approve-summary">
+                {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryText}>{`Approve & send to ${first}`}</Text>}
               </TouchableOpacity>
-            )}
-            {existing && (
-              <TouchableOpacity onPress={remove} disabled={busy} testID="btn-remove-summary">
-                <Text style={[s.link, { color: theme.colors.danger }]}>Remove summary</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+              <View style={s.row}>
+                <TouchableOpacity onPress={() => { setStage('dictate'); setError(null); }} disabled={busy} testID="btn-redo-dictation">
+                  <Text style={s.link}>Write it again</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
         </>
       )}
 
@@ -199,4 +215,5 @@ const s = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'center', gap: 24, marginTop: 14, marginBottom: 6 },
   link: { fontSize: 14, fontWeight: '700', color: theme.colors.primary },
   sent: { fontSize: 16, lineHeight: 23, color: theme.colors.text, marginTop: 8 },
+  readOnly: { fontSize: 15, lineHeight: 22, color: theme.colors.text, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, padding: 12, backgroundColor: theme.colors.background },
 });

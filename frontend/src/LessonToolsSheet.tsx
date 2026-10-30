@@ -30,6 +30,7 @@ import { useAuth } from './AuthContext';
 import { isPaidTier, tierById } from './tiers';
 import { PaywallModal } from './PaywallModal';
 import { LessonSummarySheet } from './LessonSummarySheet';
+import { pupilHasConfirmedPrecheck } from './precheckMemory';
 import { LastLessonFocusCard, useLastLessonFocus } from './LastLessonFocusCard';
 import { LessonPlanSection } from './LessonPlanSection';
 import { suggestTopics } from './lessonPlan';
@@ -112,6 +113,18 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
   const [testSaving, setTestSaving] = useState(false);
   const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [precheck, setPrecheck] = useState<{ eye: boolean; fit: boolean; lic: boolean }>({ eye: false, fit: false, lic: false });
+  // Eyesight and licence were confirmed at an earlier lesson, so they start ticked. Fit to drive is ticked every lesson.
+  const [precheckRemembered, setPrecheckRemembered] = useState(false);
+  useEffect(() => {
+    setPrecheck({ eye: false, fit: false, lic: false });
+    setPrecheckRemembered(false);
+    if (!visible || !lesson?.student_id) return;
+    let alive = true;
+    pupilHasConfirmedPrecheck(lesson.student_id, lesson.id).then((yes) => {
+      if (alive && yes) { setPrecheck((p) => ({ ...p, eye: true, lic: true })); setPrecheckRemembered(true); }
+    });
+    return () => { alive = false; };
+  }, [visible, lesson?.id, lesson?.student_id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
@@ -703,17 +716,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
                   <Text style={paid ? styles.imHereText : [styles.recordRouteText, styles.recordRouteTextLocked]}>Start lesson and record the route</Text>
                 </TouchableOpacity>
 
-                {/* Dictated summary for the pupil: speak a few sentences, review the draft, approve and send.
-                    Greyed out on non-paid plans (each draft is an API call), like Record route. */}
-                <TouchableOpacity
-                  style={[styles.recordRouteBtn, !paid && styles.recordRouteBtnLocked]}
-                  onPress={() => { if (!paid) { setSummaryPaywallOpen(true); return; } setSummaryOpen(true); }}
-                  testID="btn-write-summary-open"
-                >
-                  {paid ? <MessageSquare size={18} color={theme.colors.primary} /> : <Lock size={16} color={theme.colors.textMuted} />}
-                  <Text style={[styles.recordRouteText, !paid && styles.recordRouteTextLocked]}>Summary for {student.name.split(' ')[0]} (they&apos;ll see it)</Text>
-                </TouchableOpacity>
-
+                {/* In the order a lesson goes: your own notes first, then the summary for the pupil (which starts from them). */}
                 {/* Post-lesson notes — the instructor's own custom question set */}
                 <TouchableOpacity
                   style={styles.recordRouteBtn}
@@ -730,8 +733,24 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
                   <Text style={styles.recordRouteText}>Private lesson notes (only you)</Text>
                 </TouchableOpacity>
 
+                {/* Dictated summary for the pupil: speak a few sentences, review the draft, approve and send.
+                    Greyed out on non-paid plans (each draft is an API call), like Record route. */}
+                <TouchableOpacity
+                  style={[styles.recordRouteBtn, !paid && styles.recordRouteBtnLocked]}
+                  onPress={() => { if (!paid) { setSummaryPaywallOpen(true); return; } setSummaryOpen(true); }}
+                  testID="btn-write-summary-open"
+                >
+                  {paid ? <MessageSquare size={18} color={theme.colors.primary} /> : <Lock size={16} color={theme.colors.textMuted} />}
+                  <Text style={[styles.recordRouteText, !paid && styles.recordRouteTextLocked]}>Summary for {student.name.split(' ')[0]} (they&apos;ll see it)</Text>
+                </TouchableOpacity>
+
                 {/* Pre-lesson check */}
                 <Text style={styles.section}>Pre-lesson check</Text>
+                {precheckRemembered && (
+                  <Text style={styles.precheckNote} testID="precheck-remembered">
+                    Eyesight and licence were confirmed at {student.name.split(' ')[0]}&apos;s first lesson. Only fit to drive needs checking now.
+                  </Text>
+                )}
                 <CheckRow
                   icon={<Eye size={18} color={precheck.eye ? '#fff' : theme.colors.text} />}
                   label="Eyesight: number plate readable at 20m"
@@ -1428,6 +1447,7 @@ const styles = StyleSheet.create({
   sub: { fontSize: 13, color: theme.colors.textMuted, marginTop: 2 },
   badgeRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 12 },
   section: { fontSize: 15, fontWeight: '700', color: theme.colors.text, marginTop: 8, marginBottom: 8 },
+  precheckNote: { fontSize: 12.5, lineHeight: 17, color: theme.colors.textMuted, marginBottom: 8 },
   address: { fontSize: 14, color: theme.colors.text, marginBottom: 10 },
   etaCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.colors.primaryLight, borderRadius: 10, padding: 12, marginBottom: 10 },
   etaPrimary: { color: theme.colors.primary, fontWeight: '700', fontSize: 14 },

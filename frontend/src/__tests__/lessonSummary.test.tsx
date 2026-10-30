@@ -145,19 +145,26 @@ describe('the summary sheet', () => {
     mockSaved.mockResolvedValue({ summary: 'Already sent text.', next_plan: null, approved_at: 'a', notified_at: 'b' });
     mockNotesStart.mockResolvedValue('Some notes');
     await render(<LessonSummarySheet visible onClose={jest.fn()} lessonId="les-1" studentName="Maisie Harmer" instructorId="instr-1" />);
-    await waitFor(() => expect(screen.getByTestId('input-summary').props.value).toBe('Already sent text.'));
+    await waitFor(() => expect(screen.getByTestId('text-summary')).toHaveTextContent('Already sent text.'));
     expect(mockNotesStart).not.toHaveBeenCalled();
   });
 
-  it('reopens a summary that was already sent, offers to update or remove it, and says so', async () => {
+  it('reopens a summary that was already sent as read only: shown, can be removed, cannot be edited or updated', async () => {
     mockSaved.mockResolvedValue({ summary: 'Already sent text.', next_plan: 'Old plan.', approved_at: '2026-10-22T10:00:00Z', notified_at: '2026-10-22T10:00:01Z' });
-    mockApprove.mockResolvedValue({ ok: true, notified: null, updated: true });
     await open();
-    await waitFor(() => expect(screen.getByTestId('input-summary').props.value).toBe('Already sent text.'));
-    expect(screen.getByTestId('btn-approve-summary')).toHaveTextContent("Update Maisie's summary");
+    await waitFor(() => expect(screen.getByTestId('text-summary')).toHaveTextContent('Already sent text.'));
+    expect(screen.getByTestId('text-next-plan')).toHaveTextContent('Old plan.');
+    expect(screen.queryByTestId('input-summary')).toBeNull();
+    expect(screen.queryByTestId('input-next-plan')).toBeNull();
+    expect(screen.queryByTestId('btn-approve-summary')).toBeNull();
     expect(screen.getByTestId('btn-remove-summary')).toBeTruthy();
-    await fireEvent.press(screen.getByTestId('btn-approve-summary'));
-    await waitFor(() => expect(screen.getByTestId('summary-sent')).toHaveTextContent(/^Updated/));
+  });
+
+  it('leaves out the plan heading when a sent summary has no plan', async () => {
+    mockSaved.mockResolvedValue({ summary: 'Short one.', next_plan: null, approved_at: 'a', notified_at: 'b' });
+    await open();
+    await waitFor(() => expect(screen.getByTestId('text-summary')).toBeTruthy());
+    expect(screen.queryByTestId('text-next-plan')).toBeNull();
   });
 });
 

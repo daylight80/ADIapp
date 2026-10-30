@@ -2,7 +2,8 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 
 jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }));
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn() }) }));
+const mockPush = jest.fn();
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, back: jest.fn() }) }));
 jest.mock('../supabaseClient', () => ({ supabase: {} }));
 jest.mock('../supabaseDb', () => ({
   listWaitingList: jest.fn(async () => []),
@@ -56,7 +57,17 @@ const open = async (l: any = lesson, handlers: { onClose?: jest.Mock; onChanged?
   await render(<LessonToolsSheet visible lesson={l} onClose={handlers.onClose ?? jest.fn()} onChanged={handlers.onChanged ?? jest.fn()} />);
 };
 
-beforeEach(() => { mockRole = undefined; });
+beforeEach(() => { mockRole = undefined; mockPush.mockClear(); });
+
+describe('the pupil name on the lesson sheet', () => {
+  it("closes the sheet and opens that pupil's profile", async () => {
+    const onClose = jest.fn();
+    await open(lesson, { onClose });
+    await fireEvent.press(screen.getByTestId('btn-open-profile'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/student-lifecycle-screen', params: { id: 'st1' } });
+  });
+});
 
 describe('the Change date or time link on the lesson sheet', () => {
   it('is there for the teacher on a lesson still to be taught', async () => {

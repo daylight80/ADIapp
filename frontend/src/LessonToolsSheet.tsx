@@ -513,7 +513,14 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
           <View style={styles.handle} />
           <View style={styles.headerRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.title}>{student.name}</Text>
+              <TouchableOpacity
+                onPress={() => { onClose(); router.push({ pathname: '/student-lifecycle-screen', params: { id: student.id } } as any); }}
+                testID="btn-open-profile"
+                accessibilityRole="link"
+                accessibilityLabel={`Open ${student.name}'s profile`}
+              >
+                <Text style={styles.title}>{student.name}</Text>
+              </TouchableOpacity>
               <Text style={styles.sub}>
                 {lesson.start_time}-{lesson.end_time} · {lesson.topic}
               </Text>

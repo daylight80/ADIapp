@@ -109,6 +109,8 @@ api_router = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+import log_hygiene
+log_hygiene.install()
 
 # ============= MODELS =============
 class CheckoutSessionRequest(BaseModel):

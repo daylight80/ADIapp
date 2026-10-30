@@ -700,8 +700,12 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
                     so it shows up linked instead of as a generic unnamed trip.
                     Greyed out on non-paid tiers rather than hidden, matching
                     the Receipts button's convention on the home screen. */}
+                {/* A lesson that has been completed cannot be started again: this one button greys out and does nothing.
+                    It is per lesson, so the pupil's other lessons are unaffected. */}
                 <TouchableOpacity
-                  style={paid ? styles.imHereBtn : [styles.recordRouteBtn, styles.recordRouteBtnLocked]}
+                  style={lesson.status === 'Completed' || !paid ? [styles.recordRouteBtn, styles.recordRouteBtnLocked] : styles.imHereBtn}
+                  disabled={lesson.status === 'Completed'}
+                  accessibilityState={{ disabled: lesson.status === 'Completed' }}
                   onPress={() => {
                     if (!paid) { setRoutePaywallOpen(true); return; }
                     onClose();
@@ -712,8 +716,10 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
                   }}
                   testID="btn-record-route"
                 >
-                  {paid ? <MapPin size={18} color="#fff" /> : <Lock size={16} color={theme.colors.textMuted} />}
-                  <Text style={paid ? styles.imHereText : [styles.recordRouteText, styles.recordRouteTextLocked]}>Start lesson and record the route</Text>
+                  {lesson.status === 'Completed'
+                    ? <MapPin size={18} color={theme.colors.textMuted} />
+                    : paid ? <MapPin size={18} color="#fff" /> : <Lock size={16} color={theme.colors.textMuted} />}
+                  <Text style={paid && lesson.status !== 'Completed' ? styles.imHereText : [styles.recordRouteText, styles.recordRouteTextLocked]}>Start lesson and record the route</Text>
                 </TouchableOpacity>
 
                 {/* In the order a lesson goes: your own notes first, then the summary for the pupil (which starts from them). */}

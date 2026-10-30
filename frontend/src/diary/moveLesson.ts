@@ -107,3 +107,106 @@ export function checkMove(input: MoveInput): MoveCheck {
   }
   return { endTime, changed, blockers, warnings };
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// A repeating lesson: "this and the lessons after it" all move by the same amount (the same number of days and the same
+// number of minutes), so a Tuesday 10:00 series moved to Wednesday 14:00 becomes every Wednesday at 14:00 from then on.
+// Each lesson is checked on its own day; the teacher sees every problem, by date, before anything is saved.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** YYYY-MM-DD plus a number of calendar days (negative goes back). Calendar days, so a clock change does not matter. */
+export function addDays(date: string, days: number): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+}
+
+/** Whole calendar days from one YYYY-MM-DD to another. */
+export function daysBetween(from: string, to: string): number {
+  const [fy, fm, fd] = from.split('-').map(Number);
+  const [ty, tm, td] = to.split('-').map(Number);
+  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
+}
+
+/** "Tue 17 Nov". */
+export function dayLabel(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return `${DAY_NAMES[new Date(y, m - 1, d).getDay()]} ${d} ${MONTH_NAMES[m - 1]}`;
+}
+
+export type SeriesLesson = {
+  id: string;
+  date: string;
+  startTime: string;
+  durationMinutes: number;
+  travelMinutes?: number | null;
+};
+
+export type SeriesItem = {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  blockers: string[];
+  warnings: string[];
+};
+
+export type SeriesCheck = {
+  items: SeriesItem[];
+  /** Every blocker, each starting with the date it is about. */
+  blockers: string[];
+  warnings: string[];
+};
+
+export type SeriesMoveInput = {
+  /** This lesson first, then the ones after it, in date order. */
+  lessons: SeriesLesson[];
+  /** Where the first lesson is going. The others move by the same amount. */
+  date: string;
+  startTime: string;
+  /** Other lessons of the same instructor on each day they are moving to, keyed by YYYY-MM-DD. */
+  dayLessonsByDate: Record<string, DayLesson[]>;
+  blocks: TimeBlock[];
+  now?: Date;
+};
+
+export function checkSeriesMove(input: SeriesMoveInput): SeriesCheck {
+  const [first] = input.lessons;
+  if (!first) return { items: [], blockers: ['There is nothing to move.'], warnings: [] };
+  const dayDelta = DAY.test(input.date) ? daysBetween(first.date, input.date) : NaN;
+  const minuteDelta = TIME.test(input.startTime) ? toMinutes(input.startTime) - toMinutes(first.startTime) : NaN;
+  if (Number.isNaN(dayDelta)) return { items: [], blockers: ['Choose a date.'], warnings: [] };
+  if (Number.isNaN(minuteDelta)) return { items: [], blockers: ['Choose a start time.'], warnings: [] };
+  if (dayDelta === 0 && minuteDelta === 0) return { items: [], blockers: ['That is the date and time it already has.'], warnings: [] };
+
+  // The lessons being moved do not count as clashes for each other, or for the places they are leaving.
+  const moving = new Set(input.lessons.map((l) => l.id));
+  const items: SeriesItem[] = [];
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  for (const l of input.lessons) {
+    const date = addDays(l.date, dayDelta);
+    const startMin = toMinutes(l.startTime) + minuteDelta;
+    const label = dayLabel(date);
+    if (startMin < 0 || startMin >= 24 * 60) {
+      const text = 'That start time would take the lesson out of the day.';
+      items.push({ id: l.id, date, startTime: '', endTime: '', blockers: [text], warnings: [] });
+      blockers.push(`${label}: ${text}`);
+      continue;
+    }
+    const startTime = fromMinutes(startMin);
+    const r = checkMove({
+      lessonId: l.id, from: { date: l.date, startTime: l.startTime }, date, startTime, durationMinutes: l.durationMinutes,
+      travelMinutes: l.travelMinutes, dayLessons: (input.dayLessonsByDate[date] || []).filter((o) => !moving.has(o.id)),
+      blocks: input.blocks, now: input.now,
+    });
+    items.push({ id: l.id, date, startTime, endTime: r.endTime, blockers: r.blockers, warnings: r.warnings });
+    r.blockers.forEach((b) => blockers.push(`${label}: ${b}`));
+    r.warnings.forEach((w) => warnings.push(`${label}: ${w}`));
+  }
+  return { items, blockers, warnings };
+}

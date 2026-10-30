@@ -1864,6 +1864,45 @@ async def _notify_instructor_of_allocation(auth_user_id: Optional[str]) -> bool:
     return await _push_to_user(auth_user_id, ALLOCATION_PUSH, "pupil_allocated")
 
 
+LESSON_MOVED_PUSH = {"title": "Lesson time changed", "body": "Check DualControl for more details"}
+
+
+class LessonMovedResponse(BaseModel):
+    notified: bool  # False: the pupil has no phone registered with the app, so the instructor texts instead
+
+
+@api_router.post("/v2/lessons/{lesson_id}/moved-push", response_model=LessonMovedResponse)
+async def push_lesson_moved(lesson_id: str, sb_user: dict = Depends(get_current_supabase_user)):
+    """Push to the pupil of a lesson its instructor has just moved. Only the lesson's own instructor can, and no details
+    go on the lock screen."""
+    instructor = await sb_get_instructor_by_auth_user(sb_user["auth_user_id"])
+    if not instructor:
+        raise HTTPException(status_code=403, detail="No instructor profile found for this account.")
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        lr_ = await client_http.get(
+            f"{_sb_rest_base}/lessons", headers=_sb_headers(),
+            params={"id": f"eq.{lesson_id}", "select": "instructor_id,student_id,status", "limit": "1"},
+        )
+        if lr_.status_code >= 400:
+            raise HTTPException(status_code=500, detail="Could not read that lesson.")
+        rows = lr_.json() or []
+        if not rows:
+            raise HTTPException(status_code=404, detail="Lesson not found.")
+        lesson = rows[0]
+        if lesson.get("instructor_id") != instructor["id"]:
+            raise HTTPException(status_code=403, detail="This lesson does not belong to you.")
+        if lesson.get("status") != "Scheduled":
+            raise HTTPException(status_code=400, detail="Only a lesson still to be taught can be announced as moved.")
+        sr = await client_http.get(
+            f"{_sb_rest_base}/students", headers=_sb_headers(),
+            params={"id": f"eq.{lesson['student_id']}", "select": "auth_user_id", "limit": "1"},
+        )
+    if sr.status_code >= 400:
+        raise HTTPException(status_code=500, detail="Could not read that pupil.")
+    pupil = (sr.json() or [{}])[0] or {}
+    return LessonMovedResponse(notified=await _push_to_user(pupil.get("auth_user_id"), LESSON_MOVED_PUSH, "lesson_moved"))
+
+
 @api_router.post("/v2/students/reassign", response_model=ReassignStudentsResponse)
 async def v2_reassign_students(
     req: ReassignStudentsRequest,

@@ -32,6 +32,7 @@ import { PaywallModal } from './PaywallModal';
 import { LessonSummarySheet } from './LessonSummarySheet';
 import { pupilHasConfirmedPrecheck } from './precheckMemory';
 import { ChangeTimeSheet } from './diary/ChangeTimeSheet';
+import { TellPupilSheet } from './TellPupilSheet';
 import { LastLessonFocusCard, useLastLessonFocus } from './LastLessonFocusCard';
 import { LessonPlanSection } from './LessonPlanSection';
 import { suggestTopics } from './lessonPlan';
@@ -93,6 +94,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
   const isOnline = useIsOnline();
   const { user } = useAuth();
   const [changeTimeOpen, setChangeTimeOpen] = useState(false);
+  const [moved, setMoved] = useState<{ lessonId: string; date: string; startTime: string; count: number; queued: boolean } | null>(null);
   const canChangeTime = user?.role !== 'student' && lesson?.status === 'Scheduled' && lesson?.lesson_type !== 'Practical Test';
   // Route recording is a Growth+ feature (31 Aug 2026, per Grant testing
   // Starter on Android) — was fully active on every tier with no gating.
@@ -1058,9 +1060,10 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
       onClose={() => setChangeTimeOpen(false)}
       lesson={lesson}
       studentName={student.name}
-      // The lesson is now somewhere else in the diary, so close this sheet too and let the diary redraw.
-      onMoved={() => { setChangeTimeOpen(false); onChanged?.(); onClose(); }}
+      // The lesson is now somewhere else in the diary: let it redraw, and offer to tell the pupil before closing this sheet.
+      onMoved={(c) => { setChangeTimeOpen(false); onChanged?.(); setMoved({ lessonId: lesson.id, date: c.date, startTime: c.startTime, count: c.count, queued: c.queued }); }}
     />
+    <TellPupilSheet moved={moved} pupilName={student.name} pupilPhone={student.phone} onDone={() => { setMoved(null); onClose(); }} />
     </>
   );
 }

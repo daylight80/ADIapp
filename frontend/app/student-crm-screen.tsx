@@ -135,6 +135,34 @@ export default function StudentsV2Screen() {
     await openSmsComposer(inviteRecipient.phone, body);
   };
 
+  const inviteUrlFor = (p: { email: string; name: string; student_id: string; instructor_id: string; school_id: string }) => {
+    const appOrigin = Platform.OS === 'web' && typeof window !== 'undefined'
+      ? window.location.origin
+      : (process.env.EXPO_PUBLIC_APP_URL || 'https://webapp.drivingschoolsolutions.co.uk');
+    return `${appOrigin}/?invite=${btoa(JSON.stringify(p))}`;
+  };
+
+  // For a pupil who never signed up or lost the email: send the invite again and show the back-up link again.
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const resendInvite = async (st: { id: string; name: string; email: string; phone: string; instructor_id: string; school_id: string }) => {
+    setResendingId(st.id);
+    try {
+      let emailSent = false;
+      let detail = '';
+      try {
+        const res = await api.post('/v2/students/invite', { email: st.email.trim().toLowerCase(), student_name: st.name, student_id: st.id });
+        emailSent = !!res.data?.sent;
+        detail = res.data?.detail || '';
+      } catch (err: any) {
+        detail = err?.response?.data?.detail || err?.message || 'Could not send the invite email';
+      }
+      setInviteLink(inviteUrlFor({ email: st.email.trim().toLowerCase(), name: st.name, student_id: st.id, instructor_id: st.instructor_id, school_id: st.school_id }));
+      setInviteRecipient({ name: st.name, phone: st.phone, email_sent: emailSent, detail });
+    } finally {
+      setResendingId(null);
+    }
+  };
+
   const submitAddStudent = async () => {
     setAddFormError(null);
     if (!addName.trim()) { setAddFormError('Please enter the student\u2019s full name'); return; }
@@ -172,17 +200,13 @@ export default function StudentsV2Screen() {
         inviteDetail = err?.response?.data?.detail || err?.message || 'Could not send invite email';
       }
 
-      const payload = btoa(JSON.stringify({
+      const inviteUrl = inviteUrlFor({
         email: addEmail.trim().toLowerCase(),
         name: studentName,
         student_id: created.id,
         instructor_id: created.instructor_id,
         school_id: created.school_id,
-      }));
-      const appOrigin = Platform.OS === 'web' && typeof window !== 'undefined'
-        ? window.location.origin
-        : (process.env.EXPO_PUBLIC_APP_URL || 'https://webapp.drivingschoolsolutions.co.uk');
-      const inviteUrl = `${appOrigin}/?invite=${payload}`;
+      });
 
       setAddName(''); setAddEmail(''); setAddPhone(''); setAddAddress(''); setAddPostcode(''); setAddLicence('');
       setAddOpen(false);
@@ -527,6 +551,19 @@ export default function StudentsV2Screen() {
                           <Text style={s.actionText}>Wallet</Text>
                         </TouchableOpacity>
                       </View>
+
+                      {!st.auth_user_id && !!st.email && (
+                        <TouchableOpacity
+                          style={s.action}
+                          onPress={() => resendInvite(st)}
+                          disabled={resendingId === st.id}
+                          testID={`v2-resend-invite-${st.id}`}
+                        >
+                          {resendingId === st.id
+                            ? <ActivityIndicator />
+                            : <Text style={s.actionText}>Resend invite</Text>}
+                        </TouchableOpacity>
+                      )}
 
                       <View style={{ gap: 5 }}>
                         {[

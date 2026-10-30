@@ -173,7 +173,7 @@ function AuthGate() {
 
   useEffect(() => {
     if (loading) return;
-    const current = segments[segments.length - 1] || '';
+    const current: string = segments[segments.length - 1] || '';
     const isPublic = PUBLIC_ROUTES.has(current);
     const onRootish = current === AUTH_ROUTE || current === '' || current === 'index';
 

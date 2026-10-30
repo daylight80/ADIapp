@@ -14,6 +14,7 @@ import { useFonts, Archivo_800ExtraBold, Archivo_700Bold } from '@expo-google-fo
 import { Barlow_400Regular, Barlow_500Medium, Barlow_600SemiBold, Barlow_700Bold } from '@expo-google-fonts/barlow';
 import { createAuthLifecycle } from '../src/appLifecycle';
 import { supabase } from '../src/supabaseClient';
+import { inviteFromSearch } from '../src/launchInvite';
 import { bump } from '../src/useSupabaseData';
 import { IntroVideoGate } from '../src/IntroVideo';
 import { noteReturnFromBackground, reportResumeProblem } from '../src/stallReport';
@@ -43,7 +44,9 @@ function AuthGate() {
   const segments = useSegments();
   const params = useLocalSearchParams();
   useEffect(() => { setReportingUser(user?.id ?? null, user?.role); }, [user?.id, user?.role]);
-  const inviteToken = (params.invite as string) || '';
+  // Read straight from the address once, then used up by the first redirect below.
+  const launchInvite = useRef(Platform.OS === 'web' && typeof window !== 'undefined' ? inviteFromSearch(window.location.search) : '');
+  const inviteToken = (params.invite as string) || launchInvite.current;
 
   // Biometric app-unlock (3 Sept 2026), per Grant directly — opt-in,
   // sitting entirely on top of the session-restore flow above (not a new
@@ -193,6 +196,7 @@ function AuthGate() {
     // silently dropped with zero indication anything went wrong. A real
     // invite token should win no matter what route we're currently on.
     if (inviteToken) {
+      launchInvite.current = '';
       if (user) {
         signOut().finally(() => router.replace({ pathname: '/sign-up-login-screen', params: { invite: inviteToken } }));
       } else {

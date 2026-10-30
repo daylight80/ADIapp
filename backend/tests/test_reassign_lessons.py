@@ -21,7 +21,8 @@ class Resp:
 
 @pytest.fixture
 def db(monkeypatch):
-    log = {"patches": [], "lessons_status": 200}
+    log = {"patches": [], "lessons_status": 200, "b_auth": "auth-b"}
+    names = {"stu-1": "Dayana Arachchige", "stu-2": "Ben Carter"}
 
     class FakeHttp:
         def __init__(self, *a, **k):
@@ -36,9 +37,10 @@ def db(monkeypatch):
         async def get(self, url, headers=None, params=None):
             table = url.rsplit("/", 1)[-1]
             if table == "instructors":
-                return Resp([{"id": "instr-a"}, {"id": "instr-b"}])
+                return Resp([{"id": "instr-a", "auth_user_id": "auth-a"}, {"id": "instr-b", "auth_user_id": log["b_auth"]}])
             if table == "students":
-                return Resp([{"id": "stu-1", "instructor_id": "instr-a"}] if params["id"] == "eq.stu-1" else [])
+                sid = params["id"].removeprefix("eq.")
+                return Resp([{"id": sid, "instructor_id": "instr-a", "full_name": names[sid]}] if sid in names else [])
             return Resp([])
 
         async def patch(self, url, headers=None, params=None, json=None):
@@ -106,3 +108,65 @@ def test_only_the_school_owner_may_reassign(monkeypatch, db):
         reassign(("stu-1", "instr-b"))
     assert e.value.status_code == 403
     assert db["patches"] == []
+
+
+# --- The new instructor is told by push when pupils are moved to them ---
+import lesson_reminders as lr  # noqa: E402
+
+
+@pytest.fixture
+def push(monkeypatch):
+    sent = {"messages": [], "tokens": {"auth-b": ["ExponentPushToken[b]"]}, "fail": False}
+
+    async def tokens(auth_user_id):
+        return sent["tokens"].get(auth_user_id, [])
+
+    async def send(messages):
+        if sent["fail"]:
+            raise RuntimeError("expo down")
+        sent["messages"].extend(messages)
+        return {"accepted": len(messages), "receipt_ids": []}
+
+    monkeypatch.setattr(lr, "_push_tokens_for_user", tokens)
+    monkeypatch.setattr(lr, "_send_push", send)
+    return sent
+
+
+def test_only_the_allocated_instructor_gets_a_push_and_it_names_nobody(db, push):
+    push["tokens"]["auth-a"] = ["ExponentPushToken[a]"]  # the previous instructor must not be told
+    out = reassign(("stu-1", "instr-b"))
+    assert out.moved == 1 and out.notified == 1
+    [msg] = push["messages"]
+    assert msg["to"] == "ExponentPushToken[b]"
+    assert (msg["title"], msg["body"]) == ("New Student Allocation", "Check DualControl for more details")
+
+
+def test_several_pupils_make_one_push(db, push):
+    out = reassign(("stu-1", "instr-b"), ("stu-2", "instr-b"))
+    assert out.moved == 2 and out.notified == 1
+    assert len(push["messages"]) == 1
+
+
+def test_an_instructor_with_no_phone_registered_is_not_notified_but_the_pupil_still_moves(db, push):
+    push["tokens"].clear()
+    out = reassign(("stu-1", "instr-b"))
+    assert out.moved == 1 and out.notified == 0 and push["messages"] == []
+
+
+def test_a_push_failure_does_not_undo_the_move(db, push):
+    push["fail"] = True
+    out = reassign(("stu-1", "instr-b"))
+    assert out.moved == 1 and out.notified == 0
+    assert [p[0] for p in db["patches"]] == ["students", "lessons"]
+
+
+def test_the_owner_moving_a_pupil_to_themselves_is_not_pushed(db, push):
+    db["b_auth"] = "auth-owner"
+    push["tokens"]["auth-owner"] = ["ExponentPushToken[owner]"]
+    out = reassign(("stu-1", "instr-b"))
+    assert out.moved == 1 and out.notified == 0 and push["messages"] == []
+
+
+def test_nothing_is_pushed_for_a_pupil_who_did_not_move(db, push):
+    out = reassign(("stu-1", "instr-a"))
+    assert out.moved == 0 and push["messages"] == []

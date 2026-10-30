@@ -63,6 +63,30 @@ export async function openSmsComposer(phone: string, body: string): Promise<bool
   }
 }
 
+/** wa.me wants the number in international form with no "+": 07496 496582 -> 447496496582. */
+export function whatsAppUrl(phone: string, body: string): string {
+  let digits = phone.replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  else if (digits.startsWith('0')) digits = `44${digits.slice(1)}`;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(body)}`;
+}
+
+/** Opens WhatsApp with the message already written; the sender still taps Send. */
+export async function openWhatsApp(phone: string, body: string): Promise<boolean> {
+  const url = whatsAppUrl(phone, body);
+  try {
+    if (Platform.OS === 'web') {
+      if (typeof window === 'undefined') return false;
+      window.open(url, '_blank');
+      return true;
+    }
+    await Linking.openURL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function copyToClipboard(text: string): boolean {
   try {
     if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {

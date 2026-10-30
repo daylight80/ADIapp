@@ -12,6 +12,8 @@ import { BottomSheet } from '../src/BottomSheet';
 import { supabase } from '../src/supabaseClient';
 import { useAuth } from '../src/AuthContext';
 import { isFranchiseTier, tierById } from '../src/tiers';
+import { allocationMessage } from '../src/allocationMessage';
+import { openSmsComposer, openWhatsApp } from '../src/tools';
 
 const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || '';
 const REASSIGN_BATCH = 100; // the most pupils the server moves in one request
@@ -21,6 +23,7 @@ type SchoolInstructor = {
   full_name: string;
   adi_number: string | null;
   auth_user_id: string | null;
+  mobile_number: string | null;
   is_owner: boolean;
 };
 type SchoolStudent = {
@@ -48,6 +51,8 @@ export default function ManageAssignmentsScreen() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pickerOpen, setPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Shown after pupils are moved: whether the instructor was sent a push, and a text/WhatsApp the owner can add.
+  const [allocated, setAllocated] = useState<{ instructor: SchoolInstructor; pupils: string[]; notified: boolean; skipped: number } | null>(null);
 
   // Filter — which instructor's students are we viewing? null = unassigned summary
   const [filterInstructorId, setFilterInstructorId] = useState<string | 'all'>('all');
@@ -70,7 +75,7 @@ export default function ManageAssignmentsScreen() {
 
       const [insRes, stuRes] = await Promise.all([
         supabase.from('instructors')
-          .select('id, full_name, adi_number, auth_user_id')
+          .select('id, full_name, adi_number, auth_user_id, mobile_number')
           .eq('school_id', school.id)
           .order('full_name'),
         supabase.from('students')
@@ -84,7 +89,7 @@ export default function ManageAssignmentsScreen() {
       const ownerId = school.owner_auth_id;
       const insList: SchoolInstructor[] = (insRes.data || []).map((r: any) => ({
         id: r.id, full_name: r.full_name, adi_number: r.adi_number ?? null,
-        auth_user_id: r.auth_user_id ?? null, is_owner: r.auth_user_id === ownerId,
+        auth_user_id: r.auth_user_id ?? null, mobile_number: r.mobile_number ?? null, is_owner: r.auth_user_id === ownerId,
       }));
       const stuList: SchoolStudent[] = (stuRes.data || []).map((r: any) => ({
         id: r.id, full_name: r.full_name, email: r.email ?? null,
@@ -147,6 +152,9 @@ export default function ManageAssignmentsScreen() {
       const ids = Array.from(selected);
       let moved = 0;
       let skipped = 0;
+      let notified = 0;
+      // The server skips pupils already with this instructor, so only the others are named in the message.
+      const pupils = students.filter((s) => selected.has(s.id) && s.instructor_id !== newInstructorId).map((s) => s.full_name);
       for (let i = 0; i < ids.length; i += REASSIGN_BATCH) {
         const resp = await fetch(`${BACKEND}/api/v2/students/reassign`, {
           method: 'POST',
@@ -162,13 +170,15 @@ export default function ManageAssignmentsScreen() {
         }
         moved += json.moved || 0;
         skipped += json.skipped || 0;
+        notified += json.notified || 0;
       }
-      const target = instructorById.get(newInstructorId)?.full_name || 'the chosen instructor';
-      Alert.alert(
-        'Reassigned',
-        `${moved} student${moved === 1 ? '' : 's'} moved to ${target}.` +
-          (skipped ? `\n${skipped} skipped.` : ''),
-      );
+      const target = instructorById.get(newInstructorId);
+      if (moved > 0 && target) {
+        // A sheet, not an Alert: Alert.alert does nothing in a browser.
+        setAllocated({ instructor: target, pupils, notified: notified > 0, skipped });
+      } else {
+        Alert.alert('Nothing moved', skipped ? `${skipped} skipped.` : 'No students were moved.');
+      }
       clearSelection();
       setPickerOpen(false);
       load();
@@ -360,6 +370,47 @@ export default function ManageAssignmentsScreen() {
           ))
         )}
       </BottomSheet>
+
+      {/* After a move: was the instructor told, and an optional text or WhatsApp from the owner's own phone */}
+      <BottomSheet
+        visible={!!allocated}
+        onClose={() => setAllocated(null)}
+        title={allocated ? `Moved to ${allocated.instructor.full_name}` : ''}
+        testID="sheet-allocated"
+      >
+        {allocated && (() => {
+          const first = allocated.instructor.full_name.split(' ')[0];
+          const phone = allocated.instructor.mobile_number;
+          const message = allocationMessage(allocated.instructor.full_name, allocated.pupils, user?.name);
+          return (
+            <View style={{ gap: 12 }}>
+              <Text style={styles.allocNote} testID="alloc-note">
+                {allocated.notified
+                  ? `${first} has been sent a notification.`
+                  : `${first} could not be sent a notification (no phone is registered for them yet). They will still see the pupils in the app.`}
+              </Text>
+              {phone ? (
+                <>
+                  <Text style={styles.pickSub}>Want to message {first} as well? This opens your own messages with the words already written.</Text>
+                  <View style={{ flexDirection: 'row', gap: 9 }}>
+                    <TouchableOpacity style={styles.allocBtn} onPress={() => openSmsComposer(phone, message)} testID="alloc-sms">
+                      <Text style={styles.allocBtnText}>Text {first}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.allocBtn} onPress={() => openWhatsApp(phone, message)} testID="alloc-whatsapp">
+                      <Text style={styles.allocBtnText}>WhatsApp {first}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              ) : (
+                <Text style={styles.pickSub} testID="alloc-no-phone">No mobile number is saved for {first}, so there is nothing to text.</Text>
+              )}
+              <TouchableOpacity style={styles.selBarBtnGhost} onPress={() => setAllocated(null)} testID="alloc-done">
+                <Text style={styles.selBarBtnGhostText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          );
+        })()}
+      </BottomSheet>
     </SafeAreaView>
   );
 }
@@ -419,6 +470,9 @@ const styles = StyleSheet.create({
   pickRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
   pickName: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
   pickSub: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
+  allocNote: { fontSize: 14, color: theme.colors.text },
+  allocBtn: { flex: 1, backgroundColor: theme.colors.primary, paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
+  allocBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   ownerPill: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: theme.colors.accent, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 },
   ownerPillText: { fontSize: 9, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
 });

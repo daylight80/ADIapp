@@ -212,4 +212,27 @@ describe('Start lesson', () => {
       params: { lessonId: 'l1', studentId: 'st1', studentName: 'Sam Lee', autostart: '1' },
     });
   });
+
+  it('is greyed out and does nothing once the lesson is completed', async () => {
+    const onClose = jest.fn();
+    await render(<LessonToolsSheet visible lesson={{ ...lesson, status: 'Completed' }} onClose={onClose} onChanged={jest.fn()} />);
+    const button = screen.getByTestId('btn-record-route');
+    expect(button.props.accessibilityState).toMatchObject({ disabled: true });
+    await fireEvent.press(button);
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('is still live for a lesson that is not completed, even if the pupil has completed others', async () => {
+    await render(<LessonToolsSheet visible lesson={{ ...lesson, status: 'Scheduled' }} onClose={jest.fn()} onChanged={jest.fn()} />);
+    expect(screen.getByTestId('btn-record-route').props.accessibilityState).toMatchObject({ disabled: false });
+  });
+
+  it('is greyed out on a completed lesson on a plan without route recording too, with no upgrade prompt', async () => {
+    mockTier = 'starter';
+    await render(<LessonToolsSheet visible lesson={{ ...lesson, status: 'Completed' }} onClose={jest.fn()} onChanged={jest.fn()} />);
+    await fireEvent.press(screen.getByTestId('btn-record-route'));
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(screen.queryByText(/upgrade/i)).toBeNull();
+  });
 });

@@ -33,14 +33,15 @@ jest.mock('../SlotAlertLine', () => ({ SlotAlertLine: () => null }));
 jest.mock('../AddressSearch', () => ({ AddressSearch: () => null }));
 jest.mock('../DateTimeFields', () => ({ TimeField: () => null, DateField: () => null }));
 jest.mock('../notifications', () => ({ fireInstantNotification: jest.fn() }));
-jest.mock('../tools', () => ({ openNavigation: jest.fn(), openSmsComposer: jest.fn() }));
+jest.mock('../tools', () => ({ openNavigation: jest.fn(), openSmsComposer: jest.fn(), openWhatsApp: jest.fn() }));
+jest.mock('../backendCall', () => ({ callBackend: jest.fn(async () => ({ notified: true })) }));
 jest.mock('../maps', () => ({ getTravelTime: jest.fn(async () => null), lessonAddress: () => '' }));
 jest.mock('../precheckMemory', () => ({ pupilHasConfirmedPrecheck: jest.fn(async () => false) }));
 // The sheet itself is tested on its own (changeTimeSheet.test.tsx): here only how the lesson sheet opens and closes it.
 jest.mock('../diary/ChangeTimeSheet', () => ({
   ChangeTimeSheet: ({ visible, onMoved }: any) => {
     const { TouchableOpacity } = require('react-native');
-    return visible ? <TouchableOpacity testID="mock-change-time" onPress={() => onMoved({ date: '2099-11-02', startTime: '10:00', endTime: '12:00', queued: false })} /> : null;
+    return visible ? <TouchableOpacity testID="mock-change-time" onPress={() => onMoved({ date: '2099-11-02', startTime: '10:00', endTime: '12:00', queued: false, count: 1 })} /> : null;
   },
 }));
 
@@ -79,15 +80,20 @@ describe('the Change date or time link on the lesson sheet', () => {
     expect(screen.queryByTestId('btn-change-time')).toBeNull();
   });
 
-  it('opens the sheet, and once the lesson has moved closes both and tells the diary to redraw', async () => {
+  it('opens the sheet, and once the lesson has moved redraws the diary and offers to tell the pupil before closing', async () => {
     const onClose = jest.fn();
     const onChanged = jest.fn();
     await open(lesson, { onClose, onChanged });
     expect(screen.queryByTestId('mock-change-time')).toBeNull();
+    expect(screen.queryByTestId('sheet-tell-pupil')).toBeNull();
     await fireEvent.press(screen.getByTestId('btn-change-time'));
     await fireEvent.press(screen.getByTestId('mock-change-time'));
     expect(onChanged).toHaveBeenCalledTimes(1);
-    expect(onClose).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('mock-change-time')).toBeNull();
+    expect(screen.getByTestId('sheet-tell-pupil')).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('tell-done'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('sheet-tell-pupil')).toBeNull();
   });
 });

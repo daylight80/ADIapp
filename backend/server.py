@@ -3312,13 +3312,23 @@ _ENQUIRY_KEY = _re.compile(r"[0-9a-f]{32}")
 
 
 async def _enquiry_school(client_http, key: str) -> Optional[dict]:
-    r = await client_http.get(
-        f"{_sb_rest_base}/driving_schools",
-        params={"enquiry_form_key": f"eq.{key}", "select": "id,tier,owner_auth_id,enquiry_form_enabled,business_name", "limit": "1"},
+    """The school a form key belongs to, with whether its form is switched on. The key lives in
+    school_enquiry_forms, which only the school owner can read."""
+    fr = await client_http.get(
+        f"{_sb_rest_base}/school_enquiry_forms",
+        params={"form_key": f"eq.{key}", "select": "school_id,enabled", "limit": "1"},
         headers=_sb_headers(),
     )
-    rows = r.json() if r.status_code < 400 else []
-    return rows[0] if rows else None
+    forms = fr.json() if fr.status_code < 400 else []
+    if not forms:
+        return None
+    sr = await client_http.get(
+        f"{_sb_rest_base}/driving_schools",
+        params={"id": f"eq.{forms[0]['school_id']}", "select": "id,tier,owner_auth_id,business_name", "limit": "1"},
+        headers=_sb_headers(),
+    )
+    schools = sr.json() if sr.status_code < 400 else []
+    return {**schools[0], "enquiry_form_enabled": forms[0]["enabled"]} if schools else None
 
 
 async def _login_email(auth_user_id: Optional[str]) -> str:
@@ -3495,18 +3505,53 @@ async def _enquiry_form_owner_school_id(sb_user: dict) -> str:
     return school["id"]
 
 
+async def _enquiry_form_row(client_http, school_id: str) -> Optional[dict]:
+    r = await client_http.get(
+        f"{_sb_rest_base}/school_enquiry_forms",
+        params={"school_id": f"eq.{school_id}", "select": "form_key,enabled", "limit": "1"},
+        headers=_sb_headers(),
+    )
+    rows = r.json() if r.status_code < 400 else []
+    return rows[0] if rows else None
+
+
 async def _enquiry_form_status(school_id: str) -> EnquiryFormStatus:
+    """The owner's view. A paid school gets its key the first time this is asked (so a school that never sets the
+    form up has no key at all). Starter schools never do."""
     async with httpx.AsyncClient(timeout=10.0) as client_http:
         r = await client_http.get(
             f"{_sb_rest_base}/driving_schools",
-            params={"id": f"eq.{school_id}", "select": "tier,enquiry_form_key,enquiry_form_enabled", "limit": "1"},
+            params={"id": f"eq.{school_id}", "select": "tier", "limit": "1"},
             headers=_sb_headers(),
         )
-    rows = r.json() if r.status_code < 400 else []
-    if not rows or not lesson_summaries.is_paid_tier(rows[0].get("tier")):
-        return EnquiryFormStatus(available=False)
-    key = rows[0].get("enquiry_form_key")
-    return EnquiryFormStatus(available=True, enabled=bool(rows[0].get("enquiry_form_enabled")), key=key, form_path=f"/api/public/enquiries/{key}")
+        schools = r.json() if r.status_code < 400 else []
+        if not schools or not lesson_summaries.is_paid_tier(schools[0].get("tier")):
+            return EnquiryFormStatus(available=False)
+        row = await _enquiry_form_row(client_http, school_id)
+        if not row:
+            # Two first visits at once cannot make two keys: the school_id is the primary key and the loser is ignored.
+            await client_http.post(
+                f"{_sb_rest_base}/school_enquiry_forms",
+                params={"on_conflict": "school_id"},
+                headers=_sb_headers(prefer="resolution=ignore-duplicates,return=minimal"),
+                json={"school_id": school_id, "form_key": _secrets.token_hex(16)},
+            )
+            row = await _enquiry_form_row(client_http, school_id)
+    if not row:
+        return EnquiryFormStatus(available=True, enabled=False)
+    return EnquiryFormStatus(available=True, enabled=bool(row["enabled"]), key=row["form_key"], form_path=f"/api/public/enquiries/{row['form_key']}")
+
+
+async def _enquiry_form_update(school_id: str, patch: dict) -> None:
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        r = await client_http.patch(
+            f"{_sb_rest_base}/school_enquiry_forms",
+            params={"school_id": f"eq.{school_id}"},
+            headers=_sb_headers(prefer="return=minimal"),
+            json={**patch, "updated_at": datetime.now(timezone.utc).isoformat()},
+        )
+    if r.status_code >= 400:
+        raise HTTPException(status_code=500, detail=f"Supabase write failed: {r.text[:200]}")
 
 
 @api_router.get("/v2/enquiry-form", response_model=EnquiryFormStatus)
@@ -3520,7 +3565,7 @@ async def regenerate_enquiry_form_key(sb_user: dict = Depends(get_current_supaba
     school_id = await _enquiry_form_owner_school_id(sb_user)
     if not (await _enquiry_form_status(school_id)).available:
         raise HTTPException(status_code=403, detail="The website form is part of DC Pro and Franchise.")
-    await sb_update_school(school_id, {"enquiry_form_key": _secrets.token_hex(16)})
+    await _enquiry_form_update(school_id, {"form_key": _secrets.token_hex(16)})
     return await _enquiry_form_status(school_id)
 
 
@@ -3529,7 +3574,7 @@ async def set_enquiry_form_enabled(req: EnquiryFormToggle, sb_user: dict = Depen
     school_id = await _enquiry_form_owner_school_id(sb_user)
     if not (await _enquiry_form_status(school_id)).available:
         raise HTTPException(status_code=403, detail="The website form is part of DC Pro and Franchise.")
-    await sb_update_school(school_id, {"enquiry_form_enabled": req.enabled})
+    await _enquiry_form_update(school_id, {"enabled": req.enabled})
     return await _enquiry_form_status(school_id)
 
 

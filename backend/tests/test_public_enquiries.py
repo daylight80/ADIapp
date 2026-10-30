@@ -27,8 +27,8 @@ class Resp:
 class Db:
     def __init__(self):
         self.tables = {
-            "driving_schools": [{"id": "sc1", "tier": "pro", "owner_auth_id": OWNER_AUTH, "enquiry_form_key": KEY, "enquiry_form_enabled": True,
-                                 "business_name": "Formula Jon Driving School"}],
+            "driving_schools": [{"id": "sc1", "tier": "pro", "owner_auth_id": OWNER_AUTH, "business_name": "Formula Jon Driving School"}],
+            "school_enquiry_forms": [{"school_id": "sc1", "form_key": KEY, "enabled": True}],
             "instructors": [{"id": "ins-owner", "school_id": "sc1", "auth_user_id": OWNER_AUTH, "email": "jon@formula.co"}],
             "enquiries": [],
             "enquiry_contacts": [],
@@ -176,7 +176,7 @@ def test_a_starter_school_saves_nothing(db):
 
 
 def test_a_form_switched_off_saves_nothing(db):
-    db.tables["driving_schools"][0]["enquiry_form_enabled"] = False
+    db.tables["school_enquiry_forms"][0]["enabled"] = False
     assert post(json_req(**GOOD))["ok"] is True
     assert db.tables["enquiries"] == []
 
@@ -458,7 +458,7 @@ def test_nothing_is_sent_when_nothing_was_saved(db, setup):
     elif setup == "starter":
         db.tables["driving_schools"][0]["tier"] = "starter"
     elif setup == "off":
-        db.tables["driving_schools"][0]["enquiry_form_enabled"] = False
+        db.tables["school_enquiry_forms"][0]["enabled"] = False
     elif setup == "honeypot":
         fields["company_website"] = "http://spam.example"
     elif setup == "bad form":

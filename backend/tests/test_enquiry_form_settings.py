@@ -1,10 +1,10 @@
 """The school owner's control of the website form (see it, make a new key, switch it off) and the public question the
-hosted form page asks (is this form live, and whose is it). In-memory database. No network."""
+hosted form page asks (is this form live, and whose is it). The key and the switch live in school_enquiry_forms, a
+table only the owner can read. In-memory database. No network."""
 import asyncio
-import json
 
 import pytest
-from fastapi import BackgroundTasks, HTTPException
+from fastapi import HTTPException
 
 import address_search
 import server
@@ -24,8 +24,19 @@ class Resp:
 
 @pytest.fixture
 def world(monkeypatch):
-    w = {"school": {"id": "sc1", "tier": "pro", "owner_auth_id": "auth-owner", "enquiry_form_key": KEY,
-                    "enquiry_form_enabled": True, "business_name": "Formula Jon Driving School"}}
+    w = {
+        "school": {"id": "sc1", "tier": "pro", "owner_auth_id": "auth-owner", "business_name": "Formula Jon Driving School"},
+        "forms": [{"school_id": "sc1", "form_key": KEY, "enabled": True}],
+        "posts": 0,
+    }
+
+    def rows(table, params):
+        data = [w["school"]] if table == "driving_schools" else w["forms"]
+        for col in ("id", "school_id", "form_key"):
+            if col in (params or {}):
+                want = params[col].removeprefix("eq.")
+                data = [r for r in data if str(r.get(col)) == want]
+        return data
 
     class Http:
         def __init__(self, *a, **k):
@@ -38,20 +49,23 @@ def world(monkeypatch):
             return False
 
         async def get(self, url, params=None, headers=None):
-            s = w["school"]
-            for col in ("id", "enquiry_form_key"):
-                if col in (params or {}) and str(s.get(col)) != params[col].removeprefix("eq."):
-                    return Resp([])
-            return Resp([dict(s)])
+            return Resp([dict(r) for r in rows(url.rsplit("/", 1)[-1], params)])
 
-    async def update(school_id, patch):
-        w["school"].update(patch)
-        return dict(w["school"])
+        async def post(self, url, params=None, headers=None, json=None):
+            w["posts"] += 1
+            if any(f["school_id"] == json["school_id"] for f in w["forms"]):
+                return Resp([], 201)  # on_conflict ... ignore-duplicates: the second one is dropped
+            w["forms"].append({"school_id": json["school_id"], "form_key": json["form_key"], "enabled": True})
+            return Resp([], 201)
+
+        async def patch(self, url, params=None, headers=None, json=None):
+            for r in rows("school_enquiry_forms", params):
+                r.update({k: v for k, v in json.items() if k != "updated_at"})
+            return Resp([], 204)
 
     monkeypatch.setattr(server.httpx, "AsyncClient", Http)
     monkeypatch.setattr(server, "_sb_headers", lambda *a, **k: {})
     monkeypatch.setattr(server, "_sb_rest_base", "https://db.example/rest/v1")
-    monkeypatch.setattr(server, "sb_update_school", update)
     monkeypatch.setattr(server, "_enquiry_info_limiter", address_search.UserLimiter(60, 3600))
     return w
 
@@ -74,24 +88,51 @@ def test_dc_pro_and_franchise_have_the_form(world, tier):
 
 def test_a_starter_school_is_told_it_is_not_available_and_given_no_key(world):
     world["school"]["tier"] = "starter"
+    world["forms"].clear()
     out = run(server.get_enquiry_form(OWNER))
     assert out.available is False and out.key is None and out.form_path is None
+    assert world["forms"] == []  # and nothing was made for it
 
 
-def test_only_the_owner_may_see_or_change_it(world):
+def test_the_first_visit_makes_the_key_and_it_is_long_and_random(world):
+    world["forms"].clear()
+    out = run(server.get_enquiry_form(OWNER))
+    assert out.available and out.enabled and len(out.key) == 32 and all(c in "0123456789abcdef" for c in out.key)
+    assert world["forms"] == [{"school_id": "sc1", "form_key": out.key, "enabled": True}]
+
+
+def test_a_second_visit_keeps_the_same_key(world):
+    world["forms"].clear()
+    first = run(server.get_enquiry_form(OWNER)).key
+    assert run(server.get_enquiry_form(OWNER)).key == first and len(world["forms"]) == 1
+
+
+def test_two_first_visits_at_once_leave_one_key(world):
+    world["forms"].clear()
+
+    async def both():
+        import asyncio as a
+        return await a.gather(server._enquiry_form_status("sc1"), server._enquiry_form_status("sc1"))
+
+    first, second = run(both())
+    assert len(world["forms"]) == 1 and world["forms"][0]["form_key"] in (first.key, second.key)
+
+
+def test_only_the_owner_may_see_or_change_it_and_a_sub_instructor_makes_no_key(world):
+    world["forms"].clear()
     for call in (server.get_enquiry_form(INSTRUCTOR), server.regenerate_enquiry_form_key(INSTRUCTOR),
                  server.set_enquiry_form_enabled(server.EnquiryFormToggle(enabled=False), INSTRUCTOR)):
         with pytest.raises(HTTPException) as e:
             run(call)
         assert e.value.status_code == 403
-    assert world["school"]["enquiry_form_key"] == KEY and world["school"]["enquiry_form_enabled"] is True
+    assert world["forms"] == []
 
 
 def test_a_new_key_is_long_and_random_and_the_old_one_stops_working(world):
     out = run(server.regenerate_enquiry_form_key(OWNER))
     assert out.key != KEY and len(out.key) == 32 and all(c in "0123456789abcdef" for c in out.key)
-    assert world["school"]["enquiry_form_key"] == out.key
-    assert run(server.public_enquiry_info(KEY, FakeRequest()))["available"] is False  # the old address is dead
+    assert world["forms"][0]["form_key"] == out.key
+    assert run(server.public_enquiry_info(KEY, FakeRequest())) == {"available": False}  # the old address is dead
     assert run(server.public_enquiry_info(out.key, FakeRequest()))["available"] is True
 
 
@@ -112,7 +153,7 @@ def test_a_starter_school_cannot_make_a_key_or_switch_it_on(world):
         with pytest.raises(HTTPException) as e:
             run(call)
         assert e.value.status_code == 403
-    assert world["school"]["enquiry_form_key"] == KEY
+    assert world["forms"][0]["form_key"] == KEY
 
 
 # --- the public question -----------------------------------------------------------------------------------------------------
@@ -126,7 +167,7 @@ def test_a_live_form_says_whose_it_is(world):
     assert run(server.public_enquiry_info(KEY, FakeRequest())) == {"available": True, "school_name": "Formula Jon Driving School"}
 
 
-@pytest.mark.parametrize("setup", ["wrong key", "short key", "off", "starter"])
+@pytest.mark.parametrize("setup", ["wrong key", "short key", "off", "starter", "no form row"])
 def test_anything_else_looks_exactly_the_same_and_names_nobody(world, setup):
     key = KEY
     if setup == "wrong key":
@@ -134,9 +175,11 @@ def test_anything_else_looks_exactly_the_same_and_names_nobody(world, setup):
     elif setup == "short key":
         key = "abc"
     elif setup == "off":
-        world["school"]["enquiry_form_enabled"] = False
+        world["forms"][0]["enabled"] = False
     elif setup == "starter":
         world["school"]["tier"] = "starter"
+    elif setup == "no form row":
+        world["forms"].clear()
     assert run(server.public_enquiry_info(key, FakeRequest())) == {"available": False}
 
 

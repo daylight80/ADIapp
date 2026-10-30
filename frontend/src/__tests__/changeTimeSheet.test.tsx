@@ -66,7 +66,7 @@ describe('Change date or time', () => {
     await open();
     await move('2099-11-02', '10:00');
     await press();
-    await waitFor(() => expect(onMoved).toHaveBeenCalledWith({ date: '2099-11-02', startTime: '10:00', endTime: '12:00', queued: false }));
+    await waitFor(() => expect(onMoved).toHaveBeenCalledWith({ date: '2099-11-02', startTime: '10:00', endTime: '12:00', queued: false, count: 1 }));
     expect(mockPatch).toHaveBeenCalledWith('l1', { date: '2099-11-02', start_time: '10:00', end_time: '12:00' }, expect.stringContaining('2099-11-01 09:00 to 2099-11-02 10:00'));
   });
 

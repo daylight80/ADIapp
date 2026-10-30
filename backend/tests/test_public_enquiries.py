@@ -27,14 +27,15 @@ class Resp:
 class Db:
     def __init__(self):
         self.tables = {
-            "driving_schools": [{"id": "sc1", "tier": "pro", "owner_auth_id": OWNER_AUTH, "enquiry_form_key": KEY, "enquiry_form_enabled": True,
-                                 "business_name": "Formula Jon Driving School"}],
+            "driving_schools": [{"id": "sc1", "tier": "pro", "owner_auth_id": OWNER_AUTH, "business_name": "Formula Jon Driving School"}],
+            "school_enquiry_forms": [{"school_id": "sc1", "form_key": KEY, "enabled": True}],
             "instructors": [{"id": "ins-owner", "school_id": "sc1", "auth_user_id": OWNER_AUTH, "email": "jon@formula.co"}],
             "enquiries": [],
             "enquiry_contacts": [],
         }
         self.fail_insert = False
         self.pushes, self.emails = [], []  # what the notifications would have sent
+        self.auth_emails = {OWNER_AUTH: "jon@login.co"}  # the email each login signs in with
 
     def __call__(self, **kw):
         return self
@@ -60,6 +61,9 @@ class Db:
         return True
 
     async def get(self, url, params=None, headers=None):
+        if "/auth/v1/admin/users/" in url:
+            email = self.auth_emails.get(url.rsplit("/", 1)[-1])
+            return Resp({"email": email} if email else {}, 200 if email else 404)
         table = url.rsplit("/", 1)[-1]
         return Resp([r for r in self.tables[table] if self._match(r, params or {})])
 
@@ -89,6 +93,7 @@ def db(monkeypatch):
     monkeypatch.setattr(server.httpx, "AsyncClient", d)
     monkeypatch.setattr(server, "_sb_headers", lambda *a, **k: {})
     monkeypatch.setattr(server, "_sb_rest_base", "https://db.example/rest/v1")
+    monkeypatch.setattr(server, "SUPABASE_URL", "https://db.example")
     monkeypatch.setattr(server, "_enquiry_ip_limiter", address_search.UserLimiter(20, 3600))
     monkeypatch.setattr(server, "_enquiry_key_limiter", address_search.UserLimiter(30, 3600))
 
@@ -171,7 +176,7 @@ def test_a_starter_school_saves_nothing(db):
 
 
 def test_a_form_switched_off_saves_nothing(db):
-    db.tables["driving_schools"][0]["enquiry_form_enabled"] = False
+    db.tables["school_enquiry_forms"][0]["enabled"] = False
     assert post(json_req(**GOOD))["ok"] is True
     assert db.tables["enquiries"] == []
 
@@ -376,12 +381,31 @@ def test_an_enquiry_with_only_a_phone_pushes_and_emails_the_owner_but_sends_no_t
     assert "reply_to" not in db.emails[0] and "ring or text them" in db.emails[0]["text"]
 
 
-def test_an_owner_with_no_email_is_pushed_and_the_visitor_still_thanked(db):
+def test_an_owner_with_no_email_on_their_record_is_emailed_at_the_address_they_sign_in_with(db):
     db.tables["instructors"][0]["email"] = None
+    post(json_req(**GOOD))
+    assert [p["to"] for p in db.emails] == [["jon@login.co"], ["anusudhi75@gmail.com"]]
+    assert next(p for p in db.emails if p["to"] == ["anusudhi75@gmail.com"])["reply_to"] == "jon@login.co"
+
+
+def test_an_owner_with_no_email_anywhere_is_pushed_and_the_visitor_still_thanked(db):
+    db.tables["instructors"][0]["email"] = None
+    db.auth_emails.clear()
     post(json_req(**GOOD))
     assert len(db.pushes) == 1
     assert [p["to"] for p in db.emails] == [["anusudhi75@gmail.com"]]
     assert "reply_to" not in db.emails[0]
+
+
+def test_a_failed_login_email_lookup_does_not_stop_the_visitor_being_thanked(db, monkeypatch):
+    db.tables["instructors"][0]["email"] = None
+
+    async def boom(*a, **k):
+        raise RuntimeError("auth down")
+
+    monkeypatch.setattr(db, "get", lambda url, params=None, headers=None: boom() if "/auth/v1/" in url else Db.get(db, url, params, headers))
+    post(json_req(**GOOD))
+    assert [p["to"] for p in db.emails] == [["anusudhi75@gmail.com"]]
 
 
 def test_when_email_is_not_set_up_the_owner_is_still_pushed(db, monkeypatch):
@@ -434,7 +458,7 @@ def test_nothing_is_sent_when_nothing_was_saved(db, setup):
     elif setup == "starter":
         db.tables["driving_schools"][0]["tier"] = "starter"
     elif setup == "off":
-        db.tables["driving_schools"][0]["enquiry_form_enabled"] = False
+        db.tables["school_enquiry_forms"][0]["enabled"] = False
     elif setup == "honeypot":
         fields["company_website"] = "http://spam.example"
     elif setup == "bad form":

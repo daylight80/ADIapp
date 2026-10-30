@@ -23,6 +23,7 @@ import billing_helpers
 import collections
 import student_status
 import lesson_summaries
+import public_enquiries
 import calendar_feed
 import weather_briefing
 
@@ -3290,6 +3291,106 @@ async def calendar_feed_endpoint(token_with_ext: str, travel: int = 0):
             "Cache-Control": "private, max-age=60",
         },
     )
+
+
+# =============================================================================
+# Website enquiry form (30 Oct 2026). A DC Pro or Franchise school puts a form on its own website; the form posts
+# here with no login. The key in the address says which school it is for, and the enquiry goes to the school owner.
+# Save first: notifying the owner (a later change) can fail without losing the enquiry.
+# =============================================================================
+# shortcut: limits are counted in this process's memory, fine for one Render instance; move them to the database
+# if a second instance is ever added.
+_enquiry_ip_limiter = address_search.UserLimiter(20, 3600)
+_enquiry_key_limiter = address_search.UserLimiter(30, 3600)
+ENQUIRY_THANKS = {"ok": True, "message": "Thanks, your enquiry has been received."}
+_ENQUIRY_KEY = _re.compile(r"[0-9a-f]{32}")
+
+
+async def _enquiry_school(client_http, key: str) -> Optional[dict]:
+    r = await client_http.get(
+        f"{_sb_rest_base}/driving_schools",
+        params={"enquiry_form_key": f"eq.{key}", "select": "id,tier,owner_auth_id,enquiry_form_enabled", "limit": "1"},
+        headers=_sb_headers(),
+    )
+    rows = r.json() if r.status_code < 400 else []
+    return rows[0] if rows else None
+
+
+@api_router.post("/public/enquiries/{form_key}")
+async def public_enquiry(form_key: str, request: Request):
+    # Render adds the real client address last; anything before it was sent by the caller and cannot be trusted.
+    ip = (request.headers.get("x-forwarded-for", "").split(",")[-1].strip()) or (request.client.host if request.client else "?")
+    if not _enquiry_ip_limiter.allow(ip):
+        raise HTTPException(status_code=429, detail="Too many enquiries from here. Please try again later.")
+    try:
+        if int(request.headers.get("content-length") or 0) > public_enquiries.MAX_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="That is too large to be an enquiry.")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="That did not look like a form.")
+    raw = await request.body()
+    if len(raw) > public_enquiries.MAX_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="That is too large to be an enquiry.")
+
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        # A wrong, switched-off or Starter key looks exactly like a good one, so keys cannot be tested for.
+        school = await _enquiry_school(client_http, form_key) if _ENQUIRY_KEY.fullmatch(form_key) else None
+        if not school or not school.get("enquiry_form_enabled") or not lesson_summaries.is_paid_tier(school.get("tier")):
+            return ENQUIRY_THANKS
+        if not _enquiry_key_limiter.allow(form_key):
+            raise HTTPException(status_code=429, detail="This form has had a lot of enquiries in the last hour. Please try again later.")
+
+        try:
+            fields = public_enquiries.parse_body(request.headers.get("content-type"), raw)
+            if public_enquiries.is_honeypot_filled(fields):
+                return ENQUIRY_THANKS
+            enquiry = public_enquiries.build_enquiry(fields)
+        except public_enquiries.UnsupportedType as e:
+            raise HTTPException(status_code=415, detail=str(e))
+        except public_enquiries.FormError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+        # The school owner is the one who gets it. Franchise owners allocate it to an instructor later.
+        ir = await client_http.get(
+            f"{_sb_rest_base}/instructors",
+            params={"school_id": f"eq.{school['id']}", "auth_user_id": f"eq.{school['owner_auth_id']}", "select": "id", "limit": "1"},
+            headers=_sb_headers(),
+        )
+        owner_rows = ir.json() if ir.status_code < 400 else []
+        if not owner_rows:
+            logger.error("Website enquiry for school %s has nobody to go to: the owner has no instructor record", school["id"])
+            raise HTTPException(status_code=503, detail="We could not take your enquiry just now. Please phone instead.")
+        instructor_id = owner_rows[0]["id"]
+
+        # The same person sending the form twice in a day is one enquiry with a note, not two.
+        since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        for column in ("email", "phone"):
+            if not enquiry[column]:
+                continue
+            dr = await client_http.get(
+                f"{_sb_rest_base}/enquiries",
+                params={"school_id": f"eq.{school['id']}", column: f"eq.{enquiry[column]}", "closed_at": "is.null", "converted_at": "is.null",
+                        "created_at": f"gte.{since}", "select": "id", "limit": "1"},
+                headers=_sb_headers(),
+            )
+            found = dr.json() if dr.status_code < 400 else []
+            if found:
+                note = "Sent the website form again." + (f" {enquiry['notes']}" if enquiry["notes"] else "")
+                await client_http.post(
+                    f"{_sb_rest_base}/enquiry_contacts",
+                    headers=_sb_headers(prefer="return=minimal"),
+                    json={"enquiry_id": found[0]["id"], "instructor_id": instructor_id, "kind": "note", "note": note[:500]},
+                )
+                return ENQUIRY_THANKS
+
+        sr = await client_http.post(
+            f"{_sb_rest_base}/enquiries",
+            headers=_sb_headers(prefer="return=minimal"),
+            json={**enquiry, "school_id": school["id"], "instructor_id": instructor_id, "source": "Website"},
+        )
+        if sr.status_code >= 400:
+            logger.error("Website enquiry for school %s could not be saved: %s %s", school["id"], sr.status_code, sr.text[:200])
+            raise HTTPException(status_code=503, detail="We could not take your enquiry just now. Please phone instead.")
+    return ENQUIRY_THANKS
 
 
 app.include_router(api_router)

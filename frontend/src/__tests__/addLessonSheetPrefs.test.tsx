@@ -25,10 +25,14 @@ import { AddLessonSheet } from '../diary/AddLessonSheet';
 const student = { id: 'st1', name: 'Sam', hourly_rate: 40 } as any;
 const props = { visible: true, onClose: jest.fn(), students: [student], lessons: [], availBlocks: [], pro: false, onCreated: jest.fn(), initialDate: '2030-03-04' };
 
+// The offered slots depend on the time of day (a first slot "today" is never in the past), so pin the clock to
+// the early morning: without this the tests fail whenever they run during the working hours they set.
 beforeEach(() => {
+  jest.useFakeTimers({ now: new Date('2030-03-04T06:00:00'), advanceTimers: true });
   mockPrefs.mockReset().mockResolvedValue({});
   mockLessons.mockReset().mockResolvedValue([]);
 });
+afterEach(() => { jest.useRealTimers(); });
 
 describe('Add Lesson uses the instructor\'s own settings', () => {
   it('offers the instructor\'s lengths, not the fixed ones', async () => {

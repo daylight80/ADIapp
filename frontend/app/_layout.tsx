@@ -1,3 +1,4 @@
+import { LAUNCH_AUTH_KIND } from '../src/launchInvite'; // first on purpose: reads the address before the Supabase client clears it
 import Head from 'expo-router/head';
 import React, { useEffect, useRef, useState } from 'react';
 import { Stack, useRouter, useSegments, useLocalSearchParams } from 'expo-router';
@@ -45,6 +46,7 @@ function AuthGate() {
   const params = useLocalSearchParams();
   useEffect(() => { setReportingUser(user?.id ?? null, user?.role); }, [user?.id, user?.role]);
   // Read straight from the address once, then used up by the first redirect below.
+  const launchAuthKind = useRef<string>(LAUNCH_AUTH_KIND);
   const launchInvite = useRef(Platform.OS === 'web' && typeof window !== 'undefined' ? inviteFromSearch(window.location.search) : '');
   const inviteToken = (params.invite as string) || launchInvite.current;
 
@@ -195,6 +197,14 @@ function AuthGate() {
     // "rootish" — so this check would never fire, and the invite gets
     // silently dropped with zero indication anything went wrong. A real
     // invite token should win no matter what route we're currently on.
+    // Opened from an emailed forgot-password or invite link that Supabase sent to the site root instead of the
+    // reset page (its allowed-redirects list decides): they are signed in, so ask for a password now rather than
+    // dropping them on the dashboard with none.
+    if (launchAuthKind.current) {
+      launchAuthKind.current = '';
+      if (current !== 'reset-password-screen') { router.replace('/reset-password-screen'); return; }
+    }
+
     if (inviteToken) {
       launchInvite.current = '';
       if (user) {

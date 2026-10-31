@@ -489,11 +489,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Deterministic redirect URL — single source of truth per platform.
       // Web: always the current deployment origin (preview / staging / prod /
       // custom domain all resolve correctly via window.location.origin).
-      // Native: the app's custom URL scheme registered in app.json.
+      // Native: the web page too. The phone app cannot finish a reset itself (it never reads the link's
+      // token), so they choose the password on the web, then sign in on the phone with it.
       const redirectTo =
         Platform.OS === 'web'
           ? `${window.location.origin}/reset-password-screen`
-          : 'adipro://reset-password-screen';
+          : `${process.env.EXPO_PUBLIC_APP_URL || 'https://webapp.drivingschoolsolutions.co.uk'}/reset-password-screen`;
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
       if (error) return { ok: false, error: error.message };
       return { ok: true };

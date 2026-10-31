@@ -1,7 +1,7 @@
 import { INSTRUCTOR_PROFILE_SECTIONS, visibleSections, type ProfileRowKey } from '../profileSections';
 
 const ALL_ROWS: ProfileRowKey[] = [
-  'details', 'school', 'packages', 'vouchers', 'income', 'subscription',
+  'details', 'school', 'packages', 'vouchers', 'income', 'subscription', 'websiteForm',
   'syllabuses', 'vehicles', 'noteQuestions',
   'standards', 'deadlines',
   'navApp', 'unavailabilities', 'travelBuffer', 'workingHours', 'lessonTypes', 'reminderBalance', 'bankHolidays', 'calendarFeed', 'importContacts',
@@ -35,7 +35,7 @@ describe('visibleSections', () => {
   it('keeps the order and skips rows that do not apply', () => {
     const shown = visibleSections(INSTRUCTOR_PROFILE_SECTIONS, (k) => (k === 'school' || k === 'fingerprint' ? null : k));
     const business = shown.find((s) => s.title === 'My business')!;
-    expect(business.rows.map((r) => r.key)).toEqual(['details', 'packages', 'vouchers', 'income', 'subscription']);
+    expect(business.rows.map((r) => r.key)).toEqual(['details', 'packages', 'vouchers', 'income', 'subscription', 'websiteForm']);
     expect(shown.find((s) => s.title === 'Account')!.rows.map((r) => r.key)).toEqual(['privacy']);
   });
 

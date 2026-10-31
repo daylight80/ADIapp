@@ -1,5 +1,6 @@
 import { StudentRoutesCard, RouteRows, useStudentRoutes } from '../src/StudentRoutesCard';
 import { LessonRowLinks } from '../src/LessonRowLinks';
+import { LessonSummarySheet } from '../src/LessonSummarySheet';
 import { matchRoutesToLessons } from '../src/lessonRoutes';
 import { PickupPlacesCard } from '../src/PickupPlacesCard';
 import { GuardianCard } from '../src/GuardianCard';
@@ -124,6 +125,7 @@ export default function StudentProfileV2Screen() {
   const params = useLocalSearchParams();
   const { user } = useAuth();
   const pro = isPaidTier(user?.tier);
+  const [summaryLessonId, setSummaryLessonId] = useState<string | null>(null); // lesson whose pupil summary is open
   // Route recording is a Growth+ feature (31 Aug 2026) — this is the
   // second of two entry points to route-recorder-screen (the other is
   // LessonToolsSheet's identical button), found while fixing the first one.
@@ -1043,6 +1045,7 @@ export default function StudentProfileV2Screen() {
                         attempts={mockAttempts}
                         note={lessonNotesHistory.find((n) => n.lesson_id === l.id)}
                         questionText={questionTextById}
+                        onSummary={pro ? () => setSummaryLessonId(l.id) : undefined}
                       />
                     )}
                   </View>
@@ -1232,6 +1235,16 @@ export default function StudentProfileV2Screen() {
               );
             }
           }}
+        />
+      )}
+
+      {!!summaryLessonId && (
+        <LessonSummarySheet
+          visible
+          onClose={() => setSummaryLessonId(null)}
+          lessonId={summaryLessonId}
+          studentName={student?.name || 'the pupil'}
+          instructorId={user?.instructor_id ?? undefined}
         />
       )}
 

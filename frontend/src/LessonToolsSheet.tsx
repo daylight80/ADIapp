@@ -519,7 +519,7 @@ export function LessonToolsSheet({ visible, onClose, lesson, onChanged, onBookNe
                 accessibilityRole="link"
                 accessibilityLabel={`Open ${student.name}'s profile`}
               >
-                <Text style={styles.title}>{student.name}</Text>
+                <Text style={[styles.title, styles.nameLink]}>{student.name}</Text>
               </TouchableOpacity>
               <Text style={styles.sub}>
                 {lesson.start_time}-{lesson.end_time} · {lesson.topic}
@@ -1479,6 +1479,7 @@ const styles = StyleSheet.create({
   paymentDot: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
   sub: { fontSize: 13, color: theme.colors.textMuted, marginTop: 2 },
+  nameLink: { color: theme.colors.primary },
   changeTime: { fontSize: 13, fontWeight: '700', color: theme.colors.primary, marginTop: 4 },
   badgeRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 12 },
   section: { fontSize: 15, fontWeight: '700', color: theme.colors.text, marginTop: 8, marginBottom: 8 },

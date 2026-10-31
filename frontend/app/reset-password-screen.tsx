@@ -138,7 +138,7 @@ export default function ResetPasswordScreen() {
           {stage === 'detecting' && (
             <View style={{ alignItems: 'center', paddingVertical: 80 }}>
               <ActivityIndicator size="large" color={C.primary} />
-              <Text style={[s.body, { marginTop: 16 }]}>Verifying your reset link…</Text>
+              <Text style={[s.body, { marginTop: 16 }]}>Checking your link…</Text>
             </View>
           )}
 
@@ -147,18 +147,18 @@ export default function ResetPasswordScreen() {
               <View style={s.heroIcon}>
                 <ShieldCheck size={30} color={C.primary} />
               </View>
-              <Text style={s.heading}>Choose a new password</Text>
+              <Text style={s.heading}>Choose a password</Text>
               <Text style={s.body}>
                 Pick something memorable but hard to guess. Use at least 8 characters, with letters and numbers.
               </Text>
 
               <View style={{ gap: 6, marginTop: 26 }}>
-                <Text style={s.fieldLabel}>New password</Text>
+                <Text style={s.fieldLabel}>Password</Text>
                 <View style={s.fieldWrap}>
                   <Lock size={18} color={C.textMuted} />
                   <TextInput
                     style={s.fieldInput}
-                    placeholder="New password"
+                    placeholder="Password"
                     placeholderTextColor={C.textMuted}
                     secureTextEntry
                     autoComplete="password-new"
@@ -170,12 +170,12 @@ export default function ResetPasswordScreen() {
               </View>
 
               <View style={{ gap: 6, marginTop: 14 }}>
-                <Text style={s.fieldLabel}>Confirm new password</Text>
+                <Text style={s.fieldLabel}>Confirm password</Text>
                 <View style={s.fieldWrap}>
                   <Lock size={18} color={C.textMuted} />
                   <TextInput
                     style={s.fieldInput}
-                    placeholder="Confirm new password"
+                    placeholder="Confirm password"
                     placeholderTextColor={C.textMuted}
                     secureTextEntry
                     autoComplete="password-new"
@@ -209,7 +209,7 @@ export default function ResetPasswordScreen() {
               >
                 {busy
                   ? <ActivityIndicator color="#fff" />
-                  : <Text style={s.ctaText}>Update password</Text>}
+                  : <Text style={s.ctaText}>Save password</Text>}
               </TouchableOpacity>
             </>
           )}
@@ -221,7 +221,7 @@ export default function ResetPasswordScreen() {
               </View>
               <Text style={s.heading}>Link expired or invalid</Text>
               <Text style={s.body}>
-                The reset link may have already been used, or it&apos;s older than an hour. Request a fresh one to continue.
+                This link may have already been used, or it&apos;s older than an hour. Request a fresh one to continue.
               </Text>
               <TouchableOpacity
                 style={s.cta}
@@ -245,9 +245,9 @@ export default function ResetPasswordScreen() {
               <View style={s.successIcon}>
                 <CheckCircle2 size={38} color={C.successText} />
               </View>
-              <Text style={s.heading}>Password updated</Text>
+              <Text style={s.heading}>Password saved</Text>
               <Text style={s.body}>
-                You&apos;ll be redirected to sign in with your new password in a moment.
+                You&apos;ll be taken to sign in with your password in a moment.
               </Text>
             </>
           )}

@@ -59,11 +59,10 @@ export default function LessonNotesScreen() {
     setSaving(true);
     try {
       await saveLessonNotes({ lessonId, studentId, instructorId: user.instructor_id, answers });
-      // Stays on screen now instead of navigating back immediately (2 Sept
-      // 2026) — added so the instructor can generate an AI debrief right
-      // after saving, without leaving and reopening this screen. The back
-      // arrow in the header still leaves whenever they're actually done.
+      // Back to where they came from (the pupil's Lessons list) once saved (31 Oct 2026, per Grant). It used to stay
+      // so a summary could be written straight away; that button is still here whenever the notes are reopened.
       setNotesSaved(true);
+      router.back();
     } catch (e: any) {
       Alert.alert('Could not save notes', e?.message || 'Please try again.');
     } finally {

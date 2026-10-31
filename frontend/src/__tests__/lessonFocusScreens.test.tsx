@@ -1,11 +1,13 @@
 import React from 'react';
+import { Alert } from 'react-native';
 import { render, screen, fireEvent, waitFor, renderHook } from '@testing-library/react-native';
 
 jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }));
 jest.mock('react-native-safe-area-context', () => { const { View } = require('react-native'); return { SafeAreaView: View }; });
 const mockPush = jest.fn();
+const mockBack = jest.fn();
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush, back: jest.fn() }),
+  useRouter: () => ({ push: mockPush, back: mockBack }),
   useLocalSearchParams: () => ({ lessonId: 'les-1', studentId: 'stu-1', studentName: 'Maisie Harmer' }),
 }));
 jest.mock('../supabaseClient', () => ({ supabase: {} }));
@@ -41,6 +43,7 @@ describe('the Lesson notes screen', () => {
   beforeEach(() => {
     mockUser.tier = 'pro';
     mockPush.mockReset();
+    mockBack.mockReset();
     mockQuestions.mockReset().mockResolvedValue(Q);
     mockGetNotes.mockReset().mockResolvedValue(null);
     mockSaveNotes.mockReset().mockResolvedValue({});
@@ -62,18 +65,40 @@ describe('the Lesson notes screen', () => {
     expect(screen.queryByTestId('goal-hint-q2')).toBeNull();
   });
 
-  it('offers a summary from the notes once they are saved (paid plans), opening the summary sheet for this lesson', async () => {
+  it('offers a summary from notes that are already saved (paid plans), opening the summary sheet for this lesson', async () => {
+    mockGetNotes.mockResolvedValue({ answers: { q1: 'Smooth steering' } });
     await render(<LessonNotesScreen />);
     await waitFor(() => expect(screen.getByTestId('btn-write-summary-from-notes')).toBeTruthy());
     expect(screen.getByTestId('btn-write-summary-from-notes')).toHaveTextContent('Write a summary for Maisie from these notes');
-    // greyed until saved
+    await fireEvent.press(screen.getByTestId('btn-write-summary-from-notes'));
+    expect(screen.getByTestId('summary-sheet-open')).toHaveTextContent('sheet for les-1 / instr-1');
+  });
+
+  it('keeps the summary greyed until there are saved notes', async () => {
+    await render(<LessonNotesScreen />);
+    await waitFor(() => expect(screen.getByTestId('btn-write-summary-from-notes')).toBeTruthy());
     await fireEvent.press(screen.getByTestId('btn-write-summary-from-notes'));
     expect(screen.queryByTestId('summary-sheet-open')).toBeNull();
+  });
+
+  it('goes back to the lessons list once the notes are saved', async () => {
+    await render(<LessonNotesScreen />);
+    await waitFor(() => expect(screen.getByTestId('btn-save-lesson-notes')).toBeTruthy());
     await fireEvent.changeText(screen.getByTestId('input-answer-q1'), 'Smooth steering');
     await fireEvent.press(screen.getByTestId('btn-save-lesson-notes'));
     await waitFor(() => expect(mockSaveNotes).toHaveBeenCalled());
-    await fireEvent.press(screen.getByTestId('btn-write-summary-from-notes'));
-    expect(screen.getByTestId('summary-sheet-open')).toHaveTextContent('sheet for les-1 / instr-1');
+    await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
+  });
+
+  it('stays on the screen when the notes could not be saved', async () => {
+    mockSaveNotes.mockRejectedValue(new Error('offline'));
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await render(<LessonNotesScreen />);
+    await waitFor(() => expect(screen.getByTestId('btn-save-lesson-notes')).toBeTruthy());
+    await fireEvent.press(screen.getByTestId('btn-save-lesson-notes'));
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    expect(mockBack).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
   });
 
   it('keeps the notes free: no summary button on a free plan', async () => {

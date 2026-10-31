@@ -55,3 +55,28 @@ describe('LessonRowLinks', () => {
     expect(mockPush).toHaveBeenCalledWith(expect.objectContaining({ pathname: '/lesson-notes-screen' }));
   });
 });
+
+describe('the summary button on a lesson row', () => {
+  it('is offered once the lesson has saved notes, and opens the summary', async () => {
+    const onSummary = jest.fn();
+    await render(<LessonRowLinks {...base} note={note} onSummary={onSummary} />);
+    expect(screen.getByTestId('lesson-summary-l1')).toHaveTextContent('Write a summary for Sam');
+    await fireEvent.press(screen.getByTestId('lesson-summary-l1'));
+    expect(onSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not offered before there are saved notes', async () => {
+    await render(<LessonRowLinks {...base} onSummary={jest.fn()} />);
+    expect(screen.queryByTestId('lesson-summary-l1')).toBeNull();
+  });
+
+  it('is not offered when only blank answers were saved', async () => {
+    await render(<LessonRowLinks {...base} note={{ lesson_id: 'l1', answers: { q1: '  ' } } as any} onSummary={jest.fn()} />);
+    expect(screen.queryByTestId('lesson-summary-l1')).toBeNull();
+  });
+
+  it('is not offered on a free plan (the screen passes no handler)', async () => {
+    await render(<LessonRowLinks {...base} note={note} />);
+    expect(screen.queryByTestId('lesson-summary-l1')).toBeNull();
+  });
+});

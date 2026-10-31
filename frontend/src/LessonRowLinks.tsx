@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Flag, FileCheck } from 'lucide-react-native';
+import { Flag, FileCheck, MessageSquare } from 'lucide-react-native';
 import { theme } from './theme';
 import type { SavedRoute } from './routeRecorder';
 import type { MockTestAttempt, InstructorLessonNote } from './supabaseDb';
@@ -21,10 +21,12 @@ type Props = {
   attempts: MockTestAttempt[];
   note?: InstructorLessonNote;
   questionText: Record<string, string>;
+  /** Paid plans: opens the summary for the pupil, written from these notes. Not offered until notes are saved. */
+  onSummary?: () => void;
 };
 
 /** Under a completed lesson on the pupil's Lessons tab: its mock tests, and its private notes (view, edit or add). */
-export function LessonRowLinks({ lessonId, studentId, studentName, routes, attempts, note, questionText }: Props) {
+export function LessonRowLinks({ lessonId, studentId, studentName, routes, attempts, note, questionText, onSummary }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const mocks = mockTestsForRoutes(attempts, routes);
@@ -69,6 +71,13 @@ export function LessonRowLinks({ lessonId, studentId, studentName, routes, attem
         <TouchableOpacity style={s.row} onPress={toNotes} testID={`lesson-notes-add-${lessonId}`}>
           <FileCheck size={16} color={theme.colors.primary} />
           <Text style={s.text}>Add notes</Text>
+        </TouchableOpacity>
+      )}
+
+      {!!onSummary && answered.length > 0 && (
+        <TouchableOpacity style={s.row} onPress={onSummary} testID={`lesson-summary-${lessonId}`}>
+          <MessageSquare size={16} color={theme.colors.primary} />
+          <Text style={s.text}>Write a summary for {studentName.split(' ')[0]}</Text>
         </TouchableOpacity>
       )}
     </View>

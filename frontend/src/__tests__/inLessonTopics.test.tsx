@@ -67,10 +67,10 @@ describe('InLessonTopicsCard', () => {
     expect((await screen.findByTestId('topics-error')).props.children).toBe('permission denied');
   });
 
-  it('shows nothing when the lesson has no plan', async () => {
+  it('says so, rather than vanishing, when the lesson has no plan', async () => {
     mockGetLesson.mockResolvedValue({ plan_topics: [], plan_covered: [] });
     await open();
-    await waitFor(() => expect(mockGetLesson).toHaveBeenCalled());
+    expect(await screen.findByTestId('in-lesson-topics-empty')).toBeTruthy();
     expect(screen.queryByTestId('in-lesson-topics')).toBeNull();
   });
 });

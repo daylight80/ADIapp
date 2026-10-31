@@ -138,7 +138,7 @@ export default function StudentProfileV2Screen() {
   const [generatingInvoice, setGeneratingInvoice] = useState(false);
   const id = (params.id as string) || '';
 
-  const [tab, setTab] = useState<Tab>('overview');
+  const [tab, setTab] = useState<Tab>(params.tab === 'competency' ? 'competency' : 'overview'); // ?tab=competency opens straight on it
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   // ---- Amend / Notes / Log test — all three genuinely local, ported in

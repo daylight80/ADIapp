@@ -9,7 +9,7 @@ import { levelLabel, MAX_LEVEL } from './competencyLevels';
 
 /**
  * Shown while a lesson is being recorded: the topics planned for it, to tick off as they are covered, with the pupil's
- * current level on each so it can be moved up or down on the spot. Nothing shows when the lesson has no plan.
+ * current level on each so it can be moved up or down on the spot. A lesson with no plan says so, so the card is never just missing.
  */
 export function InLessonTopicsCard({ lessonId, studentId, studentName }: { lessonId: string; studentId: string; studentName?: string }) {
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -24,7 +24,15 @@ export function InLessonTopicsCard({ lessonId, studentId, studentName }: { lesso
     return () => { alive = false; };
   }, [lessonId]);
 
-  if (!plan || plan.topics.length === 0) return null;
+  if (!plan) return null;
+  if (plan.topics.length === 0) {
+    return (
+      <View style={s.card} testID="in-lesson-topics-empty">
+        <Text style={s.title}>Today&apos;s topics</Text>
+        <Text style={s.level}>No topics planned for this lesson. Add them in Lesson tools before you set off.</Text>
+      </View>
+    );
+  }
 
   const tick = (key: string) => {
     const next = toggleCovered(plan, key);

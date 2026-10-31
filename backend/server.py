@@ -1178,7 +1178,7 @@ async def v2_invite_student(req: StudentInviteRequest, sb_user: dict = Depends(g
     else:
         inviter_name = school.get("business_name") or "Your driving instructor"
 
-    redirect_to = f"{APP_DOMAIN}/?invite_accept=1"
+    redirect_to = f"{APP_DOMAIN}/reset-password-screen"  # signs them in from the email, then asks them to choose a password
 
     payload = {
         "email": str(req.email),
@@ -1552,7 +1552,7 @@ async def v2_invite_instructor(
                 ),
             )
 
-    redirect_to = f"{APP_DOMAIN}/?invite_accept=1"
+    redirect_to = f"{APP_DOMAIN}/reset-password-screen"  # signs them in from the email, then asks them to choose a password
     payload = {
         "email": str(req.email),
         "data": {

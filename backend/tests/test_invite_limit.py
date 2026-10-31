@@ -21,6 +21,7 @@ class Resp:
 class FakeHttp:
     def __init__(self):
         self.invites = 0
+        self.payloads = []
 
     def __call__(self, **kw):
         return self
@@ -37,6 +38,9 @@ class FakeHttp:
     async def post(self, url, **k):
         if url.endswith("/auth/v1/invite"):
             self.invites += 1
+            self.payloads.append(k.get("json"))
+        if url.endswith("/rpc/can_add_instructor"):
+            return Resp(True)
         return Resp({})
 
 
@@ -74,3 +78,18 @@ def test_instructor_invites_share_the_allowance(monkeypatch, http):
             server.InstructorInviteRequest(email="new@example.com", full_name="New Person"), USER))
     assert e.value.status_code == 429
     assert http.invites == 0
+
+
+def test_invite_emails_land_on_the_choose_a_password_screen(monkeypatch, http):
+    # The email link signs them in; without this they would never be asked for a password.
+    monkeypatch.setattr(server, "APP_DOMAIN", "https://app.test")
+    monkeypatch.setattr(server, "_invite_limiter", address_search.UserLimiter(5, 86400))
+
+    async def owner(_u):
+        return True
+
+    monkeypatch.setattr(server, "_is_school_owner", owner)
+    invite()
+    asyncio.run(server.v2_invite_instructor(
+        server.InstructorInviteRequest(email="new@example.com", full_name="New Person"), USER))
+    assert [p["redirect_to"] for p in http.payloads] == ["https://app.test/reset-password-screen"] * 2

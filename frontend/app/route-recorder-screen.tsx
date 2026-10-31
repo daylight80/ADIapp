@@ -27,7 +27,7 @@ import { setLiveRecording, clearMockDraft } from '../src/recordingSession';
 import { mockReportRoute, mockTestLabel } from '../src/mockTestLink';
 import { FaultRouteMap } from '../src/FaultRouteMap';
 import { parseFaultEvents } from '../src/faultEvents';
-import { InLessonTopicsCard } from '../src/InLessonTopicsCard';
+import { InLessonFocusCard } from '../src/InLessonFocusCard';
 import { useAuth } from '../src/AuthContext';
 import { isPaidTier } from '../src/tiers';
 import { formatDate, formatDateTime } from '../src/dateFormat';
@@ -450,7 +450,7 @@ export default function RouteRecorderScreen() {
                 </TouchableOpacity>
               ))}
               {!!linkedLessonId && !!linkedStudentId && (
-                <InLessonTopicsCard lessonId={linkedLessonId} studentId={linkedStudentId} studentName={linkedStudentName} />
+                <InLessonFocusCard lessonId={linkedLessonId} studentId={linkedStudentId} studentName={linkedStudentName} />
               )}
               <Text style={styles.notesLabel}>Positives (private)</Text>
               <TextInput

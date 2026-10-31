@@ -22,6 +22,7 @@ import { StudentDetailsCard } from '../src/StudentDetailsCard';
 import { PickupPlacesCard } from '../src/PickupPlacesCard';
 import { exportMyDataJson } from '../src/gdprExport';
 import { CalendarFeedCard } from '../src/CalendarFeedCard';
+import { WebsiteFormCard } from '../src/WebsiteFormCard';
 import { BankHolidayRegionCard } from '../src/BankHolidayRegionCard';
 import { TravelBufferCard } from '../src/TravelBufferCard';
 import { WorkingHoursCard, LessonTypesCard } from '../src/DiaryPrefsCards';
@@ -310,6 +311,8 @@ export default function ProfileScreen() {
         return <ReminderBalanceCard />;
       case 'bankHolidays':
         return <BankHolidayRegionCard />;
+      case 'websiteForm':
+        return <WebsiteFormCard />;
       case 'calendarFeed':
         return <CalendarFeedCard />;
       case 'importContacts':

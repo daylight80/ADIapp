@@ -35,6 +35,7 @@ const PUBLIC_ROUTES = new Set<string>([
   'forgot-password-screen',
   'reset-password-screen',
   'auth-callback',
+  'enquiry-form-screen', // the school's hosted enquiry form: open to anyone, no login
   'terms-of-service-screen',
   'privacy-policy-screen',
 ]);

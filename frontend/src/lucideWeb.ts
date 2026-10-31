@@ -49,6 +49,7 @@ export { default as Flag } from 'lucide-react-native/icons/flag';
 export { default as Fuel } from 'lucide-react-native/icons/fuel';
 export { default as Gauge } from 'lucide-react-native/icons/gauge';
 export { default as Gift } from 'lucide-react-native/icons/gift';
+export { default as Globe } from 'lucide-react-native/icons/globe';
 export { default as GraduationCap } from 'lucide-react-native/icons/graduation-cap';
 export { default as History } from 'lucide-react-native/icons/rotate-ccw-clock';
 export { default as Home } from 'lucide-react-native/icons/house';

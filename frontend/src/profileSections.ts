@@ -7,7 +7,7 @@
 // thumb lands by accident. There is no Sign out row: the bottom bar has Logout.
 
 export type ProfileRowKey =
-  | 'details' | 'school' | 'packages' | 'vouchers' | 'income' | 'subscription'
+  | 'details' | 'school' | 'packages' | 'vouchers' | 'income' | 'subscription' | 'websiteForm'
   | 'syllabuses' | 'vehicles' | 'noteQuestions'
   | 'standards' | 'deadlines'
   | 'navApp' | 'unavailabilities' | 'travelBuffer' | 'workingHours' | 'lessonTypes' | 'reminderBalance' | 'bankHolidays' | 'calendarFeed' | 'importContacts'
@@ -16,7 +16,7 @@ export type ProfileRowKey =
 export type ProfileSection = { title: string; rows: ProfileRowKey[] };
 
 export const INSTRUCTOR_PROFILE_SECTIONS: ProfileSection[] = [
-  { title: 'My business', rows: ['details', 'school', 'packages', 'vouchers', 'income', 'subscription'] },
+  { title: 'My business', rows: ['details', 'school', 'packages', 'vouchers', 'income', 'subscription', 'websiteForm'] },
   { title: 'Teaching', rows: ['syllabuses', 'vehicles', 'noteQuestions'] },
   { title: 'Compliance', rows: ['standards', 'deadlines'] },
   { title: 'Diary & students', rows: ['navApp', 'unavailabilities', 'travelBuffer', 'workingHours', 'lessonTypes', 'reminderBalance', 'bankHolidays', 'calendarFeed', 'importContacts'] },
